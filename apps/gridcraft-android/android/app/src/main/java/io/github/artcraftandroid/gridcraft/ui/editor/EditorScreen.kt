@@ -51,7 +51,8 @@ fun EditorScreen(vm: AppViewModel) {
         return
     }
     Column(Modifier.fillMaxSize().background(GridColors.StatusBand).statusBarsPadding().navigationBarsPadding().imePadding()) {
-        if (vm.findOpen) FindBar(vm) else EditorHeader(vm)
+        // typing in a shape hides the header, as the phone app does
+        if (vm.findOpen) FindBar(vm) else if (vm.editingShapeText == null && !vm.cropping) EditorHeader(vm)
         val formulaBar = vm.showFormulaBar || vm.editing
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GridView(vm, Modifier.fillMaxSize())

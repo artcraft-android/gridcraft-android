@@ -227,11 +227,22 @@ pub enum UiRequest {
     OpenUrl(String),
 }
 
+/// A chart, picture or shape copied or cut (`object.copy`, `object.cut`), for `object.paste` and
+/// `edit.paste`. One clipboard, as the phone app has: copying cells clears it, and copying an
+/// object clears the cells.
+#[derive(Clone, Debug)]
+pub enum CopiedObject {
+    Chart(gridcraft_model::Chart),
+    Image(gridcraft_model::Image),
+    Shape(gridcraft_model::Shape),
+}
+
 #[derive(Default)]
 pub struct Session {
     docs: Vec<DocState>,
     active: usize,
     pub clipboard: Option<Clipboard>,
+    pub copied_object: Option<CopiedObject>,
     pub prefs: Prefs,
     pub mode: Mode,
     /// Commands run so far, without their passwords ([`cmd::journal_params`]).

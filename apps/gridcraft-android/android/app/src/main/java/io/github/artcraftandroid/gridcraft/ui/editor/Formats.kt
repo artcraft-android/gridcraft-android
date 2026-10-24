@@ -512,6 +512,69 @@ internal fun ObjectSizePanel(vm: AppViewModel) {
     }
 }
 
+/** Inches as the Size page shows them: `2.5 in`. */
+private fun inchText(inches: Double) = String.format(java.util.Locale.US, "%.2f", inches).trimEnd('0').trimEnd('.') + " in"
+
+/** A field's inches, or null when it isn't a positive number (`2.5 in`, `2,5`). */
+private fun inchValue(s: String) = s.replace(',', '.').filter { it.isDigit() || it == '.' }.toDoubleOrNull()
+
+/** Picture Position: the whole picture's width and height in inches, the part shown kept. */
+@Composable
+internal fun PicturePositionPanel(vm: AppViewModel) {
+    val o = vm.selectedObject ?: return
+    val c = o.crop.takeIf { it.size == 4 && it[2] > 0f && it[3] > 0f } ?: listOf(0f, 0f, 1f, 1f)
+    Scrolling {
+        SizeField("Width", inchText(o.width / 96.0 / c[2])) { t -> inchValue(t)?.takeIf { it > 0 }?.let { vm.setPictureSize(width = it) } }
+        SizeField("Height", inchText(o.height / 96.0 / c[3])) { t -> inchValue(t)?.takeIf { it > 0 }?.let { vm.setPictureSize(height = it) } }
+    }
+}
+
+/** Crop Position: the part shown, its width, height and its left and top in the picture, in inches. */
+@Composable
+internal fun CropPositionPanel(vm: AppViewModel) {
+    val o = vm.selectedObject ?: return
+    val c = o.crop.takeIf { it.size == 4 && it[2] > 0f && it[3] > 0f } ?: listOf(0f, 0f, 1f, 1f)
+    val (wholeW, wholeH) = o.width / 96.0 / c[2] to o.height / 96.0 / c[3]
+    Scrolling {
+        SizeField("Width", inchText(o.width / 96.0)) { t -> inchValue(t)?.takeIf { it > 0 }?.let { vm.setCropPosition("width", it) } }
+        SizeField("Height", inchText(o.height / 96.0)) { t -> inchValue(t)?.takeIf { it > 0 }?.let { vm.setCropPosition("height", it) } }
+        SizeField("Left", inchText(c[0] * wholeW)) { t -> inchValue(t)?.let { vm.setCropPosition("left", it) } }
+        SizeField("Top", inchText(c[1] * wholeH)) { t -> inchValue(t)?.let { vm.setCropPosition("top", it) } }
+    }
+}
+
+/**
+ * Alt Text, as the phone app's page: what a screen reader says for the selected object, typed in
+ * a box (kept when the page closes), and "Mark as decorative", which it then passes over.
+ */
+@Composable
+internal fun AltTextPanel(vm: AppViewModel) {
+    val o = vm.selectedObject ?: return
+    var text by remember(o.kind, o.id) { mutableStateOf(o.alt) }
+    val latest by androidx.compose.runtime.rememberUpdatedState(text)
+    androidx.compose.runtime.DisposableEffect(o.kind, o.id) { onDispose { if (latest != o.alt) vm.setAltText(latest) } }
+    Scrolling {
+        Text("Describe this object for screen readers.", color = GridColors.OnSurface, fontSize = 15.sp, modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp))
+        androidx.compose.foundation.text.BasicTextField(
+            text,
+            { text = it.take(4000) },
+            enabled = !o.decorative,
+            textStyle = androidx.compose.ui.text.TextStyle(color = if (o.decorative) GridColors.Disabled else GridColors.OnSurface, fontSize = 16.sp),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(GridColors.Accent),
+            modifier = Modifier.padding(16.dp, 6.dp).fillMaxWidth().height(136.dp).border(1.dp, GridColors.Divider).padding(8.dp),
+        )
+        Box(Modifier.fillMaxWidth().height(1.dp).background(GridColors.Divider))
+        Row(
+            // the box 19 dp in, its label 52 dp in, as the phone app's
+            Modifier.fillMaxWidth().height(48.dp).clickable { vm.setDecorative(!o.decorative, text) }.padding(start = 4.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            androidx.compose.material3.Checkbox(checked = o.decorative, onCheckedChange = { vm.setDecorative(it, text) })
+            Text("Mark as decorative", color = GridColors.OnSurface, fontSize = 16.sp)
+        }
+    }
+}
+
 // ---- Function help ----
 
 /** A function's help page: its name, its arguments, what it does. */

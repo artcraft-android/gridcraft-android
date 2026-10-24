@@ -707,6 +707,7 @@ fn copy_impl(s: &mut Session, p: &Json, cut: bool) -> Result<Json> {
     let html = if p.get("html").and_then(Json::as_bool) == Some(true) { crate::io::range_html(&wb, sheet, range, &text) } else { None };
     let clip = Clipboard { wb, sheet, range, cut, doc_uid: d.uid, text: text.clone(), areas, selected };
     s.clipboard = Some(clip);
+    s.copied_object = None;
     let mut result = json!({"range": range.a1(), "text": text});
     if let Some(html) = html {
         result["html"] = Json::String(html);
@@ -823,6 +824,10 @@ fn paste(s: &mut Session, p: &Json) -> Result<Json> {
         && s.clipboard.as_ref().is_none_or(|c| c.text.trim_end_matches(['\r', '\n']) != text.trim_end_matches(['\r', '\n']))
     {
         return paste_text(s, p, text);
+    }
+    // an object copied last goes back on the sheet, at the active cell
+    if s.copied_object.is_some() {
+        return super::insert::paste_object(s, p);
     }
     if s.clipboard.is_none() {
         return Err(EngineError::Other("Nothing to paste.".into()));

@@ -303,7 +303,7 @@ fn shape_text_edit_undo_redo_and_noop() {
 fn shape_text_rejects_invalid_targets_and_params() {
     let mut s = s();
     let id = s.execute("insert.textBox", json!({"text": "Original"})).unwrap()["shape"].clone();
-    let rectangle = s.execute("insert.shape", json!({"kind": "rectangle", "text": "Rectangle"})).unwrap()["shape"].clone();
+    let line = s.execute("insert.shape", json!({"kind": "line"})).unwrap()["shape"].clone();
     let before = s.doc().unwrap().wb.clone();
     let undo_len = s.doc().unwrap().undo.len();
     for params in [
@@ -315,7 +315,7 @@ fn shape_text_rejects_invalid_targets_and_params() {
         json!({"id": 1.5, "text": "bad id"}),
         json!({"id": u64::from(u32::MAX) + 1, "text": "bad id"}),
         json!({"id": 999, "text": "unknown"}),
-        json!({"id": rectangle, "text": "not a text box"}),
+        json!({"id": line, "text": "a line holds no text"}),
     ] {
         assert!(matches!(s.execute("shape.setText", params), Err(crate::EngineError::BadParams { .. })));
         assert!(std::sync::Arc::ptr_eq(&s.doc().unwrap().wb, &before));
@@ -325,6 +325,107 @@ fn shape_text_rejects_invalid_targets_and_params() {
     assert!(matches!(s.execute("shape.setText", json!({"id": id, "text": "wrong sheet"})), Err(crate::EngineError::BadParams { .. })));
     assert_eq!(s.doc().unwrap().wb.sheet(0).unwrap().shapes[0].text, "Original");
     assert!(s.doc().unwrap().wb.active().unwrap().shapes.is_empty());
+}
+
+#[test]
+fn any_shape_but_a_line_holds_text() {
+    let mut s = s();
+    for kind in ["rectangle", "heart", "wedgeRectCallout"] {
+        let id = s.execute("insert.shape", json!({"kind": kind})).unwrap()["shape"].clone();
+        s.execute("shape.setText", json!({"id": id, "text": "Hello"})).unwrap();
+        assert_eq!(s.doc().unwrap().wb.active().unwrap().shapes.last().unwrap().text, "Hello", "{kind}");
+    }
+    for kind in ["line", "arrow", "bentConnector3", "curvedConnector3Arrow"] {
+        let id = s.execute("insert.shape", json!({"kind": kind})).unwrap()["shape"].clone();
+        assert!(s.execute("shape.setText", json!({"id": id, "text": "Hello"})).is_err(), "{kind}");
+    }
+}
+
+#[test]
+fn shape_text_turns_bold_italic_and_underlined() {
+    let mut s = s();
+    let id = s.execute("insert.shape", json!({"kind": "textBox", "text": "Note"})).unwrap()["shape"].clone();
+    s.execute("shape.textFormat", json!({"id": id, "bold": true, "underline": true})).unwrap();
+    let f = s.doc().unwrap().wb.active().unwrap().shapes[0].format.clone();
+    assert_eq!((f.bold, f.italic, f.underline), (true, false, true));
+    s.execute("shape.textFormat", json!({"id": id, "underline": false, "italic": true})).unwrap();
+    let f = s.doc().unwrap().wb.active().unwrap().shapes[0].format.clone();
+    assert_eq!((f.bold, f.italic, f.underline), (true, true, false));
+    assert!(s.execute("shape.textFormat", json!({"id": id})).is_err());
+    assert!(s.execute("shape.textFormat", json!({"id": 999, "bold": true})).is_err());
+    // kept in the file
+    let bytes = gridcraft_xlsx::write_xlsx(&s.doc().unwrap().wb).unwrap();
+    s.execute("shape.textFormat", json!({"id": id, "underline": true})).unwrap();
+    let bytes2 = gridcraft_xlsx::write_xlsx(&s.doc().unwrap().wb).unwrap();
+    let (a, _) = gridcraft_xlsx::read_xlsx(&bytes).unwrap();
+    let (b, _) = gridcraft_xlsx::read_xlsx(&bytes2).unwrap();
+    assert!(!a.sheet(0).unwrap().shapes[0].format.underline);
+    assert!(b.sheet(0).unwrap().shapes[0].format.underline && b.sheet(0).unwrap().shapes[0].format.bold);
+}
+
+#[test]
+fn objects_copy_cut_and_paste() {
+    let mut s = s();
+    let id = s.execute("insert.shape", json!({"kind": "heart", "at": "B2", "text": "Hi"})).unwrap()["shape"].as_u64().unwrap();
+    // nothing copied yet
+    assert!(s.execute("object.paste", json!({})).is_err());
+    s.execute("object.copy", json!({"kind": "shape", "id": id})).unwrap();
+    // pasted at the active cell, a new shape like it
+    s.execute("selection.set", json!({"range": "E10"})).unwrap();
+    let out = s.execute("edit.paste", json!({})).unwrap();
+    assert_eq!(out["kind"], "shape");
+    let shapes = s.doc().unwrap().wb.active().unwrap().shapes.clone();
+    assert_eq!(shapes.len(), 2);
+    let (a, b) = (&shapes[0], &shapes[1]);
+    assert_ne!(a.id, b.id);
+    assert_eq!((b.format.preset.as_str(), b.text.as_str(), b.anchor.width), ("heart", "Hi", a.anchor.width));
+    assert_eq!(b.anchor.cell, gridcraft_core::CellRef::parse("E10").unwrap());
+    // again at the same cell: a sixth of an inch down and right of the first copy
+    s.execute("object.paste", json!({})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().shapes[2].anchor;
+    assert_eq!((c.cell, c.dx, c.dy), (gridcraft_core::CellRef::parse("E10").unwrap(), 16.0, 16.0));
+    // cut takes it off the sheet (undoable) and pastes back
+    s.execute("object.cut", json!({"kind": "shape", "id": id})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().shapes.len(), 2);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().shapes.len(), 3);
+    // copying cells lets the object go: Paste pastes the cells
+    s.execute("range.setValues", json!({"range": "A1", "values": [["x"]]})).unwrap();
+    s.execute("edit.copy", json!({"range": "A1"})).unwrap();
+    assert!(s.copied_object.is_none());
+    s.execute("edit.paste", json!({"at": "H1"})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().shapes.len(), 3);
+    // and copying an object lets the cells go
+    s.execute("object.copy", json!({"kind": "shape", "id": id})).unwrap();
+    assert!(s.clipboard.is_none());
+    for bad in [json!({"kind": "shape", "id": 999}), json!({"kind": "slide", "id": id}), json!({"kind": "shape"})] {
+        assert!(s.execute("object.copy", bad.clone()).is_err(), "{bad}");
+    }
+    // a chart too
+    s.execute("range.setValues", json!({"range": "A1", "values": [["a", 1], ["b", 2]]})).unwrap();
+    let chart = s.execute("insert.chart", json!({"range": "A1:B2", "type": "column"})).unwrap();
+    let chart_id = s.doc().unwrap().wb.active().unwrap().charts[0].id;
+    let _ = chart;
+    s.execute("object.copy", json!({"kind": "chart", "id": chart_id})).unwrap();
+    s.execute("object.paste", json!({"at": "J20"})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().charts.len(), 2);
+}
+
+#[test]
+fn alt_text_marks_objects_decorative() {
+    let mut s = s();
+    let id = s.execute("insert.shape", json!({"kind": "rect"})).unwrap()["shape"].as_u64().unwrap();
+    s.execute("object.altText", json!({"kind": "shape", "id": id, "text": "", "decorative": true})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().decorative, vec![id as u32]);
+    // once only, and off again
+    s.execute("object.altText", json!({"kind": "shape", "id": id, "text": "", "decorative": true})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().decorative.len(), 1);
+    s.execute("object.altText", json!({"kind": "shape", "id": id, "text": "A box", "decorative": false})).unwrap();
+    assert!(s.doc().unwrap().wb.active().unwrap().decorative.is_empty());
+    // deleting the object lets its mark go
+    s.execute("object.altText", json!({"kind": "shape", "id": id, "text": "", "decorative": true})).unwrap();
+    s.execute("object.delete", json!({"kind": "shape", "id": id})).unwrap();
+    assert!(s.doc().unwrap().wb.active().unwrap().decorative.is_empty());
 }
 
 #[test]

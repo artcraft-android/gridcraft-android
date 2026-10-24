@@ -325,6 +325,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var objectDrag by mutableStateOf<Pair<androidx.compose.ui.geometry.Offset, androidx.compose.ui.geometry.Offset>?>(null)
 
+    /** The selected object being turned by its rotate handle: the degrees turned so far. */
+    var objectTurn by mutableStateOf<Float?>(null)
+
+    /** The rotate handle let go: the selected shape or picture turns [by] degrees clockwise. */
+    fun rotateObject(by: Float) {
+        val o = selectedObject ?: return
+        objectTurn = null
+        if (o.kind == "chart" || by == 0f) return
+        command("arrange.rotate", org.json.JSONObject().put("kind", if (o.kind == "image") "image" else "shape").put("id", o.id.toLong()).put("by", by.toDouble()).toString())
+    }
+
     /** Drawing: the tool (`` to select, `pen`, `eraser`), the pen's colour and width, the stroke being drawn (sheet units). */
     var drawTool by mutableStateOf("")
         private set
@@ -510,6 +521,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (editing) commitEdit("none")
         selectedObject = o
         cellMenu = false
+        // a selected object brings up the floating bar (its own buttons), as the phone app does
+        if (o != null) sheetsBar = false
+        cropping = false
         if (o != null && paletteOpen) showTab(contextTab ?: paletteTab)
         if (o == null && paletteTab in setOf("Chart", "Picture", "Shape", "Graphics")) paletteTab = contextTab ?: "Home"
     }
@@ -569,8 +583,46 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Crop: fractions cut from the selected picture's sides. */
     fun cropPicture(left: Double, top: Double, right: Double, bottom: Double) {
         val o = selectedObject ?: return
-        dialog = null
+        cropPreview = null
         command("picture.crop", org.json.JSONObject().put("id", o.id.toLong()).put("left", left).put("top", top).put("right", right).put("bottom", bottom).toString())
+    }
+
+    /** Crop Picture: the selected picture shows its crop marks, dragged to cut it, as the phone app's crop mode. */
+    var cropping by mutableStateOf(false)
+        private set
+
+    fun toggleCrop() {
+        cropping = selectedObject?.kind == "image" && !cropping
+    }
+
+    /** The cut being dragged: the part shown as fractions of the whole picture (left, top, width, height). */
+    var cropPreview by mutableStateOf<List<Float>?>(null)
+
+    /** The selected picture's crop as fractions of the whole: left, top, width, height shown. */
+    private fun cropOf(o: SheetObject) = o.crop.takeIf { it.size == 4 && it[2] > 0f && it[3] > 0f } ?: listOf(0f, 0f, 1f, 1f)
+
+    /** Picture Position: the whole picture [width] or [height] wide in inches, the part shown kept. */
+    fun setPictureSize(width: Double? = null, height: Double? = null) {
+        val o = selectedObject ?: return
+        val c = cropOf(o)
+        val w = width?.let { it * c[2] } ?: (o.width / 96.0)
+        val h = height?.let { it * c[3] } ?: (o.height / 96.0)
+        sizeObject(h, w)
+    }
+
+    /** Crop Position: the part shown [key] (`width`, `height`, `left`, `top`) set to [inches], the picture's size kept. */
+    fun setCropPosition(key: String, inches: Double) {
+        val o = selectedObject ?: return
+        val c = cropOf(o)
+        val (wholeW, wholeH) = o.width / 96.0 / c[2] to o.height / 96.0 / c[3]
+        var (l, t, cw, ch) = c.map { it.toDouble() }
+        when (key) {
+            "width" -> cw = (inches / wholeW).coerceIn(0.01, 1.0 - l)
+            "height" -> ch = (inches / wholeH).coerceIn(0.01, 1.0 - t)
+            "left" -> l = (inches / wholeW).coerceIn(0.0, 1.0 - cw)
+            "top" -> t = (inches / wholeH).coerceIn(0.0, 1.0 - ch)
+        }
+        cropPicture(l, t, (1.0 - l - cw).coerceAtLeast(0.0), (1.0 - t - ch).coerceAtLeast(0.0))
     }
 
     /** Reset Picture: no turn, no flip. */
@@ -602,6 +654,37 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** The selected picture's alt text. */
+    /** An object was copied or cut, for the object menu's Paste. */
+    var canPasteObject by mutableStateOf(false)
+        private set
+
+    /** The object menu's Cut or Copy: the selected object onto the workbook's clipboard. */
+    fun copyObject(cut: Boolean) = launchEngine { e ->
+        val o = selectedObject ?: return@launchEngine
+        val p = org.json.JSONObject().put("kind", o.kind).put("id", o.id.toLong()).toString()
+        e.command { execute(if (cut) "object.cut" else "object.copy", p) }
+        canPasteObject = true
+        if (cut) selectedObject = null
+        refresh(e)
+    }
+
+    /** The object menu's Paste: the copied object again, a sixth of an inch off the selected one. */
+    fun pasteObject() = launchEngine { e ->
+        val o = selectedObject
+        val p = org.json.JSONObject()
+        if (o != null) p.put("x", o.x).put("y", o.y)
+        val before = objects.map { it.kind to it.id }.toSet()
+        e.command { execute("object.paste", p.toString()) }
+        refresh(e)
+        objects.lastOrNull { (it.kind to it.id) !in before }?.let { selectObject(it) }
+    }
+
+    /** Alt Text's "Mark as decorative" for the selected object, keeping its text. */
+    fun setDecorative(on: Boolean, text: String) {
+        val o = selectedObject ?: return
+        command("object.altText", org.json.JSONObject().put("kind", o.kind).put("id", o.id.toLong()).put("text", text).put("decorative", on).toString())
+    }
+
     fun setAltText(text: String) {
         val o = selectedObject ?: return
         dialog = null
@@ -679,10 +762,39 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         command("shape.change", org.json.JSONObject().put("id", o.id.toLong()).put("kind", kind).toString())
     }
 
-    fun setShapeText(text: String) {
-        dialog = null
+    /**
+     * The shape whose text is being typed in place (its id), as the phone app edits a shape's
+     * text, and whether the keyboard comes up with it (Edit Text) or waits for a tap (a new text
+     * box).
+     */
+    var editingShapeText by mutableStateOf<Long?>(null)
+        private set
+    var shapeTextKeyboard = true
+        private set
+
+    /** Edit Text: type the selected shape's text in place. */
+    fun startShapeText(keyboard: Boolean = true) {
+        val o = selectedObject?.takeIf { it.kind == "shape" } ?: return
+        shapeTextKeyboard = keyboard
+        cellMenu = false
+        editingShapeText = o.id.toLong()
+    }
+
+    /** Stop typing in the shape (Back): its text is kept as the editor closes. */
+    fun stopShapeText() {
+        editingShapeText = null
+    }
+
+    /** The in-place editor closed: shape [o] keeps [text]. */
+    fun endShapeText(o: SheetObject, text: String) {
+        if (editingShapeText == o.id.toLong()) editingShapeText = null
+        if (text != o.text) command("shape.setText", org.json.JSONObject().put("id", o.id.toLong()).put("text", text).toString())
+    }
+
+    /** The editing bar's Bold, Italic and Underline: the shape's text turned on or off. */
+    fun shapeTextFormat(key: String, on: Boolean) {
         val o = selectedObject ?: return
-        command("shape.setText", org.json.JSONObject().put("id", o.id.toLong()).put("text", text).toString())
+        command("shape.textFormat", org.json.JSONObject().put("id", o.id.toLong()).put(key, on).toString())
     }
 
     /** Run a chart command on the selected chart. */
@@ -1466,13 +1578,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     /** Insert a chart, picture or shape; the new object comes in selected and in view. */
-    fun insertObject(id: String, params: String) = launchEngine { e ->
+    fun insertObject(id: String, params: String, then: () -> Unit = {}) = launchEngine { e ->
         val before = objects.map { it.kind to it.id }.toSet()
         e.command { execute(id, params) }
         refresh(e)
         objects.lastOrNull { (it.kind to it.id) !in before }?.let { o ->
             selectObject(o)
             objectRevealTick++
+            then()
         }
     }
 
@@ -1512,7 +1625,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         recentShapes = (listOf(kind) + recentShapes.filter { it != kind }).take(8)
         prefs.edit().putString("recentShapes", recentShapes.joinToString(",")).apply()
         val p = org.json.JSONObject().put("kind", kind).put("x", scrollX + 67.2).put("y", scrollY + 67.2)
-        insertObject("insert.shape", p.toString())
+        // a new text box goes straight into typing, the keyboard waiting for a tap, as the phone app's
+        insertObject("insert.shape", p.toString()) { if (kind == "textBox") startShapeText(keyboard = false) }
     }
 
     // ---- sharing ----

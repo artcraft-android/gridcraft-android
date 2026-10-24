@@ -77,6 +77,10 @@ internal val PANEL_TITLES = mapOf(
     "chartStyle" to "Style",
     "shapeFill" to "Fill",
     "shapeSize" to "Size",
+    "altText" to "Alt Text",
+    "cropPicture" to "Crop Picture",
+    "picturePosition" to "Picture Position",
+    "cropPosition" to "Crop Position",
     "shapeOutline" to "Outline",
     "shapeStyles" to "Shape Styles",
     "changeShape" to "Change Shape",
@@ -613,10 +617,14 @@ private fun FunctionsPanel(vm: AppViewModel, category: String) {
 internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
     when (tab) {
         "Chart" -> Scrolling {
+            // as the phone app's Chart tab: Type | Layout, Elements | Color, Style | Switch
+            // Row/Column | Arrange | Size, Alt Text
             PaletteRow("Type", LucideIcons.ChartColumn.glyph(), onClick = { vm.pushPanel("chartType") }, chevron = true)
+            Band()
             PaletteRow("Layout", LucideIcons.LayoutTemplate.glyph(), onClick = { vm.pushPanel("chartLayout") }, chevron = true)
             PaletteRow("Elements", LucideIcons.ListPlus.glyph(), onClick = { vm.pushPanel("chartElements") }, chevron = true)
-            PaletteRow("Colors", LucideIcons.SwatchBook.glyph(), onClick = { vm.pushPanel("chartColors") }, chevron = true)
+            Band()
+            PaletteRow("Color", LucideIcons.SwatchBook.glyph(), onClick = { vm.pushPanel("chartColors") }, chevron = true)
             PaletteRow("Style", LucideIcons.WandSparkles.glyph(), onClick = { vm.pushPanel("chartStyle") }, chevron = true)
             Band()
             PaletteRow("Switch Row/Column", LucideIcons.ArrowLeftRight.glyph(), onClick = { vm.chartCommand("chart.switchRowColumn") })
@@ -671,12 +679,17 @@ internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
             PaletteRow("Refresh Data", null, onClick = { vm.command("pivot.refresh") })
         }
         "Picture" -> Scrolling {
+            // as the phone app's Picture tab: Styles, Picture Effects | Arrange | Crop Picture (the
+            // left part crops on the picture, the arrow its positions) | Size, Alt Text | Reset
             PaletteRow("Styles", LucideIcons.SwatchBook.glyph(), onClick = { vm.pushPanel("pictureStyles") }, chevron = true)
             PaletteRow("Picture Effects", LucideIcons.WandSparkles.glyph(), onClick = { vm.pushPanel("pictureEffects") }, chevron = true)
             Band()
-            PaletteRow("Crop", LucideIcons.Crop.glyph(), onClick = { vm.dialog = "crop" })
+            PaletteRow("Arrange", LucideIcons.Layers.glyph(), onClick = { vm.pushPanel("arrange") }, chevron = true)
             Band()
-            ObjectRows(vm)
+            PaletteRow("Crop Picture", LucideIcons.Crop.glyph(), onClick = vm::toggleCrop, pressed = vm.cropping, onOpen = { vm.pushPanel("cropPicture") })
+            Band()
+            PaletteRow("Size", LucideIcons.Image.glyph(), onClick = { vm.pushPanel("shapeSize") }, chevron = true)
+            PaletteRow("Alt Text", LucideIcons.ScanText.glyph(), onClick = { vm.pushPanel("altText") }, chevron = true)
             Band()
             PaletteRow("Reset", null, onClick = { vm.pushPanel("pictureReset") }, chevron = true)
         }
@@ -688,16 +701,11 @@ internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
 /** What every object's tab ends with: Arrange, then its Height and Width. */
 @Composable
 private fun ObjectRows(vm: AppViewModel) {
-    val o = vm.selectedObject
     PaletteRow("Arrange", LucideIcons.Layers.glyph(), onClick = { vm.pushPanel("arrange") }, chevron = true)
     Band()
-    PaletteRow("Height", null, onClick = { vm.dialog = "objectSize" }, trailing = o?.let { inches(it.height) })
-    PaletteRow("Width", null, onClick = { vm.dialog = "objectSize" }, trailing = o?.let { inches(it.width) })
-    PaletteRow("Alt Text", null, onClick = { vm.dialog = "altText" })
+    PaletteRow("Size", LucideIcons.Image.glyph(), onClick = { vm.pushPanel("shapeSize") }, chevron = true)
+    PaletteRow("Alt Text", LucideIcons.ScanText.glyph(), onClick = { vm.pushPanel("altText") }, chevron = true)
 }
-
-/** Sheet units (96 an inch) as inches, `1.25"`. */
-internal fun inches(units: Double): String = "%.2f\"".format(units / 96.0)
 
 @Composable
 private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
@@ -823,6 +831,13 @@ private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
         "shapeFill" -> ColorGridPanel(vm, "No Fill") { c -> vm.setShapeFill(c) }
         "shapeOutline" -> ColorGridPanel(vm, "No Outline") { c -> vm.setShapeOutline(c) }
         "shapeSize" -> ObjectSizePanel(vm)
+        "altText" -> AltTextPanel(vm)
+        "cropPicture" -> Scrolling {
+            PaletteRow("Picture Position", null, onClick = { vm.pushPanel("picturePosition") }, chevron = true)
+            PaletteRow("Crop Position", null, onClick = { vm.pushPanel("cropPosition") }, chevron = true)
+        }
+        "picturePosition" -> PicturePositionPanel(vm)
+        "cropPosition" -> CropPositionPanel(vm)
         "shapeStyles" -> ShapeStylesPanel(vm)
         "chartLayout" -> Scrolling {
             for (n in 1..6) ChoiceRow("Layout $n", false, onClick = { vm.chartCommand("chart.quickLayout", org.json.JSONObject().put("layout", n)) })

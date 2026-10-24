@@ -12,6 +12,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateCentroid
@@ -79,6 +84,13 @@ private const val UNIT_DP = 0.85f
 
 /** How close to a selection handle a touch takes it, in dp. */
 private const val HANDLE_REACH_DP = 28f
+
+/** How far the phone app's rotate handle sits above a selected shape, and its move handle below. */
+private const val ROTATE_HANDLE_DP = 34f
+private const val MOVE_HANDLE_DP = 41f
+
+/** The selection's frame and handles, grey as the phone app draws them for objects. */
+private val HANDLE_LINE = Color(0xFF5F5F5F)
 
 /** The line holding [pos] (sheet units) among [lines], or the nearest one. */
 private fun lineAt(lines: List<Line>, pos: Double): Line? {
@@ -458,14 +470,32 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                         if (vm.drawTool != "eraser") vm.finishStroke()
                         return@awaitEachGesture
                     }
-                    // the selected object: a touch inside it moves it, on its far corner resizes it
+                    // the selected object: a touch inside it (or on its move handle below) moves it,
+                    // on one of its eight handles resizes it from that side, on its rotate handle
+                    // above turns it, as the phone app's handles do
                     val obj = vm.selectedObject
                     val objLeft = obj?.let { screenX(it.x) } ?: 0f
                     val objTop = obj?.let { screenY(it.y) } ?: 0f
                     val objW = obj?.let { (it.width * unit).toFloat() } ?: 0f
                     val objH = obj?.let { (it.height * unit).toFloat() } ?: 0f
-                    val onCorner = obj != null && hypot(down.position.x - (objLeft + objW), down.position.y - (objTop + objH)) < reach
-                    val inside = obj != null && down.position.x in objLeft..(objLeft + objW) && down.position.y in objTop..(objTop + objH)
+                    val turnable = obj != null && obj.kind != "chart" && vm.editingShapeText == null && !vm.cropping
+                    val centre = Offset(objLeft + objW / 2, objTop + objH / 2)
+                    // a turned object's handles turn with it: touches are taken back into its frame
+                    val turnRad = Math.toRadians((obj?.rotation ?: 0f).toDouble())
+                    val (tc, ts) = kotlin.math.cos(turnRad).toFloat() to kotlin.math.sin(turnRad).toFloat()
+                    fun unturn(v: Offset) = Offset(v.x * tc + v.y * ts, -v.x * ts + v.y * tc)
+                    val at = centre + unturn(down.position - centre)
+                    val onRotate = turnable && hypot(at.x - centre.x, at.y - (objTop - ROTATE_HANDLE_DP * density)) < reach
+                    val onMoveHandle = turnable && hypot(at.x - centre.x, at.y - (objTop + objH + MOVE_HANDLE_DP * density)) < reach
+                    val grip = if (obj == null || onRotate || onMoveHandle) null else {
+                        listOf(0f, 0.5f, 1f).flatMap { fx -> listOf(0f, 0.5f, 1f).map { fy -> fx to fy } }
+                            .filter { it != 0.5f to 0.5f }
+                            .minByOrNull { (fx, fy) -> hypot(at.x - (objLeft + objW * fx), at.y - (objTop + objH * fy)) }
+                            ?.takeIf { (fx, fy) -> hypot(at.x - (objLeft + objW * fx), at.y - (objTop + objH * fy)) < reach }
+                    }
+                    val onCorner = grip != null
+                    val inside = obj != null && (onMoveHandle || (at.x in objLeft..(objLeft + objW) && at.y in objTop..(objTop + objH)))
+                    val startAngle = Math.toDegrees(kotlin.math.atan2((down.position.y - centre.y).toDouble(), (down.position.x - centre.x).toDouble())).toFloat()
                     var objMove = Offset.Zero
                     val fixed = vm.selection?.ranges?.lastOrNull()
                     var lastCell: Pair<UInt, UInt>? = null
@@ -499,9 +529,44 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                         travel += d.getDistance()
                         tracker.addPosition(ch.uptimeMillis, ch.position)
                         if (!moved && travel > touchSlop) moved = true
+                        if (moved && !zoomed && onRotate) {
+                            val a = Math.toDegrees(kotlin.math.atan2((ch.position.y - centre.y).toDouble(), (ch.position.x - centre.x).toDouble())).toFloat()
+                            vm.objectTurn = a - startAngle
+                            ch.consume()
+                            continue
+                        }
+                        if (moved && !zoomed && obj != null && grip != null && vm.cropping && obj.kind == "image") {
+                            // crop mode: the mark dragged cuts the picture from its side; what stays
+                            // keeps its size and place
+                            objMove += unturn(d)
+                            val c = obj.crop.takeIf { it.size == 4 && it[2] > 0f && it[3] > 0f } ?: listOf(0f, 0f, 1f, 1f)
+                            val (wholeW, wholeH) = objW / c[2] to objH / c[3]
+                            val (fx, fy) = grip
+                            var (l, t, cw, chh) = c
+                            when (fx) {
+                                0f -> { val nl = (c[0] + objMove.x / wholeW).coerceIn(0f, c[0] + c[2] - 0.02f); cw = c[2] - (nl - c[0]); l = nl }
+                                1f -> cw = (c[2] + objMove.x / wholeW).coerceIn(0.02f, 1f - c[0])
+                            }
+                            when (fy) {
+                                0f -> { val nt = (c[1] + objMove.y / wholeH).coerceIn(0f, c[1] + c[3] - 0.02f); chh = c[3] - (nt - c[1]); t = nt }
+                                1f -> chh = (c[3] + objMove.y / wholeH).coerceIn(0.02f, 1f - c[1])
+                            }
+                            vm.cropPreview = listOf(l, t, cw, chh)
+                            vm.objectDrag = Offset((l - c[0]) * wholeW, (t - c[1]) * wholeH) to Offset((cw - c[2]) * wholeW, (chh - c[3]) * wholeH)
+                            ch.consume()
+                            continue
+                        }
                         if (moved && !zoomed && obj != null && (onCorner || inside)) {
-                            objMove += d
-                            vm.objectDrag = if (onCorner) Offset.Zero to objMove else objMove to Offset.Zero
+                            // a move goes as the finger does; a resize along the object's own sides
+                            objMove += if (grip != null) unturn(d) else d
+                            vm.objectDrag = grip?.let { (fx, fy) ->
+                                // the dragged side moves; the opposite one stays
+                                val mx = if (fx == 0f) objMove.x.coerceAtMost(objW - 1f) else 0f
+                                val my = if (fy == 0f) objMove.y.coerceAtMost(objH - 1f) else 0f
+                                val dw = when (fx) { 0f -> -mx; 1f -> objMove.x.coerceAtLeast(1f - objW); else -> 0f }
+                                val dh = when (fy) { 0f -> -my; 1f -> objMove.y.coerceAtLeast(1f - objH); else -> 0f }
+                                Offset(mx, my) to Offset(dw, dh)
+                            } ?: (objMove to Offset.Zero)
                             ch.consume()
                             continue
                         }
@@ -551,14 +616,22 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                             ch.consume()
                         }
                     }
-                    if (obj != null && (onCorner || inside)) {
+                    if (onRotate) {
+                        vm.rotateObject(vm.objectTurn ?: 0f)
+                        return@awaitEachGesture
+                    }
+                    val cut = vm.cropPreview
+                    if (cut != null) {
                         vm.objectDrag = null
-                        if (moved) {
-                            if (onCorner) {
-                                vm.placeObject(obj.x, obj.y, obj.width + objMove.x / unit, obj.height + objMove.y / unit)
-                            } else {
-                                vm.placeObject(obj.x + objMove.x / unit, obj.y + objMove.y / unit, obj.width, obj.height)
-                            }
+                        vm.cropPicture(cut[0].toDouble(), cut[1].toDouble(), (1f - cut[0] - cut[2]).toDouble().coerceAtLeast(0.0), (1f - cut[1] - cut[3]).toDouble().coerceAtLeast(0.0))
+                        return@awaitEachGesture
+                    }
+                    if (obj != null && (onCorner || inside)) {
+                        val drag = vm.objectDrag
+                        vm.objectDrag = null
+                        if (moved && drag != null) {
+                            val (m, s) = drag
+                            vm.placeObject(obj.x + m.x / unit, obj.y + m.y / unit, obj.width + s.x / unit, obj.height + s.y / unit)
                         }
                         return@awaitEachGesture
                     }
@@ -752,8 +825,12 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
             if (sv != null && (rowBand > 0f || colBand > 0f)) drawOutline(sv, rowBand, colBand, rowHeaderW, colHeaderH, lane, colPanes, rowPanes, density)
         }
     }
+    // a shape's text typed in place
+    vm.selectedObject?.takeIf { it.kind == "shape" && vm.editingShapeText == it.id.toLong() }?.let { o ->
+        ShapeTextEditor(vm, o, screenX(o.x), screenY(o.y), (o.width * unit).toFloat(), (o.height * unit).toFloat(), unit)
+    }
     // the selected object's menu, just above it (below it when it is at the top), only while it shows
-    vm.selectedObject?.takeIf { vm.objectDrag == null }?.let { o ->
+    vm.selectedObject?.takeIf { vm.objectDrag == null && vm.editingShapeText == null && !vm.cropping }?.let { o ->
         val left = screenX(o.x)
         val top = screenY(o.y)
         val w = (o.width * unit).toFloat()
@@ -761,7 +838,8 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
         val onScreen = left < size.width && top < size.height && left + w > rowHeaderW && top + h > colHeaderH
         if (onScreen) {
             var menuSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-            val gap = 8f * density
+            // over a shape's rotate handle, as the phone app keeps it clear
+            val gap = (if (o.kind != "chart") 48f else 8f) * density
             val above = top - menuSize.height - gap
             val y = if (above >= colHeaderH) above else minOf(top + h + gap, size.height - menuSize.height - gap)
             val x = (left + w / 2 - menuSize.width / 2).coerceIn(0f, (size.width - menuSize.width).coerceAtLeast(0f))
@@ -1535,8 +1613,9 @@ private fun DrawScope.drawObjects(
         if (left > size.width || top > size.height || left + w < 0f || top + h < 0f) continue
         // a turned object: rotated about its centre, then mirrored
         val centre = Offset(left + w / 2, top + h / 2)
+        val turn = o.rotation + (if (dragged) vm.objectTurn ?: 0f else 0f)
         withTransform({
-            if (o.rotation != 0f) rotate(o.rotation, centre)
+            if (turn != 0f) rotate(turn, centre)
             if (o.flipH || o.flipV) scale(if (o.flipH) -1f else 1f, if (o.flipV) -1f else 1f, centre)
         }) {
         when (o.kind) {
@@ -1570,7 +1649,7 @@ private fun DrawScope.drawObjects(
                 clipPath(outline) {
                     if (img != null) {
                         // the part shown of a cropped picture
-                        val c = o.crop.takeIf { it.size == 4 } ?: listOf(0f, 0f, 1f, 1f)
+                        val c = (if (dragged) vm.cropPreview else null) ?: o.crop.takeIf { it.size == 4 } ?: listOf(0f, 0f, 1f, 1f)
                         val sx = (c[0] * img.width).toInt().coerceIn(0, img.width - 1)
                         val sy = (c[1] * img.height).toInt().coerceIn(0, img.height - 1)
                         val sw = (c[2] * img.width).toInt().coerceIn(1, img.width - sx)
@@ -1590,20 +1669,96 @@ private fun DrawScope.drawObjects(
                     }
                 }
             } else {
-                drawShape(o, left, top, w, h, density)
+                drawShape(o, left, top, w, h, density, withText = vm.editingShapeText != o.id.toLong())
             }
         }
         }
-        if (dragged) {
-            drawRect(GridColors.SheetAccent, Offset(left, top), Size(w, h), style = Stroke(1.5f * density))
-            val r = 5f * density
+        if (dragged) withTransform({ if (turn != 0f) rotate(turn, centre) }) {
+            // as the phone app: a thin grey frame, eight white handles ringed in grey, and for a
+            // shape or picture a rotate handle above and a move handle below on stems, all
+            // turned with the object
+            drawRect(HANDLE_LINE, Offset(left, top), Size(w, h), style = Stroke(1f * density))
+            val r = 5.5f * density
+            val line = Stroke(1.5f * density)
+            if (o.kind != "chart" && vm.editingShapeText == null && !vm.cropping) {
+                val cx = left + w / 2
+                val rot = Offset(cx, top - ROTATE_HANDLE_DP * density)
+                val mov = Offset(cx, top + h + MOVE_HANDLE_DP * density)
+                drawLine(HANDLE_LINE, Offset(cx, top), Offset(cx, rot.y + 10f * density), 1.5f * density)
+                drawLine(HANDLE_LINE, Offset(cx, top + h), Offset(cx, mov.y - 12f * density), 1.5f * density)
+                rotateGlyph(rot, 9f * density, density)
+                moveGlyph(mov, 12f * density, density)
+            }
             for (fx in listOf(0f, 0.5f, 1f)) for (fy in listOf(0f, 0.5f, 1f)) {
                 if (fx == 0.5f && fy == 0.5f) continue
                 val pt = Offset(left + w * fx, top + h * fy)
                 drawCircle(Color.White, r, pt)
-                drawCircle(GridColors.SheetAccent, r, pt, style = Stroke(1.5f * density))
+                drawCircle(HANDLE_LINE, r, pt, style = line)
+            }
+            // crop mode: black marks inside the corners and along the sides, as the phone app's
+            if (vm.cropping && o.kind == "image") {
+                val (len, th) = 12f * density to 4f * density
+                for (fx in listOf(0f, 0.5f, 1f)) for (fy in listOf(0f, 0.5f, 1f)) {
+                    if (fx == 0.5f && fy == 0.5f) continue
+                    val x = left + w * fx
+                    val y = top + h * fy
+                    val ix = if (fx == 0f) 1f else -1f
+                    val iy = if (fy == 0f) 1f else -1f
+                    if (fx != 0.5f && fy != 0.5f) {
+                        drawRect(Color.Black, Offset(minOf(x, x + ix * len), minOf(y, y + iy * th)), Size(len, th))
+                        drawRect(Color.Black, Offset(minOf(x, x + ix * th), minOf(y, y + iy * len)), Size(th, len))
+                    } else if (fx == 0.5f) {
+                        drawRect(Color.Black, Offset(x - len, minOf(y, y + iy * th)), Size(2 * len, th))
+                    } else {
+                        drawRect(Color.Black, Offset(minOf(x, x + ix * th), y - len), Size(th, 2 * len))
+                    }
+                }
             }
         }
+    }
+}
+
+/** The rotate handle: a circle of radius [r] about [c], open on the right, an arrowhead turning clockwise at its end. */
+private fun DrawScope.rotateGlyph(c: Offset, r: Float, density: Float) {
+    val stroke = Stroke(2f * density, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+    drawCircle(Color.White, r + 3f * density, c)
+    val start = 30f
+    val sweep = 290f
+    drawArc(HANDLE_LINE, startAngle = start, sweepAngle = sweep, useCenter = false, topLeft = Offset(c.x - r, c.y - r), size = Size(2 * r, 2 * r), style = stroke)
+    // where the arc ends: its clockwise tangent and outward normal frame the head
+    val e = Math.toRadians((start + sweep).toDouble())
+    val (cos, sin) = kotlin.math.cos(e).toFloat() to kotlin.math.sin(e).toFloat()
+    val end = Offset(c.x + r * cos, c.y + r * sin)
+    val along = Offset(-sin, cos)
+    val out = Offset(cos, sin)
+    val h = 5f * density
+    val head = androidx.compose.ui.graphics.Path().apply {
+        val tip = end + along * h
+        moveTo(tip.x, tip.y)
+        lineTo(end.x + out.x * h * 0.9f, end.y + out.y * h * 0.9f)
+        lineTo(end.x - out.x * h * 0.9f, end.y - out.y * h * 0.9f)
+        close()
+    }
+    drawPath(head, HANDLE_LINE)
+}
+
+/** The move handle: four arrows out from [c], [r] long, hollow heads, on a white ground. */
+private fun DrawScope.moveGlyph(c: Offset, r: Float, density: Float) {
+    drawCircle(Color.White, r + 2f * density, c)
+    val stroke = Stroke(1.5f * density, join = androidx.compose.ui.graphics.StrokeJoin.Round)
+    val head = 4.5f * density
+    for (dir in listOf(Offset(1f, 0f), Offset(-1f, 0f), Offset(0f, 1f), Offset(0f, -1f))) {
+        val tip = c + dir * r
+        val base = c + dir * (r - head)
+        val side = Offset(-dir.y, dir.x) * head
+        drawLine(HANDLE_LINE, c + dir * (2f * density), base, 1.5f * density)
+        val p = androidx.compose.ui.graphics.Path().apply {
+            moveTo(tip.x, tip.y)
+            lineTo(base.x + side.x, base.y + side.y)
+            lineTo(base.x - side.x, base.y - side.y)
+            close()
+        }
+        drawPath(p, HANDLE_LINE, style = stroke)
     }
 }
 
@@ -1691,7 +1846,7 @@ private fun shade(c: Color, paint: String): Color {
     }
 }
 
-private fun DrawScope.drawShape(o: io.github.artcraftandroid.gridcraft.core.SheetObject, left: Float, top: Float, w: Float, h: Float, density: Float) {
+private fun DrawScope.drawShape(o: io.github.artcraftandroid.gridcraft.core.SheetObject, left: Float, top: Float, w: Float, h: Float, density: Float, withText: Boolean = true) {
     val fill = o.fill?.let { Color(it) }
     // no outline when the shape has none (ink always has a colour)
     val line = o.line?.let { Color(it) }
@@ -1742,17 +1897,18 @@ private fun DrawScope.drawShape(o: io.github.artcraftandroid.gridcraft.core.Shee
             line?.let { drawRect(it, Offset(left, top), Size(w, h), style = stroke) }
         }
     }
-    if (o.shape != "ink" && o.shape != "icon" && o.text.isNotBlank()) {
+    if (withText && o.shape != "ink" && o.shape != "icon" && o.text.isNotBlank()) {
         drawIntoCanvas { canvas ->
             val nc = canvas.nativeCanvas
             val p = textPaint
             // sheet pixels to the screen's; 11 pt text, inset a tenth of an inch at the sides and
             // a twentieth at the top and bottom, where the shape's alignment puts it
             val k = if (o.width > 0) w / o.width.toFloat() else density
-            p.typeface = android.graphics.Typeface.DEFAULT
-            p.textSize = 11f * 96f / 72f * k
+            val style = (if (o.textBold) android.graphics.Typeface.BOLD else 0) or (if (o.textItalic) android.graphics.Typeface.ITALIC else 0)
+            p.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, style)
+            p.textSize = (if (o.textSize > 0f) o.textSize else 11f) * 96f / 72f * k
             p.color = o.textColor ?: android.graphics.Color.BLACK
-            p.isUnderlineText = false
+            p.isUnderlineText = o.textUnderline
             p.isStrikeThruText = false
             val (inX, inY) = 9.6f * k to 4.8f * k
             val width = (w - 2 * inX).toInt().coerceAtLeast(1)
@@ -1773,6 +1929,62 @@ private fun DrawScope.drawShape(o: io.github.artcraftandroid.gridcraft.core.Shee
             layout.draw(nc)
             nc.restore()
         }
+    }
+}
+
+/**
+ * A shape's text typed in place over the shape ([left], [top], [w] x [h] on screen, [unit] screen
+ * pixels to a sheet one), in its own size, weight, colour and place, inside a dashed frame, as the
+ * phone app edits it. The text is kept when the editor closes: a tap elsewhere, or Back.
+ */
+@Composable
+private fun ShapeTextEditor(vm: AppViewModel, o: io.github.artcraftandroid.gridcraft.core.SheetObject, left: Float, top: Float, w: Float, h: Float, unit: Float) {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    var value by remember(o.id) { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(o.text, androidx.compose.ui.text.TextRange(o.text.length))) }
+    val latest by androidx.compose.runtime.rememberUpdatedState(value.text)
+    androidx.compose.runtime.DisposableEffect(o.id) { onDispose { vm.endShapeText(o, latest) } }
+    androidx.activity.compose.BackHandler { vm.stopShapeText() }
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(o.id) {
+        focus.requestFocus()
+        if (!vm.shapeTextKeyboard) keyboard?.hide()
+    }
+    val sizePx = (if (o.textSize > 0f) o.textSize else 11f) * 96f / 72f * unit
+    val style = androidx.compose.ui.text.TextStyle(
+        color = o.textColor?.let { Color(it) } ?: Color.Black,
+        fontSize = with(density) { sizePx.toSp() },
+        fontWeight = if (o.textBold) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
+        fontStyle = if (o.textItalic) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+        textDecoration = if (o.textUnderline) androidx.compose.ui.text.style.TextDecoration.Underline else null,
+        textAlign = when (o.textAlign) {
+            "center" -> androidx.compose.ui.text.style.TextAlign.Center
+            "right" -> androidx.compose.ui.text.style.TextAlign.End
+            else -> androidx.compose.ui.text.style.TextAlign.Start
+        },
+    )
+    val (inX, inY) = with(density) { (9.6f * unit).toDp() to (4.8f * unit).toDp() }
+    Box(
+        Modifier
+            .offset { androidx.compose.ui.unit.IntOffset(left.toInt(), top.toInt()) }
+            .size(with(density) { w.toDp() }, with(density) { h.toDp() })
+            .drawBehind {
+                drawRect(GridColors.SheetAccent, style = Stroke(1.5f * density.density, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f * density.density, 4f * density.density))))
+            }
+            .padding(horizontal = inX, vertical = inY),
+        contentAlignment = when (o.textAnchor) {
+            "middle" -> Alignment.CenterStart
+            "bottom" -> Alignment.BottomStart
+            else -> Alignment.TopStart
+        },
+    ) {
+        androidx.compose.foundation.text.BasicTextField(
+            value,
+            { value = it.copy(text = it.text.take(32767)) },
+            textStyle = style,
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(GridColors.SheetAccent),
+            modifier = Modifier.fillMaxWidth().focusRequester(focus),
+        )
     }
 }
 

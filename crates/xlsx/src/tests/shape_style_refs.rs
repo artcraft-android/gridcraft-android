@@ -119,3 +119,26 @@ fn see_through_and_gradient_fills_round_trip() {
     assert_eq!(back[1].format.gradient_angle, 270.0);
     assert!(back[1].format.gradient.iter().zip(&g.gradient).all(|(a, b)| a.pos == b.pos));
 }
+
+#[test]
+fn decorative_objects_round_trip() {
+    let dec = r#"<a:extLst><a:ext uri="{C183D7F6-B498-43B3-948B-1728B52AA6E4}"><adec:decorative xmlns:adec="http://schemas.microsoft.com/office/drawing/2017/decorative" val="1"/></a:ext></a:extLst>"#;
+    let marked = sp("", "").replace(r#"name="Shape 1"/>"#, &format!(r#"name="Shape 1">{dec}</xdr:cNvPr>"#));
+    let drawing = format!(
+        r#"<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">{marked}{}</xdr:wsDr>"#,
+        sp("", "")
+    );
+    let rels = r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>"#;
+    let bytes = minimal(
+        r#"<sheetData/><drawing r:id="rId1"/>"#,
+        &[("xl/worksheets/_rels/sheet1.xml.rels", rels), ("xl/drawings/drawing1.xml", &drawing)],
+        "",
+        "",
+    );
+    let wb = read_xlsx(&bytes).unwrap().0;
+    let sheet = wb.sheet(0).unwrap();
+    assert_eq!(sheet.decorative, vec![sheet.shapes[0].id], "only the marked shape");
+    let (back, _) = read_xlsx(&crate::write_xlsx(&wb).unwrap()).unwrap();
+    let sheet = back.sheet(0).unwrap();
+    assert_eq!(sheet.decorative, vec![sheet.shapes[0].id]);
+}

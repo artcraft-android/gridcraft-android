@@ -139,6 +139,7 @@ pub fn specs() -> Vec<CommandSpec> {
         )),
         cmd!("shape.setText", "Edit Text Box", [], None, "{id: textBox id, text: string}", has_doc, shape_set_text),
         cmd!("shape.change", "Change Shape", [], None, "{id, kind: a Shapes gallery name (as insert.shape takes)}", has_doc, shape_change),
+        cmd!("shape.textFormat", "Shape Text Format", [], None, "{id, bold?: bool, italic?: bool, underline?: bool}", has_doc, shape_text_format),
         cmd!(
             "shape.style",
             "Shape Styles",
@@ -158,8 +159,11 @@ pub fn specs() -> Vec<CommandSpec> {
             shape_format
         ),
         cmd!("object.delete", "Delete Object", [], None, "{kind: chart|image|shape, id}", has_doc, delete_object),
+        cmd!(noundo "object.copy", "Copy Object", [], None, "{kind: chart|image|shape, id}", has_doc, copy_object),
+        cmd!("object.cut", "Cut Object", [], None, "{kind: chart|image|shape, id}", has_doc, cut_object),
+        cmd!("object.paste", "Paste Object", [], None, "{at?: \"C3\" or x?, y? (sheet units)} -> {kind, id}", has_copied_object, paste_object),
         cmd!("object.move", "Move Object", [], None, "{kind: chart|image|shape, id, at?: \"C3\", dx?, dy?, width?, height?}", has_doc, move_object),
-        cmd!("object.altText", "Alt Text", [], None, "{kind: image|shape|chart, id, text}", has_doc, alt_text),
+        cmd!("object.altText", "Alt Text", [], None, "{kind: image|shape|chart, id, text, decorative?: bool}", has_doc, alt_text),
         cmd!("picture.crop", "Crop", [], None, "{id, left?, top?, right?, bottom? (fractions 0..0.99 cut from each side)}", has_doc, crop_picture),
         cmd!(
             "picture.style",
@@ -1179,29 +1183,7 @@ fn insert_shape(s: &mut Session, p: &Json) -> Result<Json> {
     let d = s.doc()?;
     let id = d.wb.next_object_id();
     let sh = d.wb.active().ok_or_else(|| bad("insert.shape", "no active sheet"))?;
-    // where it goes: `x`, `y` in sheet units (the phone app puts a shape 0.7 in into the view),
-    // else the corner of `at` or the active cell; over a shape of its size in the same place it
-    // steps a sixth of an inch down and right, as often as it takes
-    let (mut x, mut y) = match (f64_param(p, "x").filter(|v| v.is_finite()), f64_param(p, "y").filter(|v| v.is_finite())) {
-        (Some(x), Some(y)) => (x.clamp(0.0, 1e9), y.clamp(0.0, 1e9)),
-        _ => {
-            let at = cell_param(s, p, "at")?.unwrap_or(d.selection.active);
-            (sh.col_left(at.col), sh.row_top(at.row))
-        }
-    };
-    let corner = |a: &Anchor| (sh.col_left(a.cell.col) + f64::from(a.dx), sh.row_top(a.cell.row) + f64::from(a.dy));
-    let near = |a: f64, b: f64| (a - b).abs() < 0.5;
-    for _ in 0..1000 {
-        let taken = sh.shapes.iter().any(|o| {
-            let (ox, oy) = corner(&o.anchor);
-            near(ox, x) && near(oy, y) && near(f64::from(o.anchor.width), f64::from(width)) && near(f64::from(o.anchor.height), f64::from(height))
-        });
-        if !taken {
-            break;
-        }
-        (x, y) = (x + 16.0, y + 16.0);
-    }
-    let cell = CellRef::new(sh.row_at(y), sh.col_at(x));
+    let (cell, dx, dy) = object_place(s, p, sh, width, height)?;
     // the phone app's look for it: a line, connector, arc, bracket or brace is a thin accent 1
     // line with dark text; any other shape accent 1 outlined in a 15% shade of it, with light
     // text; a text box white with a black edge and dark text
@@ -1222,14 +1204,7 @@ fn insert_shape(s: &mut Session, p: &Json) -> Result<Json> {
     let shape = Shape {
         id,
         kind,
-        anchor: Anchor {
-            cell,
-            dx: (x - sh.col_left(cell.col)).max(0.0) as f32,
-            dy: (y - sh.row_top(cell.row)).max(0.0) as f32,
-            width,
-            height,
-            mode: anchor_mode_param(p).unwrap_or_default(),
-        },
+        anchor: Anchor { cell, dx, dy, width, height, mode: anchor_mode_param(p).unwrap_or_default() },
         fill,
         line,
         text: str_param(p, "text").unwrap_or("").into(),
@@ -1240,6 +1215,105 @@ fn insert_shape(s: &mut Session, p: &Json) -> Result<Json> {
     edit(s, |cx| {
         cx.sheet_mut(sheet)?.shapes.push(shape);
         Ok(json!({"shape": id}))
+    })
+}
+
+/// Where a new or pasted object of `width` x `height` goes: `x`, `y` in sheet units (the phone
+/// app puts a shape 0.7 in into the view), else the corner of `at` or the active cell; over an
+/// object of its size in the same place it steps a sixth of an inch down and right, as often as
+/// it takes. The cell and the offset in it.
+fn object_place(s: &Session, p: &Json, sh: &Sheet, width: f32, height: f32) -> Result<(CellRef, f32, f32)> {
+    let (mut x, mut y) = match (f64_param(p, "x").filter(|v| v.is_finite()), f64_param(p, "y").filter(|v| v.is_finite())) {
+        (Some(x), Some(y)) => (x.clamp(0.0, 1e9), y.clamp(0.0, 1e9)),
+        _ => {
+            let at = cell_param(s, p, "at")?.unwrap_or(s.doc()?.selection.active);
+            (sh.col_left(at.col), sh.row_top(at.row))
+        }
+    };
+    let anchors = || sh.shapes.iter().map(|o| &o.anchor).chain(sh.charts.iter().map(|o| &o.anchor)).chain(sh.images.iter().map(|o| &o.anchor));
+    let near = |a: f64, b: f64| (a - b).abs() < 0.5;
+    for _ in 0..1000 {
+        let taken = anchors().any(|a| {
+            let (ox, oy) = (sh.col_left(a.cell.col) + f64::from(a.dx), sh.row_top(a.cell.row) + f64::from(a.dy));
+            near(ox, x) && near(oy, y) && near(f64::from(a.width), f64::from(width)) && near(f64::from(a.height), f64::from(height))
+        });
+        if !taken {
+            break;
+        }
+        (x, y) = (x + 16.0, y + 16.0);
+    }
+    let cell = CellRef::new(sh.row_at(y), sh.col_at(x));
+    Ok((cell, (x - sh.col_left(cell.col)).max(0.0) as f32, (y - sh.row_top(cell.row)).max(0.0) as f32))
+}
+
+/// The chart, picture or shape `kind` / `id` on the active sheet, copied.
+fn find_object(s: &Session, p: &Json, cmd: &str) -> Result<crate::CopiedObject> {
+    use crate::CopiedObject as O;
+    let id = u32_param(p, "id").ok_or_else(|| bad(cmd, "missing `id`"))?;
+    let sh = s.doc()?.wb.active().ok_or_else(|| bad(cmd, "no such object"))?;
+    let found = match str_param(p, "kind").unwrap_or("shape") {
+        "chart" => sh.charts.iter().find(|o| o.id == id).cloned().map(O::Chart),
+        "image" => sh.images.iter().find(|o| o.id == id).cloned().map(O::Image),
+        "shape" => sh.shapes.iter().find(|o| o.id == id).cloned().map(O::Shape),
+        other => return Err(bad(cmd, format!("`kind` must be chart, image or shape, not `{other}`"))),
+    };
+    found.ok_or_else(|| bad(cmd, "no such object"))
+}
+
+/// Copy a chart, picture or shape (the object menu's Copy); the cells copied before are let go.
+fn copy_object(s: &mut Session, p: &Json) -> Result<Json> {
+    s.copied_object = Some(find_object(s, p, "object.copy")?);
+    s.clipboard = None;
+    ok()
+}
+
+/// Cut: copied, then taken off the sheet.
+fn cut_object(s: &mut Session, p: &Json) -> Result<Json> {
+    let o = find_object(s, p, "object.cut")?;
+    if s.doc()?.wb.active().is_some_and(Sheet::is_protected) {
+        return Err(EngineError::Other(PROTECTED.into()));
+    }
+    s.copied_object = Some(o);
+    s.clipboard = None;
+    delete_object(s, p)
+}
+
+/// Paste the object copied last: a new one (its own id) at `x`, `y` or `at`, else at the active
+/// cell, stepping off a twin there.
+pub(super) fn paste_object(s: &mut Session, p: &Json) -> Result<Json> {
+    use crate::CopiedObject as O;
+    let Some(o) = s.copied_object.clone() else { return Err(EngineError::Other("Nothing to paste.".into())) };
+    let d = s.doc()?;
+    let sh = d.wb.active().ok_or_else(|| bad("object.paste", "no active sheet"))?;
+    if sh.is_protected() {
+        return Err(EngineError::Other(PROTECTED.into()));
+    }
+    let id = d.wb.next_object_id();
+    let a = match &o {
+        O::Chart(c) => c.anchor,
+        O::Image(i) => i.anchor,
+        O::Shape(x) => x.anchor,
+    };
+    let (cell, dx, dy) = object_place(s, p, sh, a.width, a.height)?;
+    let anchor = Anchor { cell, dx, dy, ..a };
+    let sheet = d.wb.active_sheet;
+    edit(s, |cx| {
+        let sh = cx.sheet_mut(sheet)?;
+        let kind = match o {
+            O::Chart(c) => {
+                sh.charts.push(Chart { id, anchor, ..c });
+                "chart"
+            }
+            O::Image(i) => {
+                sh.images.push(Image { id, anchor, ..i });
+                "image"
+            }
+            O::Shape(x) => {
+                sh.shapes.push(Shape { id, anchor, ..x });
+                "shape"
+            }
+        };
+        Ok(json!({"kind": kind, "id": id}))
     })
 }
 
@@ -1334,6 +1408,33 @@ fn shape_style(s: &mut Session, p: &Json) -> Result<Json> {
     })
 }
 
+/// Bold, Italic and Underline for a shape's text (the bar over a shape's text while it is typed).
+fn shape_text_format(s: &mut Session, p: &Json) -> Result<Json> {
+    let id = u32_param(p, "id").ok_or_else(|| bad("shape.textFormat", "`id` must be a shape id"))?;
+    let flag = |k: &str| p.get(k).and_then(Json::as_bool);
+    let (bold, italic, underline) = (flag("bold"), flag("italic"), flag("underline"));
+    if bold.is_none() && italic.is_none() && underline.is_none() {
+        return Err(bad("shape.textFormat", "give `bold`, `italic` or `underline`"));
+    }
+    let d = s.doc()?;
+    let sheet = d.wb.active_sheet;
+    let sh = d.wb.active().ok_or_else(|| bad("shape.textFormat", "no such shape"))?;
+    if !sh.shapes.iter().any(|x| x.id == id && !matches!(x.kind, ShapeKind::Ink | ShapeKind::Icon)) {
+        return Err(bad("shape.textFormat", "no such shape"));
+    }
+    if sh.is_protected() {
+        return Err(EngineError::Other(PROTECTED.into()));
+    }
+    edit(s, |cx| {
+        let Some(x) = cx.sheet_mut(sheet)?.shapes.iter_mut().find(|x| x.id == id) else { return Ok(Json::Null) };
+        let f = &mut x.format;
+        f.bold = bold.unwrap_or(f.bold);
+        f.italic = italic.unwrap_or(f.italic);
+        f.underline = underline.unwrap_or(f.underline);
+        Ok(Json::Null)
+    })
+}
+
 /// A text box holds at most as many characters as a cell.
 const SHAPE_TEXT_MAX_CHARS: usize = 32_767;
 
@@ -1348,8 +1449,11 @@ fn shape_set_text(s: &mut Session, p: &Json) -> Result<Json> {
     let sheet = d.wb.active_sheet;
     let sh = d.wb.active().ok_or_else(|| bad("shape.setText", "no such text box"))?;
     let shape = sh.shapes.iter().find(|shape| shape.id == id).ok_or_else(|| bad("shape.setText", "no such text box"))?;
-    if shape.kind != ShapeKind::TextBox {
-        return Err(bad("shape.setText", "the shape is not a text box"));
+    // any shape holds text but lines, connectors, ink and icons, as in the phone app
+    let holds_text =
+        !matches!(shape.kind, ShapeKind::Line | ShapeKind::Arrow | ShapeKind::Ink | ShapeKind::Icon) && !shape.format.preset.contains("Connector");
+    if !holds_text {
+        return Err(bad("shape.setText", "the shape holds no text"));
     }
     // Sheet protection locks drawing objects (there is no "edit objects" allowance yet).
     if sh.is_protected() {
@@ -1420,6 +1524,7 @@ fn delete_object(s: &mut Session, p: &Json) -> Result<Json> {
             "slicer" => sh.slicers.retain(|c| c.id != id),
             _ => sh.shapes.retain(|c| c.id != id),
         }
+        sh.decorative.retain(|d| *d != id);
         Ok(Json::Null)
     })
 }
@@ -1463,9 +1568,16 @@ fn alt_text(s: &mut Session, p: &Json) -> Result<Json> {
     let id = u32_param(p, "id").ok_or_else(|| bad("object.altText", "missing `id`"))?;
     let kind = str_param(p, "kind").unwrap_or("image").to_string();
     let text: String = str_param(p, "text").unwrap_or("").chars().take(4_000).collect();
+    let decorative = p.get("decorative").and_then(Json::as_bool);
     let sheet = s.doc()?.wb.active_sheet;
     edit(s, |cx| {
         let sh = cx.sheet_mut(sheet)?;
+        // Mark as decorative: a screen reader passes over it
+        match decorative {
+            Some(true) if !sh.decorative.contains(&id) => sh.decorative.push(id),
+            Some(false) => sh.decorative.retain(|d| *d != id),
+            _ => {}
+        }
         let alt = match kind.as_str() {
             "image" => sh.images.iter_mut().find(|i| i.id == id).map(|i| &mut i.alt),
             "shape" => sh.shapes.iter_mut().find(|i| i.id == id).map(|i| &mut i.format.alt),

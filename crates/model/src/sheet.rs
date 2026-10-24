@@ -93,6 +93,10 @@ pub struct Sheet {
     /// On-sheet slicer widgets (filter a table column by clicking value tiles).
     #[serde(default)]
     pub slicers: Vec<Slicer>,
+    /// The ids of the charts, pictures and shapes marked as decorative (Alt Text's "Mark as
+    /// decorative", `adec:decorative`): a screen reader passes over them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decorative: Vec<u32>,
     /// PivotTables whose output lives on this sheet.
     #[serde(default)]
     pub pivots: Vec<PivotTable>,
@@ -154,6 +158,7 @@ impl Sheet {
             charts: vec![],
             images: vec![],
             shapes: vec![],
+            decorative: vec![],
             sparklines: vec![],
             slicers: vec![],
             pivots: vec![],

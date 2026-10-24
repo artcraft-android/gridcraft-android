@@ -820,6 +820,8 @@ pub struct ShapeFormat {
     pub font_size: Option<f32>,
     pub bold: bool,
     pub italic: bool,
+    /// Underlined once (`a:rPr u="sng"`).
+    pub underline: bool,
     /// Typeface (`a:latin typeface`); `None` is the default font.
     pub font: Option<String>,
     /// Text fill colour; `None` is the default (black in text boxes).

@@ -253,6 +253,9 @@ pub fn read_drawing(cx: &mut Ctx<'_>, part: &str, sheet: &mut Sheet) -> Result<(
                         Crop { left: side("l"), top: side("t"), right: side("r"), bottom: side("b") }
                     });
                     let look = read_look(obj.child("spPr"));
+                    if is_decorative(obj.path(&["nvPicPr", "cNvPr"])) {
+                        sheet.decorative.push(id);
+                    }
                     sheet.images.push(Image { id, anchor, data, mime: mime_for(&target).to_string(), alt, turn, crop, look });
                 }
                 "graphicFrame" => {
@@ -268,6 +271,9 @@ pub fn read_drawing(cx: &mut Ctx<'_>, part: &str, sheet: &mut Sheet) -> Result<(
                                     ch.id = cx.next_object_id();
                                     ch.anchor = anchor;
                                     ch.alt = obj.path(&["nvGraphicFramePr", "cNvPr"]).and_then(|c| c.attr("descr")).unwrap_or("").to_string();
+                                    if is_decorative(obj.path(&["nvGraphicFramePr", "cNvPr"])) {
+                                        sheet.decorative.push(ch.id);
+                                    }
                                     sheet.charts.push(ch);
                                 }
                                 None => cx.warn(format!("chart {target} has no supported plot and was skipped")),
@@ -282,6 +288,10 @@ pub fn read_drawing(cx: &mut Ctx<'_>, part: &str, sheet: &mut Sheet) -> Result<(
                 "sp" | "cxnSp" => {
                     if let Some(s) = read_shape(obj, anchor) {
                         let id = cx.next_object_id();
+                        let cnvpr = obj.path(&["nvSpPr", "cNvPr"]).or_else(|| obj.path(&["nvCxnSpPr", "cNvPr"]));
+                        if is_decorative(cnvpr) {
+                            sheet.decorative.push(id);
+                        }
                         sheet.shapes.push(Shape { id, ..s });
                     }
                 }
@@ -388,6 +398,7 @@ fn read_text_format(body: Option<&El>) -> ShapeFormat {
         f.font_size = r.attr_f64("sz").filter(|v| v.is_finite()).map(|v| (v / 100.0).clamp(1.0, 4000.0) as f32);
         f.bold = r.flag("b", false);
         f.italic = r.flag("i", false);
+        f.underline = r.attr("u").is_some_and(|u| u != "none");
         f.font = r.child("latin").and_then(|l| l.attr("typeface")).filter(|t| !t.is_empty() && !t.starts_with('+')).map(str::to_string);
         f.text_color = r.child("solidFill").and_then(dml_color);
         f.text_outline = r.child("ln").and_then(|l| {
@@ -538,6 +549,7 @@ pub fn write_drawing(sheet: &Sheet, theme: &Theme, objs: &[Obj<'_>]) -> String {
     );
     for (i, o) in objs.iter().enumerate() {
         let id = i + 2;
+        let start = s.len();
         let close_tag;
         match o {
             Obj::Image(img, rid) => {
@@ -685,11 +697,43 @@ pub fn write_drawing(sheet: &Sheet, theme: &Theme, objs: &[Obj<'_>]) -> String {
                 s.push_str("</xdr:sp>");
             }
         }
+        let model_id = match o {
+            Obj::Image(img, _) => img.id,
+            Obj::Chart(ch, _) => ch.id,
+            Obj::Shape(sh) => sh.id,
+        };
+        if sheet.decorative.contains(&model_id) {
+            mark_decorative(&mut s, start, id);
+        }
         s.push_str("<xdr:clientData/>");
         s.push_str(close_tag);
     }
     s.push_str("</xdr:wsDr>");
     s
+}
+
+/// `a:ext` uri of the mark that an object is decorative (`adec:decorative`).
+const DECORATIVE_EXT: &str = "{C183D7F6-B498-43B3-948B-1728B52AA6E4}";
+
+/// Puts the decorative mark into the `xdr:cNvPr` with drawing id `id` written from `start` on:
+/// its self-closing end becomes an `a:extLst` holding `adec:decorative val="1"` (attribute
+/// values are escaped, so the first `/>` after it is its own).
+fn mark_decorative(s: &mut String, start: usize, id: usize) {
+    let tag = format!("<xdr:cNvPr id=\"{id}\"");
+    let Some(at) = s.get(start..).and_then(|rest| rest.find(&tag)).map(|i| start + i) else { return };
+    let Some(end) = s.get(at..).and_then(|rest| rest.find("/>")).map(|i| at + i) else { return };
+    let ext = format!(
+        "><a:extLst><a:ext uri=\"{DECORATIVE_EXT}\"><adec:decorative xmlns:adec=\"http://schemas.microsoft.com/office/drawing/2017/decorative\" val=\"1\"/></a:ext></a:extLst></xdr:cNvPr>"
+    );
+    s.replace_range(end..end + 2, &ext);
+}
+
+/// Whether an object's `xdr:cNvPr` marks it as decorative.
+fn is_decorative(cnvpr: Option<&El>) -> bool {
+    cnvpr.and_then(|c| c.child("extLst")).is_some_and(|l| {
+        l.kids("ext")
+            .any(|e| e.attr("uri") == Some(DECORATIVE_EXT) && e.child("decorative").is_some_and(|d| !matches!(d.attr("val"), Some("0" | "false"))))
+    })
 }
 
 /// A text run's `a:rPr` attributes (size, bold, italic) and children in schema order (outline,
@@ -704,6 +748,9 @@ fn run_props(f: &ShapeFormat, theme: &Theme) -> (String, String) {
     }
     if f.italic {
         attrs.push_str(" i=\"1\"");
+    }
+    if f.underline {
+        attrs.push_str(" u=\"sng\"");
     }
     let mut body = String::new();
     if let Some((c, w)) = &f.text_outline

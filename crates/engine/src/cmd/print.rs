@@ -1525,6 +1525,9 @@ fn draw_objects(pg: &mut Page, wb: &Workbook, si: usize, sh: &Sheet, b: &Block) 
                     ShapeTextAlign::Right => x + w - 2.0 * b.k - lw,
                 };
                 pg.text(lx, yy, size, font, color, l);
+                if fm.underline && !l.is_empty() {
+                    pg.stroke_line(lx, yy + size * 0.12, lx + lw, yy + size * 0.12, (size / 16.0).max(0.3), color);
+                }
                 yy += size * 1.2;
             }
         }

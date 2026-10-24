@@ -185,7 +185,7 @@ fun FormulaBar(vm: AppViewModel) {
             fontStyle = FontStyle.Italic,
             fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier.width(48.dp).height(40.dp).clickable { vm.insertFunction() }.wrapContentHeight(),
+            modifier = Modifier.width(48.dp).height(40.dp).clickable(enabled = vm.selectedObject == null) { vm.insertFunction() }.wrapContentHeight(),
         )
         Box(Modifier.width(1.dp).height(40.dp).background(GridColors.BarEdge))
         Spacer(Modifier.width(10.dp))
@@ -239,11 +239,18 @@ fun FormulaBar(vm: AppViewModel) {
             BarButton(LucideIcons.X.glyph(), GridColors.OnBar, vm::cancelEdit, width = 40.dp, height = 40.dp, label = "Cancel")
             BarButton(LucideIcons.Check.glyph(), GridColors.Accent, { vm.commitEdit("none") }, width = 40.dp, height = 40.dp, label = "Enter")
         } else {
+            // with an object selected the bar holds no cell, as the phone app's: only its hint
+            val objectSelected = vm.selectedObject != null
+            val shown = if (objectSelected) "" else sel?.formula.orEmpty()
             Box(
-                Modifier.weight(1f).heightIn(min = 40.dp).clickable { vm.beginEdit() }.then(if (expanded) Modifier.padding(vertical = 11.dp) else Modifier),
+                Modifier.weight(1f).heightIn(min = 40.dp).clickable(enabled = !objectSelected) { vm.beginEdit() }.then(if (expanded) Modifier.padding(vertical = 11.dp) else Modifier),
                 contentAlignment = if (expanded) Alignment.TopStart else Alignment.CenterStart,
             ) {
-                Text(sel?.formula.orEmpty(), color = GridColors.OnSettings, fontSize = 16.sp, maxLines = lines, overflow = TextOverflow.Ellipsis)
+                if (shown.isEmpty()) {
+                    Text("Type text or a formula", color = GridColors.OnBar.copy(alpha = 0.6f), fontSize = 16.sp, maxLines = 1)
+                } else {
+                    Text(shown, color = GridColors.OnSettings, fontSize = 16.sp, maxLines = lines, overflow = TextOverflow.Ellipsis)
+                }
             }
             BarButton(if (expanded) LucideIcons.ChevronDown.glyph() else LucideIcons.ChevronUp.glyph(), GridColors.OnBar, { vm.formulaExpanded = !expanded }, width = 48.dp, height = 40.dp, iconSize = 18.dp, label = "Expand Formula Bar")
         }
@@ -258,6 +265,29 @@ fun FormulaBar(vm: AppViewModel) {
 fun CommandBar(vm: AppViewModel) {
     val info = vm.info ?: return
     val shape = RoundedCornerShape(24.dp)
+    // typing in a shape: Bold, Italic, Underline and ⋯, as the phone app's bar then
+    val typing = vm.selectedObject?.takeIf { vm.editingShapeText == it.id.toLong() }
+    if (typing != null) {
+        Box(Modifier.fillMaxWidth().background(GridColors.StatusBand).padding(start = 16.dp, top = 8.dp, bottom = 8.dp)) {
+            Row(Modifier.height(48.dp).shadow(3.dp, shape).clip(shape).background(GridColors.Bar).padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                BarButton(Letters.Bold, GridColors.OnPill, { vm.shapeTextFormat("bold", !typing.textBold) }, pressed = typing.textBold, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Bold")
+                BarButton(Letters.Italic, GridColors.OnPill, { vm.shapeTextFormat("italic", !typing.textItalic) }, pressed = typing.textItalic, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Italic")
+                BarButton(Letters.Underline, GridColors.OnPill, { vm.shapeTextFormat("underline", !typing.textUnderline) }, pressed = typing.textUnderline, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Underline")
+                BarButton(LucideIcons.Ellipsis.glyph(), GridColors.OnPill, vm::togglePalette, width = 52.dp, height = 48.dp, iconSize = 22.dp, label = "More Options")
+            }
+        }
+        return
+    }
+    // as the phone app's: a selected shape or chart has its own buttons, and the sheet chip
+    // shows only its icon
+    val o = vm.selectedObject
+    val mode = when {
+        o == null -> "cell"
+        o.kind == "chart" -> "chart"
+        o.kind == "image" -> "image"
+        o.kind == "shape" && o.shape != "icon" && o.shape != "ink" -> "shape"
+        else -> "cell"
+    }
     Box(Modifier.fillMaxWidth().background(GridColors.StatusBand).padding(start = 16.dp, top = 8.dp, bottom = 8.dp)) {
         Row(Modifier.height(48.dp).shadow(3.dp, shape).clip(shape).background(GridColors.Bar), verticalAlignment = Alignment.CenterVertically) {
             Box {
@@ -266,22 +296,42 @@ fun CommandBar(vm: AppViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     GlyphIcon(LucideIcons.Layers.glyph(), GridColors.OnPill, size = 20.dp)
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        info.sheets.getOrNull(info.activeSheet.toInt())?.name.orEmpty(),
-                        color = GridColors.OnPill,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 132.dp),
-                    )
+                    if (mode == "cell") {
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            info.sheets.getOrNull(info.activeSheet.toInt())?.name.orEmpty(),
+                            color = GridColors.OnPill,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 132.dp),
+                        )
+                    }
                 }
             }
             Box(Modifier.width(1.dp).height(24.dp).background(GridColors.BarLine))
             BarButton(LucideIcons.Search.glyph(), GridColors.OnPill, vm::openFind, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Find")
-            BarButton(LucideIcons.ListFilter.glyph(), GridColors.OnPill, vm::applyFilterButton, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = if (vm.sheetView?.autofilter == true) "Sort & Filter" else "Apply Filter")
-            BarButton(LucideIcons.PaintBucket.glyph(), GridColors.OnPill, { vm.openPage("fillColor") }, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Fill Color")
+            when (mode) {
+                "shape" -> {
+                    // a line has no fill and keeps its outline
+                    val line = o?.isLine == true
+                    BarButton(LucideIcons.PaintBucket.glyph(), GridColors.OnPill, { vm.openPage("shapeFill") }, enabled = !line, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Fill")
+                    BarButton(LucideIcons.Shapes.glyph(), GridColors.OnPill, { vm.openPage("changeShape") }, enabled = !line, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Change Shape")
+                }
+                "chart" -> {
+                    BarButton(LucideIcons.ChartColumn.glyph(), GridColors.OnPill, { vm.openPage("chartType") }, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Type")
+                    BarButton(LucideIcons.ListPlus.glyph(), GridColors.OnPill, { vm.openPage("chartElements") }, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Elements")
+                }
+                "image" -> {
+                    BarButton(LucideIcons.Crop.glyph(), GridColors.OnPill, vm::toggleCrop, pressed = vm.cropping, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Crop")
+                    BarButton(LucideIcons.SwatchBook.glyph(), GridColors.OnPill, { vm.openPage("pictureStyles") }, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Styles")
+                }
+                else -> {
+                    BarButton(LucideIcons.ListFilter.glyph(), GridColors.OnPill, vm::applyFilterButton, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = if (vm.sheetView?.autofilter == true) "Sort & Filter" else "Apply Filter")
+                    BarButton(LucideIcons.PaintBucket.glyph(), GridColors.OnPill, { vm.openPage("fillColor") }, width = 48.dp, height = 48.dp, iconSize = 22.dp, label = "Fill Color")
+                }
+            }
             BarButton(LucideIcons.Ellipsis.glyph(), GridColors.OnPill, vm::togglePalette, width = 52.dp, height = 48.dp, iconSize = 22.dp, label = "More Options")
         }
     }
@@ -616,33 +666,6 @@ fun CommentCard(vm: AppViewModel) {
 @Composable
 fun EditorDialog(vm: AppViewModel) {
     when (vm.dialog) {
-        "crop" -> {
-            val o = vm.selectedObject ?: return
-            val c = o.crop.takeIf { it.size == 4 } ?: listOf(0f, 0f, 1f, 1f)
-            // percentages cut from each side
-            fun pct(v: Float) = "%.0f".format(v * 100)
-            var l by remember { mutableStateOf(pct(c[0])) }
-            var t by remember { mutableStateOf(pct(c[1])) }
-            var r by remember { mutableStateOf(pct(1f - c[0] - c[2])) }
-            var b by remember { mutableStateOf(pct(1f - c[1] - c[3])) }
-            fun v(s: String) = s.replace(',', '.').toDoubleOrNull()?.takeIf { it in 0.0..99.0 }
-            val ok = listOf(l, t, r, b).all { v(it) != null } && v(l)!! + v(r)!! < 99 && v(t)!! + v(b)!! < 99
-            AlertDialog(
-                onDismissRequest = { vm.dialog = null },
-                title = { Text("Crop") },
-                text = {
-                    Column {
-                        for ((label, value, set) in listOf(
-                            Triple("Left (%)", l) { s: String -> l = s }, Triple("Top (%)", t) { s: String -> t = s },
-                            Triple("Right (%)", r) { s: String -> r = s }, Triple("Bottom (%)", b) { s: String -> b = s },
-                        )) OutlinedTextField(value = value, onValueChange = { set(it.take(5)) }, label = { Text(label) }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
-                    }
-                },
-                confirmButton = { TextButton(onClick = { vm.cropPicture(v(l)!! / 100, v(t)!! / 100, v(r)!! / 100, v(b)!! / 100) }, enabled = ok) { Text("OK") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
-            )
-        }
         "pickDateTime" -> DateTimePicker(vm)
         "customSort" -> CustomSortDialog(vm)
         "entryAlert" -> {
@@ -690,49 +713,6 @@ fun EditorDialog(vm: AppViewModel) {
                 dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
             )
         }
-        "objectSize" -> {
-            val o = vm.selectedObject ?: return
-            var h by remember { mutableStateOf("%.2f".format(o.height / 96.0)) }
-            var w by remember { mutableStateOf("%.2f".format(o.width / 96.0)) }
-            val hv = h.replace(',', '.').toDoubleOrNull()
-            val wv = w.replace(',', '.').toDoubleOrNull()
-            AlertDialog(
-                onDismissRequest = { vm.dialog = null },
-                title = { Text("Size") },
-                text = {
-                    Column {
-                        OutlinedTextField(value = h, onValueChange = { h = it.take(8) }, label = { Text("Height (inches)") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
-                        OutlinedTextField(value = w, onValueChange = { w = it.take(8) }, label = { Text("Width (inches)") }, singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal))
-                    }
-                },
-                confirmButton = { TextButton(onClick = { vm.sizeObject(hv ?: 1.0, wv ?: 1.0) }, enabled = hv != null && wv != null && hv > 0 && wv > 0) { Text("OK") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
-            )
-        }
-        "altText" -> {
-            val o = vm.selectedObject ?: return
-            var text by remember { mutableStateOf(o.alt) }
-            val what = when (o.kind) {
-                "chart" -> "chart"
-                "image" -> "picture"
-                else -> if (o.shape == "icon") "graphic" else "shape"
-            }
-            AlertDialog(
-                onDismissRequest = { vm.dialog = null },
-                title = { Text("Alt Text") },
-                text = {
-                    Column {
-                        Text("How would you describe this $what to someone who can't see it?", color = GridColors.OnSurface, fontSize = 14.sp)
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(value = text, onValueChange = { text = it.take(4000) }, minLines = 3)
-                    }
-                },
-                confirmButton = { TextButton(onClick = { vm.setAltText(text) }) { Text("OK") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
-            )
-        }
         "table" -> {
             val (range, guess) = vm.tableProposal ?: return
             var header by remember { mutableStateOf(guess) }
@@ -763,16 +743,6 @@ fun EditorDialog(vm: AppViewModel) {
                 title = { Text("New Comment") },
                 text = { OutlinedTextField(value = text, onValueChange = { text = it.take(32767) }, minLines = 2) },
                 confirmButton = { TextButton(onClick = { vm.newComment(text) }) { Text("Post") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
-            )
-        }
-        "shapeText" -> {
-            var text by remember { mutableStateOf(vm.selectedObject?.text.orEmpty()) }
-            AlertDialog(
-                onDismissRequest = { vm.dialog = null },
-                title = { Text("Edit Text") },
-                text = { OutlinedTextField(value = text, onValueChange = { text = it.take(32767) }, minLines = 2) },
-                confirmButton = { TextButton(onClick = { vm.setShapeText(text) }) { Text("OK") } },
                 dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
             )
         }
@@ -1293,17 +1263,28 @@ fun CommentsPane(vm: AppViewModel) {
 internal val io.github.artcraftandroid.gridcraft.core.SheetObject.isLine: Boolean
     get() = kind == "shape" && (shape == "line" || shape == "arrow" || preset.contains("Connector"))
 
-/** The selected object's floating menu over the grid: Edit Text (a text box's), Delete. */
+/** The selected object's floating menu over the grid: Cut, Copy, Paste, Delete, Edit Text. */
 @Composable
 fun ObjectMenu(vm: AppViewModel, modifier: Modifier = Modifier) {
     val o = vm.selectedObject ?: return
     if (vm.objectDrag != null) return
-    val shape = RoundedCornerShape(24.dp)
-    Row(modifier.shadow(6.dp, shape).background(GridColors.Bar, shape).padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (o.shape == "textBox" || (o.kind == "shape" && !o.isLine && o.shape !in setOf("ink", "icon"))) {
-            TextButton(onClick = { vm.dialog = "shapeText" }) { Text("Edit Text", color = GridColors.OnSettings) }
+    // drawn as the cell menu is, as the phone app draws both: Cut, Copy and Paste as icons,
+    // Delete, and Edit Text for a shape that holds text, each set off by a line
+    val shape = RoundedCornerShape(6.dp)
+    @Composable
+    fun line() = Box(Modifier.width(1.dp).height(24.dp).background(GridColors.BarLine))
+    Row(modifier.shadow(6.dp, shape).background(GridColors.StatusBand, shape).clip(shape), verticalAlignment = Alignment.CenterVertically) {
+        BarButton(LucideIcons.Scissors.glyph(), GridColors.OnPill, { vm.copyObject(cut = true) }, width = 38.dp, height = 36.dp, iconSize = 20.dp, label = "Cut")
+        line()
+        BarButton(LucideIcons.Copy.glyph(), GridColors.OnPill, { vm.copyObject(cut = false) }, width = 38.dp, height = 36.dp, iconSize = 20.dp, label = "Copy")
+        line()
+        BarButton(LucideIcons.ClipboardPaste.glyph(), GridColors.OnPill, vm::pasteObject, enabled = vm.canPasteObject, width = 38.dp, height = 36.dp, iconSize = 20.dp, label = "Paste")
+        line()
+        MenuText("Delete", vm::deleteObject)
+        if (o.shape == "textBox" || (o.kind == "shape" && o.text.isNotEmpty() && !o.isLine && o.shape !in setOf("ink", "icon"))) {
+            line()
+            MenuText("Edit Text") { vm.startShapeText() }
         }
-        TextButton(onClick = vm::deleteObject) { Text("Delete", color = GridColors.OnSettings) }
     }
 }
 

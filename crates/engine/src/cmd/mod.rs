@@ -106,6 +106,10 @@ pub fn has_clipboard(s: &Session) -> std::result::Result<(), String> {
     has_doc(s)?;
     if s.clipboard.is_some() { Ok(()) } else { Err("the clipboard is empty".into()) }
 }
+pub fn has_copied_object(s: &Session) -> std::result::Result<(), String> {
+    has_doc(s)?;
+    if s.copied_object.is_some() { Ok(()) } else { Err("no object was copied".into()) }
+}
 
 macro_rules! cmd {
     ($id:literal, $label:literal, [$($m:literal),*], $sc:expr, $params:literal, $en:expr, $run:expr) => {

@@ -468,6 +468,13 @@ pub struct SheetObject {
     pub gradient_colors: Vec<i32>,
     pub gradient_stops: Vec<f32>,
     pub gradient_angle: f32,
+    /// Marked as decorative (Alt Text's check box): a screen reader passes over it.
+    pub decorative: bool,
+    /// A shape's text: bold, italic, underlined, and its size in points (0: the default, 11).
+    pub text_bold: bool,
+    pub text_italic: bool,
+    pub text_underline: bool,
+    pub text_size: f32,
 }
 
 /// One painted piece of a shape: its path as commands (0 move x y, 1 line x y, 2 curve x1 y1 x2
@@ -1162,6 +1169,11 @@ impl MobileSession {
                 gradient_colors: sp.format.gradient.iter().map(|g| color_or(g.color, &wb, [0, 0, 0])).collect(),
                 gradient_stops: sp.format.gradient.iter().map(|g| g.pos).collect(),
                 gradient_angle: sp.format.gradient_angle,
+                decorative: sh.decorative.contains(&sp.id),
+                text_bold: sp.format.bold,
+                text_italic: sp.format.italic,
+                text_underline: sp.format.underline,
+                text_size: sp.format.font_size.filter(|v| v.is_finite()).unwrap_or(0.0),
             });
         }
         for (i, im) in sh.images.iter().enumerate() {
@@ -1200,6 +1212,11 @@ impl MobileSession {
                 gradient_colors: vec![],
                 gradient_stops: vec![],
                 gradient_angle: 0.0,
+                decorative: sh.decorative.contains(&im.id),
+                text_bold: false,
+                text_italic: false,
+                text_underline: false,
+                text_size: 0.0,
             });
         }
         for (i, ch) in sh.charts.iter().enumerate() {
@@ -1231,6 +1248,11 @@ impl MobileSession {
                 gradient_colors: vec![],
                 gradient_stops: vec![],
                 gradient_angle: 0.0,
+                decorative: sh.decorative.contains(&ch.id),
+                text_bold: false,
+                text_italic: false,
+                text_underline: false,
+                text_size: 0.0,
             });
         }
         out
