@@ -1,0 +1,26 @@
+GridCraft for Android
+Copyright (c) 2026 ArtCraft Team and the GridCraft contributors.
+
+This repository holds the Android app and the parts of GridCraft (https://github.com/storytold/gridcraft)
+it builds: the engine crates and assets/.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option
+(LICENSE-MIT, LICENSE-APACHE).
+
+Third-party material
+
+This product bundles third-party material under its own licenses, listed below. The per-file
+list (author, source, license) is in ATTRIBUTION.md.
+
+- Lucide icons (assets/icons/*.svg) — ISC License. See assets/icons/LICENSE-lucide.txt. The Android
+  app turns them into Compose path data at build time.
+- Rust crates from crates.io (Cargo.lock lists them), each under its own license.
+
+Downloaded at build time, never in this repository, bundled in the app with their licenses:
+
+- Carlito and Caladea typefaces (from google/fonts, pinned to a commit and checked against their
+  SHA-256) — SIL Open Font License 1.1.
+- Liberation Sans, Serif and Mono 2.1.5 (from liberation-fonts' release, checked against its
+  SHA-256) — SIL Open Font License 1.1.
+
+GridCraft for Android is not affiliated with or endorsed by Microsoft. Excel is a trademark of
+Microsoft Corporation.
