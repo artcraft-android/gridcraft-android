@@ -202,7 +202,7 @@ private fun TellMeHeader(vm: AppViewModel, query: String, onQuery: (String) -> U
         Modifier.fillMaxWidth().height(ROW).background(GridColors.Strip).topEdge(GridColors.StripMore).bottomEdge(GridColors.StripMore),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BarButton(LucideIcons.ChevronLeft.glyph(), GridColors.Accent, { vm.tellMeOpen = false }, width = 56.dp, height = ROW, label = "Back")
+        BarButton(LucideIcons.ChevronLeft.glyph(), GridColors.BackIcon, { vm.tellMeOpen = false }, width = 56.dp, height = ROW, label = "Back")
         Box(Modifier.width(1.dp).height(32.dp).background(GridColors.SwitcherDivider))
         Box(Modifier.weight(1f).padding(start = 16.dp, end = 4.dp), contentAlignment = Alignment.CenterStart) {
             if (query.isEmpty()) Text("Search for a command", color = GridColors.Disabled, fontSize = 16.sp, maxLines = 1)
@@ -218,8 +218,7 @@ private fun TellMeHeader(vm: AppViewModel, query: String, onQuery: (String) -> U
             )
         }
         if (query.isNotEmpty()) BarButton(LucideIcons.X.glyph(), GridColors.HeaderIcon, { onQuery("") }, width = 48.dp, height = ROW, label = "Clear Search")
-        Box(Modifier.width(1.dp).height(32.dp).background(GridColors.SwitcherDivider))
-        BarButton(Glyph.Triangle(up = false), GridColors.AccentDark, vm::collapsePalette, width = 43.dp, height = ROW, label = "Collapse more options")
+        BarButton(Glyph.Triangle(up = false), GridColors.CollapseIcon, vm::collapsePalette, width = 43.dp, height = ROW, label = "Collapse more options")
     }
 }
 

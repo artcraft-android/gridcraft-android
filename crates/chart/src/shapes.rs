@@ -1649,6 +1649,23 @@ pub fn bounds(pieces: &[Piece]) -> [f32; 4] {
     if b[0] > b[2] { [0.0; 4] } else { b }
 }
 
+/// The pieces of the preset `name` drawn `w`×`h` that a picture cut to it shows through: its
+/// filled ones, so none for a line (the phone app shows nothing of a picture changed to a line);
+/// the whole box for a name GridCraft doesn't draw (one kept from a file).
+pub fn cut_pieces(name: &str, w: f32, h: f32) -> Vec<Piece> {
+    let filled = |p: &Piece| !matches!(p.paint, Paint::None | Paint::Ink) && p.segs.iter().any(|s| matches!(s, Seg::Close));
+    match preset(name, w, h) {
+        Some(pieces) => pieces.into_iter().filter(filled).collect(),
+        None => preset("rect", w, h).unwrap_or_default(),
+    }
+}
+
+/// What a picture cut to the preset `name` shows, drawn `w`×`h` from (`x`, `y`): the polylines of
+/// [`cut_pieces`], taken even-odd (one inside another is a hole).
+pub fn cut(name: &str, x: f32, y: f32, w: f32, h: f32) -> Vec<Vec<[f32; 2]>> {
+    cut_pieces(name, w, h).iter().flat_map(flatten).filter(|v| v.len() >= 3).map(|v| v.into_iter().map(|q| [x + q[0], y + q[1]]).collect()).collect()
+}
+
 /// A piece's subpaths as polylines (curves cut into short lines), for drawing where curves can't be.
 pub fn flatten(p: &Piece) -> Vec<Vec<[f32; 2]>> {
     let mut out: Vec<Vec<[f32; 2]>> = Vec::new();
@@ -1726,6 +1743,20 @@ mod tests {
             }
         }
         assert_eq!(GALLERY.iter().map(|(_, s)| s.len()).sum::<usize>(), 9 + 9 + 42 + 27 + 6 + 28 + 20 + 16);
+    }
+
+    #[test]
+    fn a_picture_is_cut_to_the_filled_pieces() {
+        let star = cut("star5", 10.0, 20.0, 100.0, 50.0);
+        assert_eq!(star.len(), 1);
+        assert!(star[0].len() >= 10 && star[0].iter().all(|q| (10.0..=110.01).contains(&q[0]) && (20.0..=70.01).contains(&q[1])));
+        // a frame has its hole; a line shows nothing, an unknown name the whole box
+        assert_eq!(cut("donut", 0.0, 0.0, 40.0, 40.0).len(), 2);
+        assert!(cut("line", 0.0, 0.0, 4.0, 3.0).is_empty());
+        assert!(cut_pieces("bentConnector3", 4.0, 3.0).is_empty());
+        let bx = cut("notAShape", 0.0, 0.0, 4.0, 3.0);
+        assert_eq!(bx.len(), 1);
+        assert!(bx[0].contains(&[4.0, 3.0]) && bx[0].contains(&[0.0, 0.0]));
     }
 
     #[test]

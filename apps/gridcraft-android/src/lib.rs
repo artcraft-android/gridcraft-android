@@ -1186,10 +1186,11 @@ impl MobileSession {
                 y,
                 width,
                 height,
-                shape: match im.look.shape {
+                shape: match &im.look.shape {
                     gridcraft_engine::model::PictureShape::Rectangle => String::new(),
                     gridcraft_engine::model::PictureShape::RoundedRectangle => "roundedRectangle".into(),
                     gridcraft_engine::model::PictureShape::Oval => "ellipse".into(),
+                    gridcraft_engine::model::PictureShape::Preset(_) => "preset".into(),
                 },
                 fill: None,
                 line: im.look.border.and_then(|(c, _)| c.resolve(&wb.theme)).map(argb),
@@ -1204,11 +1205,17 @@ impl MobileSession {
                 rotation: im.turn.rotation,
                 flip_h: im.turn.flip_h,
                 flip_v: im.turn.flip_v,
-                pieces: vec![],
+                pieces: match &im.look.shape {
+                    // cut to a gallery shape: that shape's filled pieces, at the picture's size
+                    gridcraft_engine::model::PictureShape::Preset(name) => {
+                        shape_pieces(&gridcraft_chart::shapes::cut_pieces(name, width as f32, height as f32), 1.0, 0.0, 0.0)
+                    }
+                    _ => vec![],
+                },
                 text_color: None,
                 text_align: String::new(),
                 text_anchor: String::new(),
-                preset: String::new(),
+                preset: im.look.shape.preset().to_string(),
                 gradient_colors: vec![],
                 gradient_stops: vec![],
                 gradient_angle: 0.0,

@@ -869,25 +869,23 @@ private val RECENT_LABELS = mapOf("textBox" to "Insert a Text Box")
 
 /**
  * Shapes: the gallery's bands, eight tiles to a row, each shape drawn on its tile; a tap inserts
- * that shape, or ([change]) gives the selected shape its outline (lines and text boxes left out).
+ * that shape, or ([change], five to a row) gives the selected shape or picture its outline.
  */
 @Composable
 internal fun ShapesPanel(vm: AppViewModel, change: Boolean = false) {
     var bands by remember { mutableStateOf<List<io.github.artcraftandroid.gridcraft.core.ShapeBand>>(emptyList()) }
     LaunchedEffect(Unit) { bands = vm.shapeGallery() }
-    val all = if (change) {
-        bands.filter { it.name != "Lines" }.map { b -> b.name to b.shapes.filter { it.kind != "textBox" }.map { it.label to it.kind } }
-    } else {
-        // the shapes inserted lately, newest first, named as the bands name them
-        val label = bands.flatMap { it.shapes }.associate { it.kind to it.label } + RECENT_LABELS
-        val recent = vm.recentShapes.mapNotNull { k -> label[k]?.let { it to k } }
-        listOf("Recent Shapes" to recent) + bands.map { b -> b.name to b.shapes.map { it.label to it.kind } }
-    }
+    // the shapes inserted lately, newest first, named as the bands name them; then every band.
+    // Change Shape offers the same, five to a row as the phone app's (Insert's has eight)
+    val label = bands.flatMap { it.shapes }.associate { it.kind to it.label } + RECENT_LABELS
+    val recent = vm.recentShapes.mapNotNull { k -> label[k]?.let { it to k } }
+    val all = listOf("Recent Shapes" to recent) + bands.map { b -> b.name to b.shapes.map { it.label to it.kind } }
+    val perRow = if (change) 5 else 8
     Scrolling {
         for ((band, tiles) in all) {
             SectionBand(band)
             Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                for (row in tiles.chunked(8)) {
+                for (row in tiles.chunked(perRow)) {
                     Row(Modifier.fillMaxWidth().height(57.dp)) {
                         for ((label, kind) in row) {
                             Box(
@@ -895,7 +893,7 @@ internal fun ShapesPanel(vm: AppViewModel, change: Boolean = false) {
                                 contentAlignment = Alignment.Center,
                             ) { ShapeTile(vm, kind) }
                         }
-                        repeat(8 - row.size) { Spacer(Modifier.weight(1f)) }
+                        repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }

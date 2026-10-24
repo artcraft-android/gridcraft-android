@@ -1641,11 +1641,21 @@ fn style_picture(s: &mut Session, p: &Json) -> Result<Json> {
             other => return Err(bad("picture.style", format!("unknown preset `{other}`"))),
         }),
     };
+    // the three outlines by name, or any shape of the Shapes gallery (Change Shape) by its preset
     let shape = match str_param(p, "shape") {
         None => None,
         Some("rectangle") => Some(PictureShape::Rectangle),
         Some("roundedRectangle") => Some(PictureShape::RoundedRectangle),
         Some("oval") => Some(PictureShape::Oval),
+        // only a gallery name's geometry cuts a picture (a line's arrowheads don't; a text box
+        // is its box; a straight line is a straight connector, as the phone app saves it)
+        Some(name) if gridcraft_chart::shapes::is_preset(name) => {
+            Some(PictureShape::from_preset(match gridcraft_chart::shapes::split_arrows(name).0 {
+                "textBox" => "rect",
+                "line" => "straightConnector1",
+                g => g,
+            }))
+        }
         Some(other) => return Err(bad("picture.style", format!("unknown shape `{other}`"))),
     };
     let border = match p.get("border") {
@@ -1659,7 +1669,7 @@ fn style_picture(s: &mut Session, p: &Json) -> Result<Json> {
     edit(s, |cx| {
         let sh = cx.sheet_mut(sheet)?;
         let img = sh.images.iter_mut().find(|i| i.id == id).ok_or_else(|| bad("picture.style", "no such picture"))?;
-        let mut look = preset.unwrap_or(img.look);
+        let mut look = preset.unwrap_or_else(|| img.look.clone());
         if let Some(sh) = shape {
             look.shape = sh;
         }

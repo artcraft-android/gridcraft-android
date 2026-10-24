@@ -478,7 +478,9 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                     val objTop = obj?.let { screenY(it.y) } ?: 0f
                     val objW = obj?.let { (it.width * unit).toFloat() } ?: 0f
                     val objH = obj?.let { (it.height * unit).toFloat() } ?: 0f
-                    val turnable = obj != null && obj.kind != "chart" && vm.editingShapeText == null && !vm.cropping
+                    // a line has only its two ends (no rotate or move handle)
+                    val ends = obj?.takeIf { it.isLine }?.lineEnds
+                    val turnable = obj != null && obj.kind != "chart" && ends == null && vm.editingShapeText == null && !vm.cropping
                     val centre = Offset(objLeft + objW / 2, objTop + objH / 2)
                     // a turned object's handles turn with it: touches are taken back into its frame
                     val turnRad = Math.toRadians((obj?.rotation ?: 0f).toDouble())
@@ -488,8 +490,7 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                     val onRotate = turnable && hypot(at.x - centre.x, at.y - (objTop - ROTATE_HANDLE_DP * density)) < reach
                     val onMoveHandle = turnable && hypot(at.x - centre.x, at.y - (objTop + objH + MOVE_HANDLE_DP * density)) < reach
                     val grip = if (obj == null || onRotate || onMoveHandle) null else {
-                        listOf(0f, 0.5f, 1f).flatMap { fx -> listOf(0f, 0.5f, 1f).map { fy -> fx to fy } }
-                            .filter { it != 0.5f to 0.5f }
+                        (ends ?: listOf(0f, 0.5f, 1f).flatMap { fx -> listOf(0f, 0.5f, 1f).map { fy -> fx to fy } }.filter { it != 0.5f to 0.5f })
                             .minByOrNull { (fx, fy) -> hypot(at.x - (objLeft + objW * fx), at.y - (objTop + objH * fy)) }
                             ?.takeIf { (fx, fy) -> hypot(at.x - (objLeft + objW * fx), at.y - (objTop + objH * fy)) < reach }
                     }
@@ -829,8 +830,9 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
     vm.selectedObject?.takeIf { it.kind == "shape" && vm.editingShapeText == it.id.toLong() }?.let { o ->
         ShapeTextEditor(vm, o, screenX(o.x), screenY(o.y), (o.width * unit).toFloat(), (o.height * unit).toFloat(), unit)
     }
-    // the selected object's menu, just above it (below it when it is at the top), only while it shows
-    vm.selectedObject?.takeIf { vm.objectDrag == null && vm.editingShapeText == null && !vm.cropping }?.let { o ->
+    // the selected object's menu, just above it (below it when it is at the top), only while it
+    // shows and the palette is closed, as the phone app hides it under an open palette
+    vm.selectedObject?.takeIf { vm.objectDrag == null && vm.editingShapeText == null && !vm.cropping && !vm.paletteOpen }?.let { o ->
         val left = screenX(o.x)
         val top = screenY(o.y)
         val w = (o.width * unit).toFloat()
@@ -1635,11 +1637,18 @@ private fun DrawScope.drawObjects(
             }
             "image" -> {
                 val img = vm.pictures[o.index]
-                // the outline it is cut to, its shadow, its frame
+                // the outline it is cut to (a gallery shape's filled pieces after Change Shape:
+                // none for a line, which shows nothing of it), its shadow, its frame
                 val outline = androidx.compose.ui.graphics.Path().apply {
-                    when (o.shape) {
-                        "roundedRectangle" -> addRoundRect(androidx.compose.ui.geometry.RoundRect(left, top, left + w, top + h, androidx.compose.ui.geometry.CornerRadius(minOf(w, h) / 6f)))
-                        "ellipse" -> addOval(androidx.compose.ui.geometry.Rect(left, top, left + w, top + h))
+                    fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
+                    when {
+                        o.shape == "preset" -> {
+                            val sx = w / o.width.toFloat().coerceAtLeast(1e-3f)
+                            val sy = h / o.height.toFloat().coerceAtLeast(1e-3f)
+                            for (p in o.pieces) addPath(piecePath(p, left, top, sx, sy).first)
+                        }
+                        o.shape == "roundedRectangle" -> addRoundRect(androidx.compose.ui.geometry.RoundRect(left, top, left + w, top + h, androidx.compose.ui.geometry.CornerRadius(minOf(w, h) / 6f)))
+                        o.shape == "ellipse" -> addOval(androidx.compose.ui.geometry.Rect(left, top, left + w, top + h))
                         else -> addRect(androidx.compose.ui.geometry.Rect(left, top, left + w, top + h))
                     }
                 }
@@ -1676,11 +1685,12 @@ private fun DrawScope.drawObjects(
         if (dragged) withTransform({ if (turn != 0f) rotate(turn, centre) }) {
             // as the phone app: a thin grey frame, eight white handles ringed in grey, and for a
             // shape or picture a rotate handle above and a move handle below on stems, all
-            // turned with the object
-            drawRect(HANDLE_LINE, Offset(left, top), Size(w, h), style = Stroke(1f * density))
+            // turned with the object; a line has only a handle at each end
+            val ends = o.takeIf { it.isLine }?.lineEnds
+            if (ends == null) drawRect(HANDLE_LINE, Offset(left, top), Size(w, h), style = Stroke(1f * density))
             val r = 5.5f * density
             val line = Stroke(1.5f * density)
-            if (o.kind != "chart" && vm.editingShapeText == null && !vm.cropping) {
+            if (o.kind != "chart" && ends == null && vm.editingShapeText == null && !vm.cropping) {
                 val cx = left + w / 2
                 val rot = Offset(cx, top - ROTATE_HANDLE_DP * density)
                 val mov = Offset(cx, top + h + MOVE_HANDLE_DP * density)
@@ -1689,8 +1699,7 @@ private fun DrawScope.drawObjects(
                 rotateGlyph(rot, 9f * density, density)
                 moveGlyph(mov, 12f * density, density)
             }
-            for (fx in listOf(0f, 0.5f, 1f)) for (fy in listOf(0f, 0.5f, 1f)) {
-                if (fx == 0.5f && fy == 0.5f) continue
+            for ((fx, fy) in ends ?: listOf(0f, 0.5f, 1f).flatMap { fx -> listOf(0f, 0.5f, 1f).map { fy -> fx to fy } }.filter { it != 0.5f to 0.5f }) {
                 val pt = Offset(left + w * fx, top + h * fy)
                 drawCircle(Color.White, r, pt)
                 drawCircle(HANDLE_LINE, r, pt, style = line)
@@ -1780,34 +1789,7 @@ internal fun DrawScope.drawPieces(
     gradient: Brush? = null,
 ) {
     for (p in pieces) {
-        val c = p.cmds
-        val at = { i: Int -> c.getOrElse(i) { 0f } }
-        val x = { i: Int -> left + at(i) * sx }
-        val y = { i: Int -> top + at(i) * sy }
-        val path = androidx.compose.ui.graphics.Path().apply { fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd }
-        var closed = false
-        var i = 0
-        while (i < c.size) {
-            when (c[i].toInt()) {
-                0 -> {
-                    path.moveTo(x(i + 1), y(i + 2))
-                    i += 3
-                }
-                1 -> {
-                    path.lineTo(x(i + 1), y(i + 2))
-                    i += 3
-                }
-                2 -> {
-                    path.cubicTo(x(i + 1), y(i + 2), x(i + 3), y(i + 4), x(i + 5), y(i + 6))
-                    i += 7
-                }
-                else -> {
-                    path.close()
-                    closed = true
-                    i += 1
-                }
-            }
-        }
+        val (path, closed) = piecePath(p, left, top, sx, sy)
         val paint = when (p.paint) {
             "none" -> null
             "ink" -> openInk ?: line ?: fill
@@ -1817,6 +1799,39 @@ internal fun DrawScope.drawPieces(
         val ink = if (p.paint == "none") openInk ?: line else line
         if (p.stroke && ink != null) drawPath(path, ink, style = Stroke(width, join = androidx.compose.ui.graphics.StrokeJoin.Round))
     }
+}
+
+/** A piece's path, scaled by ([sx], [sy]) from ([left], [top]), filled even-odd; and whether it closes. */
+private fun piecePath(p: io.github.artcraftandroid.gridcraft.core.ShapePiece, left: Float, top: Float, sx: Float, sy: Float): Pair<androidx.compose.ui.graphics.Path, Boolean> {
+    val c = p.cmds
+    val at = { i: Int -> c.getOrElse(i) { 0f } }
+    val x = { i: Int -> left + at(i) * sx }
+    val y = { i: Int -> top + at(i) * sy }
+    val path = androidx.compose.ui.graphics.Path().apply { fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd }
+    var closed = false
+    var i = 0
+    while (i < c.size) {
+        when (c[i].toInt()) {
+            0 -> {
+                path.moveTo(x(i + 1), y(i + 2))
+                i += 3
+            }
+            1 -> {
+                path.lineTo(x(i + 1), y(i + 2))
+                i += 3
+            }
+            2 -> {
+                path.cubicTo(x(i + 1), y(i + 2), x(i + 3), y(i + 4), x(i + 5), y(i + 6))
+                i += 7
+            }
+            else -> {
+                path.close()
+                closed = true
+                i += 1
+            }
+        }
+    }
+    return path to closed
 }
 
 /**

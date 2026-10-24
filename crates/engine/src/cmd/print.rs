@@ -1391,28 +1391,32 @@ fn draw_objects(pg: &mut Page, wb: &Workbook, si: usize, sh: &Sheet, b: &Block) 
         // a cropped picture: decode at the size the whole would have, then keep the part shown
         let (cl, ct, cw, chh) = im.crop.shown();
         let (fw, fh) = (((mw as f32) / cw).ceil().min(8000.0) as u32, ((mh as f32) / chh).ceil().min(8000.0) as u32);
+        // a picture changed to a line shows nothing
+        let outline = gridcraft_chart::shapes::cut(im.look.shape.preset(), x, y, w, h);
+        if outline.is_empty() {
+            continue;
+        }
         if let Some((px, pw, ph)) = decode_image(&im.data, fw, fh).map(|(px, pw, ph)| crop_rgba(px, pw, ph, (cl, ct, cw, chh))) {
             pg.save();
             pg.turn(x + w / 2.0, y + h / 2.0, im.turn.rotation, im.turn.flip_h, im.turn.flip_v);
-            let outline = im.look.shape.outline(x, y, w, h);
             if im.look.shadow {
                 let d = 3.0 * b.k;
-                let shade: Vec<[f32; 2]> = outline.iter().map(|q| [q[0] + d, q[1] + d]).collect();
+                let shade: Vec<Vec<[f32; 2]>> = outline.iter().map(|v| v.iter().map(|q| [q[0] + d, q[1] + d]).collect()).collect();
                 pg.save();
                 pg.opacity(0.35);
-                pg.polygon(&shade, Some([0, 0, 0]), None);
+                pg.polygons(&shade, true, Some([0, 0, 0]), None);
                 pg.restore();
             }
             pg.save();
             if im.look.shape != gridcraft_model::PictureShape::Rectangle {
-                pg.clip_polygon(&outline);
+                pg.clip_polygons(&outline);
             }
             pg.image_rgba(x, y, w, h, &px, pw, ph);
             pg.restore();
             if let Some((c, bw)) = im.look.border
                 && let Some(c) = rgb_of(c, wb)
             {
-                pg.polygon(&outline, None, Some((c, (bw * b.scale).max(0.25))));
+                pg.polygons(&outline, true, None, Some((c, (bw * b.scale).max(0.25))));
             }
             pg.restore();
         }

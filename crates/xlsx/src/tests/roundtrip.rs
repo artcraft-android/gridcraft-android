@@ -331,7 +331,12 @@ fn sample() -> Workbook {
         alt: "Logo \"x\"".into(),
         turn: gridcraft_model::Turn { rotation: 30.0, flip_h: false, flip_v: true },
         crop: gridcraft_model::Crop { left: 0.1, top: 0.0, right: 0.25, bottom: 0.05 },
-        look: gridcraft_model::PictureLook { shape: gridcraft_model::PictureShape::Oval, border: Some((Color::Rgb(0x203040), 3.0)), shadow: true },
+        // cut to a gallery shape (Change Shape), framed and shadowed
+        look: gridcraft_model::PictureLook {
+            shape: gridcraft_model::PictureShape::Preset("heart".into()),
+            border: Some((Color::Rgb(0x203040), 3.0)),
+            shadow: true,
+        },
     });
     s.shapes.push(Shape {
         id: 11,
@@ -587,6 +592,7 @@ fn full_roundtrip() {
     assert_eq!(b.images.len(), 1);
     assert_eq!(b.images[0].data, a.images[0].data);
     assert_eq!(b.images[0].alt, a.images[0].alt);
+    assert_eq!(b.images[0].look, a.images[0].look);
     let close = |x: f32, y: f32| (x - y).abs() < 0.01;
     let (ia, ib) = (a.images[0].anchor, b.images[0].anchor);
     assert!(

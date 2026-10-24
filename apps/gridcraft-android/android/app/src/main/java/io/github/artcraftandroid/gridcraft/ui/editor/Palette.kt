@@ -161,7 +161,7 @@ private fun TabHeader(vm: AppViewModel, tab: String) {
             Row(Modifier.widthIn(min = 112.dp).fillMaxHeight().clickable { vm.toggleTabs() }.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(tab, color = GridColors.Accent, fontSize = 18.sp, maxLines = 1)
                 Spacer(Modifier.width(12.dp).weight(1f, fill = false))
-                GlyphIcon(LucideIcons.ChevronsUpDown.glyph(), GridColors.Accent, size = 20.dp)
+                GlyphIcon(LucideIcons.ChevronsUpDown.glyph(), GridColors.SwitchIcon, size = 20.dp)
                 Spacer(Modifier.width(10.dp))
             }
             // the tab list opens centred on this button, over the grid and the palette alike
@@ -178,8 +178,7 @@ private fun TabHeader(vm: AppViewModel, tab: String) {
         BarButton(LucideIcons.Lightbulb.glyph(), GridColors.HeaderIcon, { vm.tellMeOpen = true }, width = 48.dp, height = ROW, label = "Tell me")
         BarButton(LucideIcons.Undo2.glyph(), GridColors.HeaderIcon, vm::undo, enabled = info?.canUndo == true, width = 48.dp, height = ROW, disabledTint = GridColors.HeaderIconDisabled, label = "Undo")
         BarButton(LucideIcons.Redo2.glyph(), GridColors.HeaderIcon, vm::redo, enabled = info?.canRedo == true, width = 48.dp, height = ROW, disabledTint = GridColors.HeaderIconDisabled, label = "Redo")
-        Box(Modifier.width(1.dp).height(32.dp).background(GridColors.SwitcherDivider))
-        BarButton(Glyph.Triangle(up = false), GridColors.AccentDark, vm::collapsePalette, width = 43.dp, height = ROW, label = "Collapse more options")
+        BarButton(Glyph.Triangle(up = false), GridColors.CollapseIcon, vm::collapsePalette, width = 43.dp, height = ROW, label = "Collapse more options")
     }
 }
 
@@ -195,8 +194,7 @@ private fun PageHeader(vm: AppViewModel, title: String) {
         BarButton(LucideIcons.Lightbulb.glyph(), GridColors.HeaderIcon, vm::tellMeFromPage, width = 48.dp, height = ROW, label = "Tell me")
         BarButton(LucideIcons.Undo2.glyph(), GridColors.HeaderIcon, vm::undo, enabled = info?.canUndo == true, width = 48.dp, height = ROW, disabledTint = GridColors.HeaderIconDisabled, label = "Undo")
         BarButton(LucideIcons.Redo2.glyph(), GridColors.HeaderIcon, vm::redo, enabled = info?.canRedo == true, width = 48.dp, height = ROW, disabledTint = GridColors.HeaderIconDisabled, label = "Redo")
-        Box(Modifier.width(1.dp).height(32.dp).background(GridColors.SwitcherDivider))
-        BarButton(Glyph.Triangle(up = false), GridColors.AccentDark, vm::collapsePalette, width = 43.dp, height = ROW, label = "Collapse more options")
+        BarButton(Glyph.Triangle(up = false), GridColors.CollapseIcon, vm::collapsePalette, width = 43.dp, height = ROW, label = "Collapse more options")
     }
 }
 
@@ -206,11 +204,10 @@ private fun PanelHeader(title: String, onBack: () -> Unit, onClose: () -> Unit) 
         Modifier.fillMaxWidth().height(ROW).background(GridColors.Strip).topEdge(GridColors.StripMore).bottomEdge(GridColors.StripMore),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BarButton(LucideIcons.ChevronLeft.glyph(), GridColors.Accent, onBack, width = 56.dp, height = ROW, label = "Back")
+        BarButton(LucideIcons.ChevronLeft.glyph(), GridColors.BackIcon, onBack, width = 56.dp, height = ROW, label = "Back")
         Box(Modifier.width(1.dp).height(32.dp).background(GridColors.SwitcherDivider))
         Text(title, color = GridColors.Accent, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 16.dp))
-        Box(Modifier.width(1.dp).height(32.dp).background(GridColors.SwitcherDivider))
-        BarButton(Glyph.Triangle(up = false), GridColors.AccentDark, onClose, width = 43.dp, height = ROW, label = "Collapse more options")
+        BarButton(Glyph.Triangle(up = false), GridColors.CollapseIcon, onClose, width = 43.dp, height = ROW, label = "Collapse more options")
     }
 }
 

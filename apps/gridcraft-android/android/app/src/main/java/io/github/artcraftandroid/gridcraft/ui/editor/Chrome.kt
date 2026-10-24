@@ -1259,9 +1259,23 @@ fun CommentsPane(vm: AppViewModel) {
     }
 }
 
-/** A line, an arrow or a connector: a shape that is all outline and holds no text. */
+/**
+ * A line, an arrow or a connector: a shape that is all outline and holds no text, or a picture
+ * changed to one (nothing of it shows).
+ */
 internal val io.github.artcraftandroid.gridcraft.core.SheetObject.isLine: Boolean
-    get() = kind == "shape" && (shape == "line" || shape == "arrow" || preset.contains("Connector"))
+    get() = (kind == "shape" && (shape == "line" || shape == "arrow" || preset.contains("Connector"))) ||
+        (kind == "image" && shape == "preset" && pieces.isEmpty())
+
+/**
+ * A line's two ends as fractions of its box (start, end): corner to corner, mirrored as it is;
+ * the only handles the phone app gives a line.
+ */
+internal val io.github.artcraftandroid.gridcraft.core.SheetObject.lineEnds: List<Pair<Float, Float>>
+    get() {
+        val (sx, sy) = (if (flipH) 1f else 0f) to (if (flipV) 1f else 0f)
+        return listOf(sx to sy, (1f - sx) to (1f - sy))
+    }
 
 /** The selected object's floating menu over the grid: Cut, Copy, Paste, Delete, Edit Text. */
 @Composable

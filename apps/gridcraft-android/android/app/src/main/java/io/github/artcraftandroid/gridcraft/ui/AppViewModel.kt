@@ -755,11 +755,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putString("recentShapeStyles", recentShapeStyles.joinToString(",")).apply()
     }
 
-    /** Change Shape: the selected shape takes [kind]'s outline (a Shapes gallery name). */
+    /**
+     * Change Shape: the selected shape takes [kind]'s outline (a Shapes gallery name), or the
+     * selected picture is cut to it.
+     */
     fun changeShape(kind: String) {
         val o = selectedObject ?: return
         popPanel()
-        command("shape.change", org.json.JSONObject().put("id", o.id.toLong()).put("kind", kind).toString())
+        if (o.kind == "image") {
+            command("picture.style", org.json.JSONObject().put("id", o.id.toLong()).put("shape", kind).toString())
+        } else {
+            command("shape.change", org.json.JSONObject().put("id", o.id.toLong()).put("kind", kind).toString())
+        }
     }
 
     /**

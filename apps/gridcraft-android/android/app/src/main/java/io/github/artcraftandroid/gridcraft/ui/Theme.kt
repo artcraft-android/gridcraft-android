@@ -25,9 +25,6 @@ object GridColors {
     /** Tab and panel titles, their icons, the selection. */
     val Accent get() = pick(0xFF1F9D55, 0xFF5BC98C)
 
-    /** The darker accent (lighter in dark): the palette's open/close handle, the current tab's label. */
-    val AccentDark get() = pick(0xFF187A42, 0xFF8FDCB2)
-
     /** Small coloured parts of icons (list bullets, the strip's more arrow). */
     val AccentLight get() = pick(0xFF2BB065, 0xFF5BC98C)
     val AccentDisabled get() = pick(0xFF94D2AF, 0xFF2F5A43)
@@ -42,6 +39,14 @@ object GridColors {
 
     /** The palette header's Tell Me, Undo and Redo. */
     val HeaderIcon get() = pick(0xFF1F9D55, 0xFFCACACA)
+
+    /**
+     * The palette header's tab-switch arrows, collapse arrow and Back: the accent in light; in
+     * dark white, light grey and grey, as the phone app draws them.
+     */
+    val SwitchIcon get() = pick(0xFF1F9D55, 0xFFFFFFFF)
+    val CollapseIcon get() = pick(0xFF187A42, 0xFFE8E8E8)
+    val BackIcon get() = pick(0xFF1F9D55, 0xFF6E6E6E)
     val HeaderIconDisabled get() = pick(0xFF94D2AF, 0xFF575757)
 
     /** Bottom sheets (the header's overflow). */

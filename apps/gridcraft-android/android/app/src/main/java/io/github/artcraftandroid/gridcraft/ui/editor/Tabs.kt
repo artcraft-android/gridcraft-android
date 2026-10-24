@@ -680,13 +680,16 @@ internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
         }
         "Picture" -> Scrolling {
             // as the phone app's Picture tab: Styles, Picture Effects | Arrange | Crop Picture (the
-            // left part crops on the picture, the arrow its positions) | Size, Alt Text | Reset
+            // left part crops on the picture, the arrow its positions) | Change Shape (the
+            // outline it is cut to) | Size, Alt Text | Reset
             PaletteRow("Styles", LucideIcons.SwatchBook.glyph(), onClick = { vm.pushPanel("pictureStyles") }, chevron = true)
             PaletteRow("Picture Effects", LucideIcons.WandSparkles.glyph(), onClick = { vm.pushPanel("pictureEffects") }, chevron = true)
             Band()
             PaletteRow("Arrange", LucideIcons.Layers.glyph(), onClick = { vm.pushPanel("arrange") }, chevron = true)
             Band()
             PaletteRow("Crop Picture", LucideIcons.Crop.glyph(), onClick = vm::toggleCrop, pressed = vm.cropping, onOpen = { vm.pushPanel("cropPicture") })
+            Band()
+            PaletteRow("Change Shape", LucideIcons.Shapes.glyph(), onClick = { vm.pushPanel("changeShape") }, chevron = true)
             Band()
             PaletteRow("Size", LucideIcons.Image.glyph(), onClick = { vm.pushPanel("shapeSize") }, chevron = true)
             PaletteRow("Alt Text", LucideIcons.ScanText.glyph(), onClick = { vm.pushPanel("altText") }, chevron = true)
@@ -747,15 +750,6 @@ private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
             SectionBand("Shadow")
             ChoiceRow("No Shadow", !on, onClick = { vm.stylePicture(org.json.JSONObject().put("shadow", false)) })
             ChoiceRow("Drop Shadow", on, onClick = { vm.stylePicture(org.json.JSONObject().put("shadow", true)) })
-            SectionBand("Shape")
-            for ((label, shape) in listOf("Rectangle" to "rectangle", "Rounded Rectangle" to "roundedRectangle", "Oval" to "oval")) {
-                val current = when (vm.selectedObject?.shape) {
-                    "roundedRectangle" -> "roundedRectangle"
-                    "ellipse" -> "oval"
-                    else -> "rectangle"
-                }
-                ChoiceRow(label, current == shape, onClick = { vm.stylePicture(org.json.JSONObject().put("shape", shape)) })
-            }
         }
         "pictureReset" -> Scrolling {
             ChoiceRow("Reset Picture", false, onClick = { vm.resetPicture() })

@@ -636,7 +636,7 @@ pub struct Image {
 }
 
 /// How a picture is framed: the outline it is cut to, a frame around it, a drop shadow.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PictureLook {
     pub shape: PictureShape,
@@ -652,40 +652,35 @@ impl PictureLook {
 }
 
 /// The outline a picture is cut to.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PictureShape {
     #[default]
     Rectangle,
     /// Corners rounded by a sixth of the shorter side.
     RoundedRectangle,
     Oval,
+    /// Any other shape of the Shapes gallery (Change Shape): its DrawingML preset name.
+    Preset(String),
 }
 
 impl PictureShape {
-    /// The outline of a box (x, y, width, height) as a closed polygon, clockwise from the top left.
-    pub fn outline(self, x: f32, y: f32, w: f32, h: f32) -> Vec<[f32; 2]> {
+    /// The outline a DrawingML preset name (`a:prstGeom prst`) cuts a picture to.
+    pub fn from_preset(name: &str) -> PictureShape {
+        match ShapeFormat::clean_preset(name).as_str() {
+            "" | "rect" => PictureShape::Rectangle,
+            "roundRect" => PictureShape::RoundedRectangle,
+            "ellipse" => PictureShape::Oval,
+            n => PictureShape::Preset(n.to_string()),
+        }
+    }
+
+    /// Its DrawingML preset name.
+    pub fn preset(&self) -> &str {
         match self {
-            PictureShape::Rectangle => vec![[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
-            PictureShape::Oval => (0..64)
-                .map(|i| {
-                    let a = i as f32 / 64.0 * std::f32::consts::TAU;
-                    [x + w / 2.0 + w / 2.0 * a.cos(), y + h / 2.0 + h / 2.0 * a.sin()]
-                })
-                .collect(),
-            PictureShape::RoundedRectangle => {
-                let r = (w.min(h) / 6.0).max(0.0);
-                let corner = |cx: f32, cy: f32, from: f32| {
-                    (0..=8).map(move |i| {
-                        let a = (from + 90.0 * i as f32 / 8.0).to_radians();
-                        [cx + r * a.cos(), cy + r * a.sin()]
-                    })
-                };
-                corner(x + r, y + r, 180.0)
-                    .chain(corner(x + w - r, y + r, 270.0))
-                    .chain(corner(x + w - r, y + h - r, 0.0))
-                    .chain(corner(x + r, y + h - r, 90.0))
-                    .collect()
-            }
+            PictureShape::Rectangle => "rect",
+            PictureShape::RoundedRectangle => "roundRect",
+            PictureShape::Oval => "ellipse",
+            PictureShape::Preset(n) => n,
         }
     }
 }

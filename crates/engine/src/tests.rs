@@ -3783,14 +3783,37 @@ fn picture_styles_set_the_look() {
     s.new_workbook();
     let id = add_image(&mut s, "B2", gridcraft_model::AnchorMode::MoveOnly);
     s.execute("picture.style", json!({"id": id, "preset": "whiteFrame"})).unwrap();
-    let look = s.active().unwrap().wb.sheet(0).unwrap().images[0].look;
+    let look = s.active().unwrap().wb.sheet(0).unwrap().images[0].look.clone();
     assert_eq!((look.border, look.shadow), (Some((Color::Rgb(0xFFFFFF), 6.0)), true));
     s.execute("picture.style", json!({"id": id, "shape": "oval", "border": "#FF0000", "shadow": false})).unwrap();
-    let look = s.active().unwrap().wb.sheet(0).unwrap().images[0].look;
+    let look = s.active().unwrap().wb.sheet(0).unwrap().images[0].look.clone();
     assert_eq!((look.shape, look.border, look.shadow), (PictureShape::Oval, Some((Color::Rgb(0xFF0000), 6.0)), false));
     s.execute("picture.style", json!({"id": id, "preset": "none"})).unwrap();
     assert!(s.active().unwrap().wb.sheet(0).unwrap().images[0].look.is_none());
     assert!(s.execute("picture.style", json!({"id": id, "preset": "sparkly"})).is_err());
+}
+
+/// Change Shape on a picture: any gallery shape cuts it, the three named outlines stay themselves,
+/// and an unknown name is refused.
+#[test]
+fn picture_change_shape_takes_any_gallery_shape() {
+    use gridcraft_model::PictureShape;
+    let mut s = Session::new();
+    s.new_workbook();
+    let id = add_image(&mut s, "B2", gridcraft_model::AnchorMode::MoveOnly);
+    let shape = |s: &Session| s.active().unwrap().wb.sheet(0).unwrap().images[0].look.shape.clone();
+    s.execute("picture.style", json!({"id": id, "shape": "star5"})).unwrap();
+    assert_eq!(shape(&s), PictureShape::Preset("star5".into()));
+    s.execute("picture.style", json!({"id": id, "shape": "ellipse"})).unwrap();
+    assert_eq!(shape(&s), PictureShape::Oval);
+    s.execute("picture.style", json!({"id": id, "shape": "textBox"})).unwrap();
+    assert_eq!(shape(&s), PictureShape::Rectangle);
+    s.execute("picture.style", json!({"id": id, "shape": "arrow"})).unwrap();
+    assert_eq!(shape(&s), PictureShape::Preset("straightConnector1".into()));
+    s.execute("picture.style", json!({"id": id, "shape": "bentConnector3Arrow"})).unwrap();
+    assert_eq!(shape(&s), PictureShape::Preset("bentConnector3".into()));
+    assert!(s.execute("picture.style", json!({"id": id, "shape": "notAShape"})).is_err());
+    assert_eq!(shape(&s), PictureShape::Preset("bentConnector3".into()));
 }
 
 /// A date or time rule typed with dates and times keeps them as such, not as sums.

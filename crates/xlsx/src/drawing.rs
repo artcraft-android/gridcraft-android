@@ -489,11 +489,7 @@ fn look_xml(l: &PictureLook, theme: &Theme) -> String {
 /// A picture's outline, frame and shadow from its `spPr`.
 fn read_look(sp: Option<&El>) -> PictureLook {
     let Some(sp) = sp else { return PictureLook::default() };
-    let shape = match sp.child("prstGeom").and_then(|g| g.attr("prst")) {
-        Some("roundRect") => PictureShape::RoundedRectangle,
-        Some("ellipse") => PictureShape::Oval,
-        _ => PictureShape::Rectangle,
-    };
+    let shape = PictureShape::from_preset(sp.child("prstGeom").and_then(|g| g.attr("prst")).unwrap_or_default());
     let border = sp.child("ln").and_then(|ln| {
         let c = ln.child("solidFill").and_then(dml_color)?;
         let w = ln.attr_i64("w").map_or(0.75, |w| (w as f32 / 12700.0).clamp(0.25, 100.0));
@@ -563,11 +559,8 @@ pub fn write_drawing(sheet: &Sheet, theme: &Theme, objs: &[Obj<'_>]) -> String {
                     esc_attr(&img.alt),
                     src_rect(&img.crop),
                     xfrm_turned(&img.anchor, "a:xfrm", &img.turn),
-                    match img.look.shape {
-                        PictureShape::Rectangle => "rect",
-                        PictureShape::RoundedRectangle => "roundRect",
-                        PictureShape::Oval => "ellipse",
-                    },
+                    // a name as files may hold it (the model's own are; one from elsewhere may not be)
+                    Some(ShapeFormat::clean_preset(img.look.shape.preset())).filter(|n| !n.is_empty()).unwrap_or_else(|| "rect".into()),
                     look_xml(&img.look, theme)
                 );
             }
