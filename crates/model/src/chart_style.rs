@@ -131,9 +131,11 @@ pub struct ChartStyle {
     /// Data labels turned a quarter turn (reading upwards), and on a box of this colour.
     pub label_turn: bool,
     pub label_box: Option<Shade>,
-    /// A line chart's series: the line (drawn double: `cmpd dbl`), and markers on its points.
+    /// A line chart's series: the line (drawn double: `cmpd dbl`, or dotted: `sysDot`), and
+    /// markers on its points.
     pub line: Stroke,
     pub line_double: bool,
+    pub line_dots: bool,
     pub marker: Option<Marker>,
     /// Picking it brings in the chart's title; sets a doughnut's hole (percent; 0 leaves it).
     pub title_on: bool,
@@ -214,6 +216,7 @@ const LIGHT: ChartStyle = ChartStyle {
     hole: 0,
     line: Stroke { color: series(&[]), width: 2.25 },
     line_double: false,
+    line_dots: false,
     marker: None,
     legend: LegendPos::Bottom,
     value_axis: true,
@@ -477,6 +480,38 @@ pub const LINE_STYLES: [ChartStyle; 13] = [
     },
     ChartStyle { marker: round(5, series(&[]), SERIES_EDGE), ..line_style(332, LIGHT, 2.25) },
     line_style(342, STYLES[13], 2.75),
+];
+
+/// The Style page for radar charts, Style 1 to Style 8: lines like the line styles' on the column
+/// page's looks (two of them its own ids), most with the legend on top.
+pub const RADAR_STYLES: [ChartStyle; 8] = [
+    ChartStyle { legend: LegendPos::Top, ..line_style(317, LIGHT, 2.25) },
+    ChartStyle {
+        title: Type { size: 18.0, bold: true, caps: true, spacing: 150, color: grey(50) },
+        line_dots: true,
+        legend: LegendPos::Top,
+        ..line_style(318, LIGHT, 2.0)
+    },
+    line_style(206, STYLES[4], 1.25),
+    ChartStyle {
+        area: Paint::Gradient { stops: &[(43000, WHITE), (100_000, theme(LT1, &[ColorMod::LumMod(95000)]))], from: None },
+        title: Type { size: 16.0, bold: false, caps: false, spacing: 70, color: grey(50) },
+        text: grey(50),
+        labels: ty(9.0, false, grey(50)),
+        line: Stroke { color: series(&[ColorMod::Alpha(30000)]), width: 4.0 },
+        legend: LegendPos::Top,
+        ..line_style(319, LIGHT, 4.0)
+    },
+    ChartStyle {
+        title: Type { size: 14.0, bold: false, caps: false, spacing: 50, color: theme(LT1, &[ColorMod::LumMod(85000)]) },
+        grid: theme(LT1, &[ColorMod::Alpha(20000)]),
+        legend: LegendPos::Top,
+        category_lines: true,
+        ..line_style(320, STYLES[11], 2.25)
+    },
+    line_style(207, STYLES[5], 2.5),
+    ChartStyle { title: ty(14.0, true, theme(LT1, &[ColorMod::LumMod(85000)])), legend: LegendPos::Top, ..line_style(321, STYLES[7], 2.75) },
+    ChartStyle { legend: LegendPos::Top, ..line_style(351, STYLES[13], 2.75) },
 ];
 
 /// A pie style: a look of the column page's, its slices' fill, edge and effect, its legend, and
@@ -748,6 +783,7 @@ pub fn styles_for(kind: crate::features::ChartKind) -> &'static [ChartStyle] {
         K::BarClustered | K::BarStacked | K::BarStacked100 => &BAR_STYLES,
         K::Area | K::AreaStacked | K::AreaStacked100 => &AREA_STYLES,
         K::Scatter | K::ScatterLines | K::ScatterLinesNoMarkers => &SCATTER_STYLES,
+        K::Radar | K::RadarMarkers => &RADAR_STYLES,
         _ => &STYLES,
     }
 }
@@ -767,7 +803,14 @@ pub fn by_id(id: u16) -> Option<&'static ChartStyle> {
         .chain(BAR_STYLES.iter())
         .chain(AREA_STYLES.iter())
         .chain(SCATTER_STYLES.iter())
+        .chain(RADAR_STYLES.iter())
         .find(|s| s.id == id)
+}
+
+/// The style with this id as a chart of this kind has it: its own Style page's first (a radar
+/// chart's 206 is a line on the column page's 206), then any page's.
+pub fn by_id_for(kind: crate::features::ChartKind, id: u16) -> Option<&'static ChartStyle> {
+    styles_for(kind).iter().find(|s| s.id == id).or_else(|| by_id(id))
 }
 
 /// The colour of `shade` for a series coloured `series` (or none), in `theme`'s colours: red,

@@ -6,7 +6,7 @@ use std::f32::consts::{PI, TAU};
 use gridcraft_model::chart_style::{self, ChartStyle, Effect, Paint, Pattern, Shade};
 use gridcraft_model::{Chart, ChartKind, Depth, ErrorAmount, LabelPos, LabelText, LegendPos, LineDash, Theme, TrendlineKind};
 
-use crate::axis::{Fmt, Scale, clean, fixed_scale, nice_scale, nice_scale_within};
+use crate::axis::{Fmt, Scale, clean, fixed_scale, nice_scale, nice_scale_tight, nice_scale_within};
 use crate::resolve::{MAX_POINTS, MAX_SERIES, MAX_TRENDLINES, series_color};
 use crate::trend::{auto_name, fit_trendline, moving_average};
 use crate::{ChartData, HAlign, Measure, Prim, Rgba, SeriesData, VAlign};
@@ -587,7 +587,7 @@ fn render_points(chart: &Chart, data: &ChartData, w: f32, h: f32, m: &dyn Measur
     } else {
         Theme::default().colors.iter().map(|c| [(c >> 16) as u8, (c >> 8) as u8, *c as u8]).collect()
     };
-    let style = (data.style != 0).then(|| chart_style::by_id(data.style)).flatten();
+    let style = (data.style != 0).then(|| chart_style::by_id_for(chart.kind, data.style)).flatten();
     let mut ctx = Ctx { out: Vec::new(), m, style, theme };
     match style {
         Some(st) => {
@@ -723,16 +723,28 @@ fn axis_titles(ctx: &mut Ctx, chart: &Chart, mut area: Bx) -> Bx {
 // ---------------------------------------------------------------- legend
 
 fn swatch_w(sw: Swatch, s: f32) -> f32 {
-    if sw == Swatch::Box { s } else { s * 2.0 }
+    match sw {
+        Swatch::Box => s,
+        Swatch::Line | Swatch::LineMarker => LINE_KEY,
+        Swatch::Marker => s * 2.0,
+    }
 }
 
+/// How long a line's legend key is (points), as the reference draws it.
+const LINE_KEY: f32 = 19.5;
+
 fn draw_swatch(ctx: &mut Ctx, sw: Swatch, x: f32, yc: f32, s: f32, color: Rgba) {
+    // a line's key is as long as the reference's, dotted when the style's line is
+    let line = |ctx: &mut Ctx| {
+        let dots = ctx.style.is_some_and(|st| st.line_dots);
+        ctx.out.push(Prim::Line { pts: vec![[x, yc], [x + LINE_KEY, yc]], color, width: 2.0, dash: dots });
+    };
     match sw {
         Swatch::Box => ctx.rect(x, yc - s / 2.0, s, s, color, None),
-        Swatch::Line => ctx.hline(x, x + 2.0 * s, yc, color, 2.0),
+        Swatch::Line => line(ctx),
         Swatch::LineMarker => {
-            ctx.hline(x, x + 2.0 * s, yc, color, 2.0);
-            ctx.out.push(Prim::Circle { cx: x + s, cy: yc, r: s * 0.35, fill: Some(color), stroke: None });
+            line(ctx);
+            ctx.out.push(Prim::Circle { cx: x + LINE_KEY / 2.0, cy: yc, r: s * 0.6, fill: Some(color), stroke: None });
         }
         Swatch::Marker => ctx.out.push(Prim::Circle { cx: x + s, cy: yc, r: s * 0.4, fill: Some(color), stroke: None }),
     }
@@ -3104,13 +3116,28 @@ fn radar(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
     }
     let (cx, cy) = (area.cx(), area.cy());
     let (lo, hi) = value_range(data.series.iter().flat_map(|s| s.values.iter().flatten().copied())).unwrap_or((0.0, 0.0));
-    let sc = nice_scale(lo, hi, true);
+    // a ring for each 10.5 pt of the radius at the most (the reference's spacing), the outer one
+    // the top value's when it can be
+    let sc = nice_scale_tight(lo, hi, f64::from(r / MIN_GRID_GAP).floor());
     let f = Fmt::new(data.series.first().map(|s| s.number_format.as_str()).unwrap_or("General"));
     let ang = |j: usize| j as f32 / ncat as f32 * TAU;
     let pt = |a: f32, rr: f32| [cx + rr * a.sin(), cy - rr * a.cos()];
     let ticks = sc.ticks();
     let spacing = r / ticks.len().saturating_sub(1).max(1) as f32;
     let every = ((LABEL_SIZE * 1.3 / spacing.max(1e-3)).ceil() as usize).max(1);
+    // minor gridlines: rings between the major ones
+    if chart.elements.minor_val_gridlines {
+        for t in minor_ticks(&sc) {
+            let rr = sc.frac(t) * r;
+            if rr > 0.5 {
+                let mut ring: Vec<[f32; 2]> = (0..ncat.max(3)).map(|j| pt(j as f32 / ncat.max(3) as f32 * TAU, rr)).collect();
+                if let Some(p) = ring.first().copied() {
+                    ring.push(p);
+                }
+                ctx.line(ring, MINOR_GRID, 0.75);
+            }
+        }
+    }
     for (ti, t) in ticks.into_iter().enumerate() {
         let rr = sc.frac(t) * r;
         if rr > 0.5 && chart.gridlines {
@@ -3156,13 +3183,37 @@ fn radar(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
             ctx.out.push(Prim::Polygon { pts, fill: s.color, stroke: None });
             continue;
         }
-        if chart.kind == ChartKind::RadarMarkers {
-            draw_markers(ctx, pts.iter().copied(), 3.5, s.color);
-        }
+        let marks = pts.clone();
         if let Some(p) = pts.first().copied() {
             pts.push(p);
         }
-        ctx.line(pts, s.color, 2.0);
+        // a style's line (glowing, dotted) and markers, or the plain ones
+        let (line, width, dots) = match ctx.style {
+            Some(st) => (ctx.shade(&st.line.color, s.color), st.line.width, st.line_dots),
+            None => (s.color, 2.0, false),
+        };
+        if ctx.style.is_some_and(|st| st.effect == Effect::Glow) {
+            let glow = ctx.shade(&chart_style::GLOW, s.color);
+            ctx.line(pts.clone(), glow, width + 5.0);
+        }
+        if pts.len() >= 2 {
+            ctx.out.push(Prim::Line { pts, color: line, width, dash: dots });
+        }
+        let styled = ctx.styled_markers(marks.iter().copied(), s.color);
+        if !styled && chart.kind == ChartKind::RadarMarkers {
+            draw_markers(ctx, marks.iter().copied(), 3.5, s.color);
+        }
+        // the values by their points
+        if chart.data_labels {
+            let fmt = Fmt::new(&s.number_format);
+            for (j, p) in marks.iter().enumerate().take(MAX_LABELS) {
+                let Some(v) = s.values.get(j).copied().flatten() else { continue };
+                let t = label_text(chart.elements.label_text, &s.name, &cat_label(data, j), &fmt.format(v, None), None, ", ");
+                if !t.is_empty() {
+                    point_label(ctx, chart.elements.label_pos, *p, &t, s.color);
+                }
+            }
+        }
     }
 }
 

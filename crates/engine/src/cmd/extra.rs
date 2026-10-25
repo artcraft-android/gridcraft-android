@@ -479,6 +479,7 @@ enum Family {
     Scatter,
     Line,
     Pie,
+    Radar,
 }
 
 fn family(kind: ChartKind) -> Family {
@@ -493,13 +494,14 @@ fn family(kind: ChartKind) -> Family {
         | ChartKind::LineStacked100
         | ChartKind::LineStacked100Markers => Family::Line,
         ChartKind::Pie | ChartKind::PieOfPie | ChartKind::BarOfPie | ChartKind::Doughnut => Family::Pie,
+        ChartKind::Radar | ChartKind::RadarMarkers => Family::Radar,
         _ => Family::Column,
     }
 }
 
 /// How many layouts the Layout gallery offers a chart of this kind: the reference's sets for
 /// column and other charts with axes (11), bar charts (10), area charts (8), scatter charts (11),
-/// line charts (12) and pie charts (7).
+/// line charts (12), pie charts (7) and radar charts (4).
 pub fn quick_layouts(kind: ChartKind) -> u32 {
     match family(kind) {
         Family::Column => 11,
@@ -508,6 +510,7 @@ pub fn quick_layouts(kind: ChartKind) -> u32 {
         Family::Scatter => 11,
         Family::Line => 12,
         Family::Pie => 7,
+        Family::Radar => 4,
     }
 }
 
@@ -532,6 +535,7 @@ fn quick_layout(s: &mut Session, p: &Json) -> Result<Json> {
             Family::Area => area_layout(c, n),
             Family::Scatter => scatter_layout(c, n),
             Family::Column => column_layout(c, n),
+            Family::Radar => radar_layout(c, n),
         }
         Ok(())
     })
@@ -694,6 +698,27 @@ fn line_layout(c: &mut Chart, n: u32) {
 }
 
 /// The reference's seven pie layouts: (title, legend, what the labels say; none for no labels).
+/// The reference's four layouts as they set a radar chart: the title and legend, values by the
+/// points, minor rings.
+fn radar_layout(c: &mut Chart, n: u32) {
+    // (title, legend, value labels, minor gridlines)
+    let (title, legend, labels, minor) = match n {
+        2 => (true, LegendPos::Top, true, false),
+        3 => (true, LegendPos::Top, true, true),
+        4 => (false, LegendPos::Right, false, false),
+        _ => (true, LegendPos::Right, false, false),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels;
+    c.gridlines = true;
+    let e = &mut c.elements;
+    e.label_pos = LabelPos::Auto;
+    e.last_point_labels = false;
+    e.label_text = if labels { LabelText::of(true, false, false, false) } else { LabelText::default() };
+    e.minor_val_gridlines = minor;
+}
+
 fn pie_layout(c: &mut Chart, n: u32) {
     let (title, legend, labels) = match n {
         2 => (true, LegendPos::Top, Some(LabelText::of(false, false, false, true))),

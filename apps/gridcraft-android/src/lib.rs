@@ -1022,6 +1022,19 @@ impl MobileSession {
         let (values, range, kind) = match gridcraft_engine::cmd::extra::quick_layouts(own.kind) {
             7 => (json!([["", "Sales"], ["Q1", 7.8], ["Q2", 3.5], ["Q3", 1.6], ["Q4", 1.1]]), "A1:B5", "pie"),
             12 => (three(), "A1:D3", "line"),
+            // a radar's round five categories
+            4 => (
+                json!([
+                    ["", "Series1", "Series2"],
+                    ["Category 1", 4.3, 2.4],
+                    ["Category 2", 2.5, 4.4],
+                    ["Category 3", 3.5, 1.8],
+                    ["Category 4", 4.5, 2.8],
+                    ["Category 5", 2.9, 3.6]
+                ]),
+                "A1:C6",
+                "radar",
+            ),
             _ => (three(), "A1:D3", "column"),
         };
         // the title the chart shows: its own, or the one series' name it takes on its own

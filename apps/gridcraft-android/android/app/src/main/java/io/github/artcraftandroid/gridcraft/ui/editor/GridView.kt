@@ -2248,7 +2248,8 @@ internal fun drawPrim(nc: android.graphics.Canvas, pr: io.github.artcraftandroid
         }
         is io.github.artcraftandroid.gridcraft.core.ChartPrim.Line -> {
             stroke(pr.color, pr.width)
-            if (pr.dash) p.pathEffect = DashPathEffect(floatArrayOf(4f, 3f), 0f)
+            // dotted as the reference's system dots: each dot and gap as long as the line is wide
+            if (pr.dash) p.pathEffect = DashPathEffect(floatArrayOf(pr.width.coerceAtLeast(1f), pr.width.coerceAtLeast(1f)), 0f)
             nc.drawPath(path(pr.points, false), p)
         }
         is io.github.artcraftandroid.gridcraft.core.ChartPrim.Polygon -> {

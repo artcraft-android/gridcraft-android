@@ -978,7 +978,8 @@ pub fn build_chart(s: &Session, p: &Json) -> Result<(usize, Chart)> {
     Ok((sheet, chart))
 }
 
-/// A new chart's style: Style 1 of a 2-D column, bar, line, pie, doughnut, area or scatter chart.
+/// A new chart's style: Style 1 of a 2-D column, bar, line, pie, doughnut, area, scatter or radar
+/// chart.
 fn first_style(kind: ChartKind, depth: Depth) -> Option<&'static gridcraft_model::chart_style::ChartStyle> {
     use ChartKind::*;
     let own = matches!(
@@ -1003,6 +1004,8 @@ fn first_style(kind: ChartKind, depth: Depth) -> Option<&'static gridcraft_model
             | Scatter
             | ScatterLines
             | ScatterLinesNoMarkers
+            | Radar
+            | RadarMarkers
     );
     if own && depth == Depth::Flat { gridcraft_model::chart_style::styles_for(kind).first() } else { None }
 }

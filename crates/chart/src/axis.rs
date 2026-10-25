@@ -57,6 +57,16 @@ pub fn nice_scale(lo: f64, hi: f64, force_zero: bool) -> Scale {
 /// [`nice_scale`] with at most `room` steps (1 to 8): a short axis takes fewer, wider steps,
 /// as the reference picks the finest step that leaves its gridlines far enough apart.
 pub fn nice_scale_within(lo: f64, hi: f64, force_zero: bool, room: f64) -> Scale {
+    scale_of(lo, hi, force_zero, room, true)
+}
+
+/// [`nice_scale_within`] from zero without headroom over the values: a radar chart's, whose
+/// outer ring is the top value's when it falls on a step.
+pub fn nice_scale_tight(lo: f64, hi: f64, room: f64) -> Scale {
+    scale_of(lo, hi, true, room, false)
+}
+
+fn scale_of(lo: f64, hi: f64, force_zero: bool, room: f64, headroom: bool) -> Scale {
     let room = if room.is_finite() { room.clamp(1.0, 8.0) } else { 8.0 };
     let (mut lo, mut hi) = (clean(lo), clean(hi));
     if lo > hi {
@@ -73,10 +83,10 @@ pub fn nice_scale_within(lo: f64, hi: f64, force_zero: bool, room: f64) -> Scale
         return Scale { min: 0.0, max: 1.0, step: 0.2 };
     }
     let range = hi - lo;
-    if hi > 0.0 {
+    if hi > 0.0 && headroom {
         hi += range * 0.05;
     }
-    if lo < 0.0 {
+    if lo < 0.0 && headroom {
         lo -= range * 0.05;
     }
     let range = hi - lo;

@@ -144,8 +144,9 @@ pub(crate) fn line_series(st: &ChartStyle, series: &str) -> String {
     } else {
         String::new()
     };
+    let dots = if st.line_dots { "<a:prstDash val=\"sysDot\"/>" } else { "" };
     format!(
-        "<c:spPr><a:ln w=\"{}\" cap=\"{cap}\"{cmpd}><a:solidFill>{}</a:solidFill><a:round/></a:ln>{fx}</c:spPr>",
+        "<c:spPr><a:ln w=\"{}\" cap=\"{cap}\"{cmpd}><a:solidFill>{}</a:solidFill>{dots}<a:round/></a:ln>{fx}</c:spPr>",
         (st.line.width * 12700.0).round() as i64,
         color(&st.line.color, series)
     )

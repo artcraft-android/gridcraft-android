@@ -1239,6 +1239,19 @@ fn a_category_axis_has_tick_marks_between_its_categories_unless_its_style_has_no
 }
 
 #[test]
+fn a_radar_chart_s_styles_draw_its_lines() {
+    let c = chart(ChartKind::Radar);
+    let mut d = sample(ChartKind::Radar);
+    let dotted = |d: &ChartData| render(&c, d, 640.0, 400.0, &ApproxMeasure).iter().filter(|p| matches!(p, Prim::Line { dash: true, .. })).count();
+    assert_eq!(dotted(&d), 0);
+    // Style 2: each series dotted, and its legend key
+    d.style = 318;
+    assert_eq!(dotted(&d), 2 * d.series.len());
+    // a radar chart's 206 is its own, a thin line, not the column page's
+    assert!((gridcraft_model::chart_style::by_id_for(ChartKind::Radar, 206).unwrap().line.width - 1.25).abs() < 1e-6);
+}
+
+#[test]
 fn area_charts_take_error_bars_on_their_edge() {
     let mut c = chart(ChartKind::Area);
     c.data_labels = false;

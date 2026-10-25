@@ -664,7 +664,7 @@ pub fn colors_xml(palette: u16) -> Option<String> {
 /// `auto`: the colour of the chart's palette for this series, written when it has none of its own.
 /// The chart's Style page style, when it has one.
 fn look_of(ch: &Chart) -> Option<&'static gridcraft_model::chart_style::ChartStyle> {
-    (ch.elements.style != 0).then(|| gridcraft_model::chart_style::by_id(ch.elements.style)).flatten()
+    (ch.elements.style != 0).then(|| gridcraft_model::chart_style::by_id_for(ch.kind, ch.elements.style)).flatten()
 }
 
 /// `last_label`: a label on the series' last point saying this, at this position. `look`: the
@@ -700,7 +700,7 @@ fn series_xml(
                 x.push_str(&crate::chart_look::series(st, c));
             }
         }
-        (Some(c), true) => match look.filter(|_| matches!(g, G::Line { .. })) {
+        (Some(c), true) => match look.filter(|_| matches!(g, G::Line { .. } | G::Radar { .. })) {
             // a style's line
             Some(st) => x.push_str(&crate::chart_look::line_series(st, c)),
             None => {
