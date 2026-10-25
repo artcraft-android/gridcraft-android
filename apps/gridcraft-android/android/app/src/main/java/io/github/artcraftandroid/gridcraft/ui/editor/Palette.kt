@@ -85,9 +85,7 @@ fun PaletteSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
     ) { panels ->
         val panel = panels.lastOrNull()
         Column(Modifier.fillMaxSize().background(GridColors.Surface)) {
-            if (panel == null && vm.tellMeOpen) {
-                TellMeSheet(vm, Modifier.weight(1f))
-            } else if (panel == null) {
+            if (panel == null) {
                 TabHeader(vm, vm.paletteTab)
                 AnimatedContent(
                     targetState = vm.paletteTab,
@@ -233,8 +231,12 @@ internal fun PaletteRow(
     enabled: Boolean = true,
     trailing: String? = null,
     inset: Boolean = true,
+    divider: Boolean = true,
 ) {
-    Row(Modifier.fillMaxWidth().height(height + 1.dp).background(if (pressed) GridColors.Pressed else GridColors.Surface).bottomEdge(GridColors.Divider), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().height(height + 1.dp).background(if (pressed) GridColors.Pressed else GridColors.Surface).then(if (divider) Modifier.bottomEdge(GridColors.Divider) else Modifier),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Row(Modifier.weight(1f).fillMaxHeight().clickable(enabled = enabled, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(16.dp))
             if (inset || glyph != null) {

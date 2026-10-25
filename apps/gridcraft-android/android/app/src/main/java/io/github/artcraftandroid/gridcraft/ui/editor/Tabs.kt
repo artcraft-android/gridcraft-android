@@ -105,6 +105,7 @@ internal val PANEL_TITLES = mapOf(
     "pictures" to "Pictures",
     "recommendedCharts" to "Recommended",
     "tabColor" to "Tab Color",
+    "moveSheet" to "Move Sheet",
     "pictureStyles" to "Styles",
     "pictureEffects" to "Picture Effects",
     "pictureShadow" to "Shadow",
@@ -133,7 +134,7 @@ private val FONTS = listOf("Calibri", "Aptos", "Arial", "Cambria", "Courier New"
 
 private val SIZES = listOf(8f, 9f, 10f, 11f, 12f, 14f, 16f, 18f, 20f, 22f, 24f, 26f, 28f, 36f, 48f, 72f)
 
-private fun sizeLabel(s: Float): String = if (s % 1f == 0f) s.toInt().toString() else s.toString()
+internal fun sizeLabel(s: Float): String = if (s % 1f == 0f) s.toInt().toString() else s.toString()
 
 @Composable
 internal fun TabRows(vm: AppViewModel, tab: String) {
@@ -385,9 +386,9 @@ private fun ViewTab(vm: AppViewModel) {
 
 /** A setting's row with a tick box, as the View tab shows them. */
 @Composable
-private fun CheckPaletteRow(label: String, checked: Boolean, onClick: () -> Unit) {
+internal fun CheckPaletteRow(label: String, checked: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     androidx.compose.foundation.layout.Row(
-        Modifier.fillMaxWidth().height(ROW + 1.dp).background(GridColors.Surface).bottomEdge(GridColors.Divider).clickable(onClick = onClick).padding(start = 16.dp),
+        Modifier.fillMaxWidth().height(ROW + 1.dp).background(GridColors.Surface).bottomEdge(GridColors.Divider).clickable(enabled = enabled, onClick = onClick).padding(start = 16.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         Box(
@@ -395,7 +396,7 @@ private fun CheckPaletteRow(label: String, checked: Boolean, onClick: () -> Unit
             contentAlignment = androidx.compose.ui.Alignment.Center,
         ) { if (checked) GlyphIcon(LucideIcons.Check.glyph(), GridColors.Surface, size = 18.dp) }
         androidx.compose.foundation.layout.Spacer(Modifier.size(18.dp))
-        Text(label, color = GridColors.OnSurface, fontSize = 16.sp, maxLines = 1)
+        Text(label, color = if (enabled) GridColors.OnSurface else GridColors.Disabled, fontSize = 16.sp, maxLines = 1)
     }
 }
 
@@ -499,6 +500,16 @@ internal fun PanelBody(vm: AppViewModel, panel: String) {
         }
         "fillColor" -> ColorGridPanel(vm, "No Fill") { c -> vm.setFill(c) }
         "tabColor" -> ColorGridPanel(vm, "No Color") { c -> vm.setTabColor(c) }
+        // as the phone app's Move Sheet page: before which sheet the current one goes, or to the end
+        "moveSheet" -> Scrolling {
+            val info = vm.info
+            val current = info?.activeSheet?.toInt() ?: 0
+            SectionBand("Before sheet")
+            for ((k, t) in info?.sheets.orEmpty().withIndex()) {
+                if (!t.hidden) PaletteRow(t.name, null, onClick = { vm.moveSheetBefore(current, k) }, inset = false)
+            }
+            PaletteRow("(move to end)", null, onClick = { vm.moveSheetBefore(current, null) }, inset = false)
+        }
         "fontColor" -> ColorGridPanel(vm, "Automatic") { c -> vm.setFontColor(c) }
         "pictures" -> Scrolling {
             PaletteRow("Place over Cells", LucideIcons.Images.glyph(), onClick = { vm.pushPanel("picturesOver") }, chevron = true)

@@ -37,6 +37,9 @@ object GridColors {
     val OnPopup = Color(0xFFFFFFFF)
     val OnPopupCurrent get() = pick(0xFF187A42, 0xFF5BC98C)
 
+    /** The edge of Tell Me's search field. */
+    val TellMeEdge get() = pick(0xFF8A8A8A, 0xFF6E6E6E)
+
     /** The palette header's Tell Me, Undo and Redo. */
     val HeaderIcon get() = pick(0xFF1F9D55, 0xFFCACACA)
 

@@ -52,7 +52,9 @@ fun EditorScreen(vm: AppViewModel) {
     }
     Column(Modifier.fillMaxSize().background(GridColors.StatusBand).statusBarsPadding().navigationBarsPadding().imePadding()) {
         // typing in a shape hides the header, as the phone app does, and so does the open palette
-        if (vm.findOpen) FindBar(vm) else if (vm.editingShapeText == null && !vm.cropping && !vm.paletteOpen) EditorHeader(vm)
+        // (not Tell Me, which leaves the sheet in view)
+        val tellMe = vm.paletteOpen && vm.tellMeOpen && vm.panels.isEmpty()
+        if (vm.findOpen) FindBar(vm) else if (vm.editingShapeText == null && !vm.cropping && (!vm.paletteOpen || tellMe)) EditorHeader(vm)
         val formulaBar = vm.showFormulaBar || vm.editing
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GridView(vm, Modifier.fillMaxSize())
@@ -78,6 +80,8 @@ fun EditorScreen(vm: AppViewModel) {
             FilterSheet(vm)
         } else if (vm.commentsOpen && !vm.paletteOpen) {
             CommentsPane(vm)
+        } else if (tellMe) {
+            TellMeSheet(vm, Modifier.fillMaxWidth())
         } else if (vm.paletteOpen) {
             // several cells: their figures take the formula bar's place
             if (showsAggregates(vm)) AggregateBar(vm) else if (formulaBar) FormulaBar(vm)

@@ -43,4 +43,10 @@ class TellMeTest {
         val labels = TELL_ME_ITEMS.map { it.label }
         assertEquals(labels.size, labels.toSet().size)
     }
+
+    @Test
+    fun each_suggested_action_runs_a_command() {
+        val labels = TELL_ME_ITEMS.map { it.label }.toSet()
+        for ((phrase, label) in TELL_ME_SUGGESTED) assertTrue(phrase, label in labels)
+    }
 }

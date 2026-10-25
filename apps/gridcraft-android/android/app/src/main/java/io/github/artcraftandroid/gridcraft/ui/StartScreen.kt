@@ -50,7 +50,9 @@ import java.util.Calendar
  */
 @Composable
 fun StartScreen(vm: AppViewModel, onOpen: () -> Unit) {
-    var tab by remember { mutableStateOf("Home") }
+    var tab by vm::startTab
+    // back on Home next time
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { vm.startTab = "Home" } }
     var list by remember { mutableStateOf("Recent") }
     var searching by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }

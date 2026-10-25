@@ -64,7 +64,7 @@ internal const val FN_HELP = "fnHelp:"
 // ---- Borders ----
 
 /** The border presets, four to a row, as the phone app lays them out. */
-private val BORDER_PRESETS = listOf(
+internal val BORDER_PRESETS = listOf(
     "All Borders" to "all", "Outside Borders" to "outside", "Thick Outside Borders" to "thickOutside", "Top and Bottom Border" to "topBottom",
     "Bottom Border" to "bottom", "Top Border" to "top", "Left Border" to "left", "Right Border" to "right",
     "Thick Bottom Border" to "thickBottom", "Top and Thick Bottom Border" to "topThickBottom", "Bottom Double Border" to "doubleBottom",
@@ -478,25 +478,36 @@ internal fun CellSizePanel(vm: AppViewModel) {
     }
 }
 
-/** A labelled number field with a clear button; Done on the keyboard sets it. */
+/**
+ * A labelled number field with a clear button; Done on the keyboard sets it. With [lines] over
+ * one it is a box of text (Tell Me's Insert Alt Text).
+ */
 @Composable
-private fun SizeField(label: String, current: String, onSet: (String) -> Unit) {
+internal fun SizeField(label: String, current: String, enabled: Boolean = true, lines: Int = 1, onSet: (String) -> Unit) {
     var text by remember(current) { mutableStateOf(current) }
+    val ink = if (enabled) GridColors.OnSurface else GridColors.Disabled
     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
-        Text(label, color = GridColors.OnSurface, fontSize = 15.sp)
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp).height(34.dp).border(1.dp, GridColors.Divider), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = ink, fontSize = 15.sp)
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp).height(if (lines > 1) 112.dp else 34.dp).border(1.dp, GridColors.Divider),
+            verticalAlignment = if (lines > 1) Alignment.Top else Alignment.CenterVertically,
+        ) {
             BasicTextField(
                 text,
-                { text = it.take(8) },
-                singleLine = true,
-                textStyle = TextStyle(color = GridColors.OnSettings, fontSize = 16.sp),
+                { text = if (lines > 1) it.take(4000) else it.take(8) },
+                enabled = enabled,
+                singleLine = lines == 1,
+                maxLines = lines,
+                textStyle = TextStyle(color = if (enabled) GridColors.OnSettings else GridColors.Disabled, fontSize = 16.sp),
                 cursorBrush = SolidColor(GridColors.Accent),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                keyboardOptions = KeyboardOptions(keyboardType = if (lines > 1) KeyboardType.Text else KeyboardType.Decimal, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { onSet(text) }),
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                modifier = Modifier.weight(1f).padding(8.dp, if (lines > 1) 6.dp else 0.dp),
             )
-            Box(Modifier.size(34.dp).clickable { text = "" }.semantics { contentDescription = "Clear" }, contentAlignment = Alignment.Center) {
-                GlyphIcon(LucideIcons.X.glyph(), GridColors.OnStrip, size = 20.dp)
+            if (lines == 1) {
+                Box(Modifier.size(34.dp).clickable(enabled = enabled) { text = "" }.semantics { contentDescription = "Clear" }, contentAlignment = Alignment.Center) {
+                    GlyphIcon(LucideIcons.X.glyph(), ink, size = 20.dp)
+                }
             }
         }
     }
@@ -640,7 +651,7 @@ internal fun FunctionRow(name: String, onPick: () -> Unit, onHelp: () -> Unit) {
 // ---- Charts ----
 
 /** Insert › Chart's families, each with its icon and its kinds (`type|subtype`) in bands. */
-private val CHART_FAMILIES: List<Triple<String, String, List<Pair<String?, List<Pair<String, String>>>>>> = listOf(
+internal val CHART_FAMILIES: List<Triple<String, String, List<Pair<String?, List<Pair<String, String>>>>>> = listOf(
     Triple(
         "Column", "column",
         listOf(

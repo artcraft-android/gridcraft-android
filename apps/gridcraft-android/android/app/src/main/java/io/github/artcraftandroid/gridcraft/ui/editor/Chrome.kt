@@ -667,7 +667,6 @@ fun CommentCard(vm: AppViewModel) {
 fun EditorDialog(vm: AppViewModel) {
     when (vm.dialog) {
         "pickDateTime" -> DateTimePicker(vm)
-        "customSort" -> CustomSortDialog(vm)
         "entryAlert" -> {
             val a = vm.entryAlert ?: return
             AlertDialog(
@@ -812,72 +811,6 @@ private fun CheckRow(label: String, checked: Boolean, onChange: (Boolean) -> Uni
             colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = GridColors.Accent),
         )
         Text(label, color = GridColors.OnSettings, fontSize = 16.sp)
-    }
-}
-
-/** Custom Sort: the block, its headings, and sort levels (a column and an order each), the first first. */
-@Composable
-private fun CustomSortDialog(vm: AppViewModel) {
-    val pv = vm.sortProposal ?: return
-    var header by remember { mutableStateOf(pv.header) }
-    val levels = remember { mutableStateListOf(pv.columns.firstOrNull()?.first.orEmpty() to "asc") }
-    // a column goes by its heading when the first row is headings, else by its letter
-    val columns = pv.columns.map { (letter, heading) -> (if (header && heading.isNotBlank()) heading else "Column $letter") to letter }
-    AlertDialog(
-        onDismissRequest = { vm.dialog = null },
-        title = { Text("Custom Sort") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(pv.range, color = GridColors.OnSurface, fontSize = 16.sp)
-                CheckRow("My data has headers", header) { header = it }
-                for ((i, level) in levels.withIndex()) {
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) {
-                            Picker(if (i == 0) "Sort by" else "Then by", columns, level.first) { levels[i] = it to level.second }
-                        }
-                        if (levels.size > 1) BarButton(LucideIcons.X.glyph(), GridColors.OnSurface, { levels.removeAt(i) }, width = 40.dp, height = 48.dp, label = "Remove Level")
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    Picker("Order", listOf("A to Z, smallest to largest" to "asc", "Z to A, largest to smallest" to "desc"), level.second) { levels[i] = level.first to it }
-                }
-                if (levels.size < 64 && columns.isNotEmpty()) {
-                    TextButton(onClick = { levels.add(columns.first().second to "asc") }) { Text("Add Level") }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { vm.customSort(pv.range, header, levels.toList()) }, enabled = columns.isNotEmpty()) { Text("OK") } },
-        dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
-    )
-}
-
-/** A field that opens a list of choices. */
-@Composable
-private fun Picker(label: String, options: List<Pair<String, String>>, value: String, onPick: (String) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    Box {
-        OutlinedTextField(
-            value = options.firstOrNull { it.second == value }?.first.orEmpty(),
-            onValueChange = {},
-            readOnly = true,
-            singleLine = true,
-            label = { Text(label) },
-            trailingIcon = { GlyphIcon(LucideIcons.ChevronDown.glyph(), GridColors.OnSurface, size = 18.dp) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        // a clear layer over the field, so a tap opens the list rather than a keyboard
-        Box(Modifier.matchParentSize().clickable {
-            // the keyboard goes, so the dialog stays put under the list
-            focus.clearFocus()
-            open = true
-        })
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            for ((text, v) in options) DropdownMenuItem(text = { Text(text) }, onClick = {
-                onPick(v)
-                open = false
-            })
-        }
     }
 }
 

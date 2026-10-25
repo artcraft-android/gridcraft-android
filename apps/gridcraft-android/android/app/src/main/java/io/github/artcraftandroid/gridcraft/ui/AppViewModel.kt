@@ -545,31 +545,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- data tools ----
 
-    /** Custom Sort's block: its range, whether its first row is headings, each column's letter and heading. */
-    data class SortProposal(val range: String, val header: Boolean, val columns: List<Pair<String, String>>)
-
-    var sortProposal by mutableStateOf<SortProposal?>(null)
-        private set
-
-    fun openCustomSort() = launchEngine { e ->
-        val o = org.json.JSONObject(e.command { execute("data.sort", "{\"preview\": true}") })
-        val cols = o.optJSONArray("columns") ?: org.json.JSONArray()
-        sortProposal = SortProposal(
-            o.optString("range"),
-            o.optBoolean("header"),
-            (0 until cols.length()).map { i -> cols.getJSONObject(i).let { it.optString("letter") to it.optString("heading") } },
-        )
-        collapsePalette()
-        dialog = "customSort"
-    }
-
-    /** Sort the block by each level in turn: a column letter and `asc` or `desc`. */
-    fun customSort(range: String, header: Boolean, levels: List<Pair<String, String>>) {
-        dialog = null
-        val keys = org.json.JSONArray(levels.map { (col, order) -> org.json.JSONObject().put("column", col).put("order", order) })
-        command("data.sort", org.json.JSONObject().put("range", range).put("header", header).put("keys", keys).toString())
-    }
-
     /** Picture Styles and Effects: a preset, or one thing changed (`shadow`, `shape`, `border`). */
     fun stylePicture(params: org.json.JSONObject) {
         val o = selectedObject ?: return
@@ -2191,6 +2166,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         command("sheet.move", "{\"sheet\": $index, \"to\": $to}")
     }
 
+    /** The colour Tab Color put on last (a JSON colour): Tell Me's Tab Color puts it on again. */
+    var lastTabColor by mutableStateOf("\"#000000\"")
+        private set
+
+    fun applyLastTabColor() {
+        val i = info?.activeSheet?.toInt() ?: return
+        command("sheet.tabColor", "{\"sheet\": $i, \"color\": $lastTabColor}")
+    }
+
     /** The sheet Tab Color is choosing for. */
     var tabColorSheet by mutableStateOf<Int?>(null)
         private set
@@ -2205,6 +2189,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setTabColor(color: String) {
         val i = tabColorSheet ?: return
         val c = if (color == "\"auto\"") "\"none\"" else color
+        if (c != "\"none\"") lastTabColor = c
         command("sheet.tabColor", "{\"sheet\": $i, \"color\": $c}")
     }
 
@@ -2295,17 +2280,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         pageAlone = true
     }
 
+    /** The start screen's bottom tab: Home, New or Open (Tell Me's New File and Open File pick one). */
+    var startTab by mutableStateOf("Home")
+
     /** Tell Me, the palette's command search, shows in place of the tab's commands. */
     var tellMeOpen by mutableStateOf(false)
-
-    /** Tell Me's last picks (their names), most recent first, kept between runs. */
-    var tellMeRecent by mutableStateOf(prefs.getString("tellMeRecent", null)?.split('\n')?.filter { it.isNotBlank() }.orEmpty())
-        private set
-
-    fun noteTellMe(label: String) {
-        tellMeRecent = (listOf(label) + tellMeRecent.filter { it != label }).take(5)
-        prefs.edit().putString("tellMeRecent", tellMeRecent.joinToString("\n")).apply()
-    }
 
     /** The palette on [tab]'s page [panel], as Tell Me opens it. */
     fun showPanel(tab: String, panel: String) {
