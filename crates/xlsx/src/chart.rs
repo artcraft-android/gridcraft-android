@@ -252,6 +252,13 @@ pub fn read_chart(root: &El) -> Option<Chart> {
             series.push(ser);
         }
     }
+    // a series filled in its own automatic accent, as a styled chart writes each one, keeps the
+    // automatic colour (and so follows the Color page)
+    for (i, ser) in series.iter_mut().enumerate().take(6) {
+        if ser.color == Some(Color::Theme(4 + i as u8, 0)) {
+            ser.color = None;
+        }
+    }
     let kind = if groups.len() > 1 { ChartKind::Combo } else { first_kind };
     let depth = if groups.len() > 1 { Depth::Flat } else { group_depth(first) };
     // labels that say something: the value, a name or a share

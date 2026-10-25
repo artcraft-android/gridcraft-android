@@ -858,12 +858,15 @@ private fun ChartElementsMenu(vm: AppViewModel) {
             if (axes) add(row("Axis Titles", LucideIcons.Type.glyph(), "axisTitles"))
             add(row("Chart Title", LucideIcons.Heading.glyph(), "title"))
             add(row("Data Labels", LucideIcons.Tag.glyph(), "labels"))
-            if (kind.startsWith("Column") || lineLike || kind.startsWith("Area")) add(row("Data Table", LucideIcons.Table2.glyph(), "table"))
-            if (kind.startsWith("Column") || kind.startsWith("Bar") || lineLike || kind.startsWith("Scatter")) add(row("Error Bars", LucideIcons.ChartCandlestick.glyph(), "errorBars"))
+            // as the phone app's: a data table for column, bar, line and area charts; error bars
+            // for those and scatter charts; a trendline for all with axes but area charts
+            val area = kind.startsWith("Area")
+            if (kind.startsWith("Column") || kind.startsWith("Bar") || lineLike || area) add(row("Data Table", LucideIcons.Table2.glyph(), "table"))
+            if (kind.startsWith("Column") || kind.startsWith("Bar") || lineLike || area || kind.startsWith("Scatter")) add(row("Error Bars", LucideIcons.ChartCandlestick.glyph(), "errorBars"))
             if (axes) add(row("Gridlines", LucideIcons.Grid3x3.glyph(), "gridlines"))
             add(row("Legend", LucideIcons.List.glyph(), "legend"))
-            if (lineLike || kind.startsWith("Area")) add(row("Lines", LucideIcons.ChartLine.glyph(), "lines"))
-            if (axes) add(row("Trendline", LucideIcons.TrendingUp.glyph(), "trendline"))
+            if (lineLike || area) add(row("Lines", LucideIcons.ChartLine.glyph(), "lines"))
+            if (axes && !area) add(row("Trendline", LucideIcons.TrendingUp.glyph(), "trendline"))
             if (lineLike) add(row("Up/Down Bars", LucideIcons.ChartCandlestick.glyph(), "upDownBars"))
         }
         for (r in rows) r()

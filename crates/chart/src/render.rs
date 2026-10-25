@@ -40,9 +40,20 @@ const MAX_TABLE_CATS: usize = 60;
 /// Most categories that get lines of their own across the plot.
 const MAX_GRID_CATS: usize = 2000;
 const MAX_TABLE_SERIES: usize = 20;
-/// The least room between an upright value axis's gridlines, fitted to the steps the reference
-/// picks on charts of three sizes (a short axis takes fewer, wider steps).
-const MIN_GRID_GAP: f32 = 30.0;
+/// How many steps a value axis takes (points): an upright one a step for each `MIN_GRID_GAP` of
+/// its length past the first `GRID_LOST`, one across a step for each `MIN_GRID_GAP_ACROSS` of
+/// the chart's width. Fitted to the steps the reference picks on charts 150 to 288 pixels tall
+/// and 300 to 480 wide: a short axis takes fewer, wider steps.
+const MIN_GRID_GAP: f32 = 10.5;
+/// How far below the plot its category labels start (points), as the reference sets them.
+const CAT_LABEL_GAP: f32 = 7.0;
+const GRID_LOST: f32 = 10.0;
+const MIN_GRID_GAP_ACROSS: f32 = 50.0;
+
+/// The most steps an upright value axis `len` points long takes.
+fn value_room(len: f32) -> f64 {
+    f64::from((len - GRID_LOST) / MIN_GRID_GAP)
+}
 
 #[derive(Clone, Copy, Debug)]
 struct Bx {
@@ -399,6 +410,9 @@ pub fn legend_entries(chart: &Chart, data: &ChartData) -> Vec<(String, Rgba, Swa
                     (s.name.clone(), s.color, sw)
                 })
                 .collect();
+            if reversed_legend(chart) {
+                out.reverse();
+            }
             // Trendlines follow the series, named "Linear (Sales)" unless given a name.
             for s in series.filter(|s| supports_trendline(plot_kind(chart, s))) {
                 for t in s.trendlines.iter().take(MAX_TRENDLINES) {
@@ -407,6 +421,27 @@ pub fn legend_entries(chart: &Chart, data: &ChartData) -> Vec<(String, Rgba, Swa
             }
             out
         }
+    }
+}
+
+/// Whether the legend lists the series last first, as Excel's does: a clustered bar chart's in any
+/// place (its first series is the lowest bar), and a stacked chart's in a column beside the plot,
+/// so it reads in the stack's order from the top. Stacked bars read left to right and keep theirs.
+fn reversed_legend(chart: &Chart) -> bool {
+    use ChartKind::*;
+    match chart.kind {
+        BarClustered => true,
+        ColumnStacked
+        | ColumnStacked100
+        | AreaStacked
+        | AreaStacked100
+        | LineStacked
+        | LineStacked100
+        | LineStackedMarkers
+        | LineStacked100Markers => {
+            matches!(chart.legend, LegendPos::Left | LegendPos::Right)
+        }
+        _ => false,
     }
 }
 
@@ -512,6 +547,37 @@ pub fn render(chart: &Chart, data: &ChartData, w: f32, h: f32, m: &dyn Measure) 
     if !(w.is_finite() && h.is_finite()) || w < 1.0 || h < 1.0 || w > 1e7 || h > 1e7 {
         return vec![];
     }
+    let prims = render_points(chart, data, w * PT, h * PT, m);
+    finalize(prims.into_iter().map(|p| scaled(p, 1.0 / PT)).collect(), w, h)
+}
+
+/// Points per pixel (96 to the inch). A chart's text sizes, gaps and line widths are points, as
+/// the reference's are (9 pt labels, a 14 pt title, 0.75 pt gridlines): it is laid out in points
+/// and drawn in pixels.
+const PT: f32 = 0.75;
+
+/// `p` drawn `k` times as large.
+fn scaled(p: Prim, k: f32) -> Prim {
+    let pts = |v: Vec<[f32; 2]>| v.into_iter().map(|[x, y]| [x * k, y * k]).collect();
+    let stroke = |s: Option<(Rgba, f32)>| s.map(|(c, w)| (c, w * k));
+    match p {
+        Prim::Rect { x, y, w, h, fill, stroke: st, radius } => {
+            Prim::Rect { x: x * k, y: y * k, w: w * k, h: h * k, fill, stroke: stroke(st), radius: radius * k }
+        }
+        Prim::Line { pts: v, color, width, dash } => Prim::Line { pts: pts(v), color, width: width * k, dash },
+        Prim::Polygon { pts: v, fill, stroke: st } => Prim::Polygon { pts: pts(v), fill, stroke: stroke(st) },
+        Prim::Wedge { cx, cy, r_outer, r_inner, a0, a1, fill, stroke: st } => {
+            Prim::Wedge { cx: cx * k, cy: cy * k, r_outer: r_outer * k, r_inner: r_inner * k, a0, a1, fill, stroke: stroke(st) }
+        }
+        Prim::Circle { cx, cy, r, fill, stroke: st } => Prim::Circle { cx: cx * k, cy: cy * k, r: r * k, fill, stroke: stroke(st) },
+        Prim::Text { x, y, text, size, color, bold, align, valign, rotation } => {
+            Prim::Text { x: x * k, y: y * k, text, size: size * k, color, bold, align, valign, rotation }
+        }
+    }
+}
+
+/// [`render`] in points: `w` by `h` points.
+fn render_points(chart: &Chart, data: &ChartData, w: f32, h: f32, m: &dyn Measure) -> Vec<Prim> {
     let data = sanitize(data);
     let theme = if data.theme.len() >= 10 {
         data.theme.clone()
@@ -529,8 +595,10 @@ pub fn render(chart: &Chart, data: &ChartData, w: f32, h: f32, m: &dyn Measure) 
         }
         None => ctx.out.push(Prim::Rect { x: 0.0, y: 0.0, w, h, fill: Some(WHITE), stroke: Some((GRID, 1.0)), radius: 0.0 }),
     }
+    // the reference keeps 8 pt above the title and below the legend, whatever the chart's size
     let pad = (w.min(h) * 0.04).clamp(2.0, 10.0);
-    let mut area = Bx { x: pad, y: pad, w: w - 2.0 * pad, h: h - 2.0 * pad };
+    let pad_v = (h * 0.07).clamp(2.0, 8.0);
+    let mut area = Bx { x: pad, y: pad_v, w: w - 2.0 * pad, h: h - 2.0 * pad_v };
     // an overlay title sits on the plot, drawn after it, and takes no room from it
     let mut overlay = None;
     // the style's title: its size, weight, capitals and colour
@@ -668,11 +736,12 @@ fn draw_swatch(ctx: &mut Ctx, sw: Swatch, x: f32, yc: f32, s: f32, color: Rgba) 
 }
 
 fn draw_legend(ctx: &mut Ctx, entries: &[(String, Rgba, Swatch)], pos: LegendPos, area: Bx) -> Bx {
+    // as the reference's: small keys close to their names, entries a little apart
     let size = LABEL_SIZE;
     let row_h = size * 1.6;
-    let s = size * 0.8;
-    let gap = 4.0;
-    let spacing = size * 1.3;
+    let s = size * 0.52;
+    let gap = 2.0;
+    let spacing = size * 0.65;
     let item_w = |ctx: &Ctx, e: &(String, Rgba, Swatch)| swatch_w(e.2, s) + gap + ctx.tw(&e.0, size);
     match pos {
         LegendPos::None => area,
@@ -818,7 +887,7 @@ fn frame(ctx: &mut Ctx, area: Bx, cat: CatAxis, y: &ValAxis, y2: Option<&ValAxis
             (None, CatAxis::Numeric(s, f)) if !g.no_cat => (ctx.tw(&f.format(s.max, Some(s.step)), ls) / 2.0).min(area.w * 0.2),
             _ => 4.0,
         };
-        let below = if g.no_cat { lh * 0.5 } else { lh * 1.5 + 4.0 };
+        let below = if g.no_cat { lh * 0.5 } else { lh * 1.5 + 4.0 + CAT_LABEL_GAP - 3.0 };
         let plot = Bx { x: area.x + left, y: area.y + lh * 0.5, w: area.w - left - right, h: area.h - below };
         if !plot.ok() {
             return plot;
@@ -868,7 +937,7 @@ fn frame(ctx: &mut Ctx, area: Bx, cat: CatAxis, y: &ValAxis, y2: Option<&ValAxis
                     for (j, t) in l.iter().enumerate().step_by(k) {
                         let t = if caps { t.to_uppercase() } else { t.clone() };
                         let t = ctx.fit(&t, ls, cw * k as f32 - 2.0);
-                        ctx.text(plot.x + (j as f32 + 0.5) * cw, plot.bottom() + 3.0, &t, ls, TEXT, HAlign::Center, VAlign::Top);
+                        ctx.text(plot.x + (j as f32 + 0.5) * cw, plot.bottom() + CAT_LABEL_GAP, &t, ls, TEXT, HAlign::Center, VAlign::Top);
                     }
                 }
             }
@@ -891,7 +960,7 @@ fn frame(ctx: &mut Ctx, area: Bx, cat: CatAxis, y: &ValAxis, y2: Option<&ValAxis
                     let slot = plot.w / ticks.len().max(1) as f32;
                     let k = (((lw + 6.0) / slot.max(1e-3)).ceil() as usize).max(1);
                     for (v, t) in ticks.iter().zip(&labels).step_by(k) {
-                        ctx.text(xat(*v), plot.bottom() + 3.0, t, ls, TEXT, HAlign::Center, VAlign::Top);
+                        ctx.text(xat(*v), plot.bottom() + CAT_LABEL_GAP, t, ls, TEXT, HAlign::Center, VAlign::Top);
                     }
                 }
                 // the value axis's line, where X is 0
@@ -950,7 +1019,7 @@ fn frame(ctx: &mut Ctx, area: Bx, cat: CatAxis, y: &ValAxis, y2: Option<&ValAxis
         let k = (((vw + 6.0) / slot.max(1e-3)).ceil() as usize).max(1);
         for (i, (v, t)) in ylabels.iter().enumerate() {
             if i % k == 0 {
-                ctx.text(at(*v), plot.bottom() + 3.0, t, ls, TEXT, HAlign::Center, VAlign::Top);
+                ctx.text(at(*v), plot.bottom() + CAT_LABEL_GAP, t, ls, TEXT, HAlign::Center, VAlign::Top);
             }
         }
         if !g.no_cat {
@@ -1389,10 +1458,10 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
 
     // Axis scales: an upright value axis takes as many steps as it has room for.
     let room = if horizontal {
-        8.0
+        f64::from(area.w / MIN_GRID_GAP_ACROSS)
     } else {
         let table = if chart.elements.data_table { LABEL_SIZE * 1.6 * (data.series.len() + 1) as f32 } else { 0.0 };
-        f64::from((area.h - LABEL_SIZE * 1.4 * 1.5 - 4.0 - table) / MIN_GRID_GAP)
+        value_room(area.h - LABEL_SIZE * 1.4 * 1.5 - 1.0 - CAT_LABEL_GAP - table)
     };
     let mut axes: Vec<(Scale, Fmt)> = Vec::new();
     for axis in [false, true] {
@@ -1431,18 +1500,24 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
         .fold(0.0, f64::max);
     let ncat_slots = ncat.saturating_add(fwd.ceil() as usize).min(MAX_CATS.max(ncat));
     let labels: Vec<String> = (0..ncat_slots).map(|j| if j < ncat { cat_label(data, j) } else { String::new() }).collect();
-    let table = !deep && chart.elements.data_table && !horizontal && ncat <= MAX_TABLE_CATS && data.series.len() <= MAX_TABLE_SERIES;
+    let table = !deep && chart.elements.data_table && ncat <= MAX_TABLE_CATS && data.series.len() <= MAX_TABLE_SERIES;
     let row_h = LABEL_SIZE * 1.6;
     let table_h = if table { row_h * (data.series.len() + 1) as f32 } else { 0.0 };
     let blank = vec![String::new(); if table { ncat_slots } else { 0 }];
-    // the table takes the band the category labels would have had, and its first column needs
-    // room for the series' names: the plot starts right of them
+    // the table takes the band the category labels would have had (a bar chart's go on beside
+    // it, the table under its value labels), and its first column needs room for the series'
+    // names: the plot starts right of them
     let frame_area = if table {
         let band = LABEL_SIZE * 1.4 + 4.0;
-        let ylw = y1.labels().iter().map(|(_, t)| ctx.tw(t, LABEL_SIZE)).fold(0.0f32, f32::max) + 6.0;
+        let ylw = if horizontal {
+            labels.iter().map(|t| ctx.tw(t, LABEL_SIZE)).fold(0.0f32, f32::max) + 6.0
+        } else {
+            y1.labels().iter().map(|(_, t)| ctx.tw(t, LABEL_SIZE)).fold(0.0f32, f32::max) + 6.0
+        };
         let names = data.series.iter().map(|s| ctx.tw(&s.name, LABEL_SIZE)).fold(0.0f32, f32::max) + LABEL_SIZE * 0.7 + 12.0;
         let extra = (names.min(area.w * 0.3) - ylw).max(0.0);
-        Bx { x: area.x + extra, w: area.w - extra, h: area.h - table_h - 2.0 + band, ..area }
+        let freed = if horizontal { 0.0 } else { band };
+        Bx { x: area.x + extra, w: area.w - extra, h: area.h - table_h - 2.0 + freed, ..area }
     } else {
         area
     };
@@ -1451,7 +1526,7 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
     let plot = frame(
         ctx,
         frame_area,
-        CatAxis::Labels(if table { &blank } else { &labels }),
+        CatAxis::Labels(if table && !horizontal { &blank } else { &labels }),
         &y1,
         y2.as_ref(),
         horizontal,
@@ -1645,14 +1720,11 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
             ctx.label(x, y, &t, TEXT, color, HAlign::Center, VAlign::Bottom);
         }
     }
-    // Error bars: each column's or point's value (a stack's top) plus and minus the amount. A 3-D
-    // chart has none, nor trendlines.
+    // Error bars: each column's or point's value (a stack's top, an area's edge) plus and minus the
+    // amount. A 3-D chart has none, nor trendlines.
     if let Some(e) = chart.elements.error_bars.filter(|_| !deep) {
         for (i, s) in data.series.iter().enumerate() {
             let fam = fams.get(i).copied().unwrap_or(Fam::Col);
-            if is_area(fam) {
-                continue;
-            }
             let sc = scale_of(i);
             let k = slot_of.get(i).copied().unwrap_or(0) as f32;
             let amounts = error_amounts(e, &s.values);
@@ -1668,7 +1740,13 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
         }
     }
     if table {
-        data_table(ctx, data, area.x, plot, plot.bottom() + 2.0, row_h, ncat, cw, !chart.elements.data_table_no_keys);
+        let keys = !chart.elements.data_table_no_keys;
+        if horizontal {
+            // under the value labels, the categories across the plot
+            data_table(ctx, data, area.x, plot, plot.bottom() + LABEL_SIZE * 1.4 + 4.0, row_h, ncat, plot.w / ncat.max(1) as f32, keys);
+        } else {
+            data_table(ctx, data, area.x, plot, plot.bottom() + 2.0, row_h, ncat, cw, keys);
+        }
     }
     // Trendlines on top: x is the category number 1..n.
     let mut trend_labels = Vec::new();
@@ -2045,8 +2123,8 @@ fn scatter(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
         }
     }
     let Some((ylo, yhi)) = value_range(all.iter().flatten().flatten().map(|p| p.1)) else { return };
-    let xs = nice_scale(xlo, xhi, false);
-    let ys = nice_scale_within(ylo, yhi, false, f64::from((area.h - LABEL_SIZE * 1.4 * 1.5 - 4.0) / MIN_GRID_GAP).floor());
+    let xs = nice_scale_within(xlo, xhi, false, f64::from(area.w / MIN_GRID_GAP_ACROSS).floor());
+    let ys = nice_scale_within(ylo, yhi, false, value_room(area.h - LABEL_SIZE * 1.4 * 1.5 - 1.0 - CAT_LABEL_GAP).floor());
     let fx = Fmt::new("General");
     let fy = Fmt::new(data.series.first().map(|s| s.number_format.as_str()).unwrap_or("General"));
     let plot = frame(ctx, area, CatAxis::Numeric(xs, &fx), &ValAxis { scale: ys, fmt: &fy }, None, false, Grid::of(chart));

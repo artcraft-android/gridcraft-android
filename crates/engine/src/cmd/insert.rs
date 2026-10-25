@@ -833,7 +833,7 @@ pub fn recommend_charts(s: &Session, p: &Json) -> Result<Vec<(&'static str, &'st
     let sheet = target_sheet(s, p)?;
     let d = s.doc()?;
     let sh = d.wb.sheet(sheet).ok_or(EngineError::NoDocument)?;
-    let by_rows = r.width() > r.height() + 1;
+    let by_rows = r.width() >= r.height();
     let series = series_from_range(sh, r, by_rows);
     let ranges: Vec<RangeRef> = series
         .iter()
@@ -900,10 +900,11 @@ pub fn build_chart(s: &Session, p: &Json) -> Result<(usize, Chart)> {
     let sheet = target_sheet(s, p)?;
     let d = s.doc()?;
     let sh = d.wb.sheet(sheet).ok_or(EngineError::NoDocument)?;
-    // Excel plots series by the longer dimension (more rows → series in columns).
+    // Excel plots series by the longer dimension: more rows → series in columns; as many or more
+    // columns → series in rows.
     let data_h = r.height();
     let data_w = r.width();
-    let by_rows = data_w > data_h + 1;
+    let by_rows = data_w >= data_h;
     let kind = chart_kind(&t, &sub);
     let depth = chart_depth(&t, &sub);
     let mut series = series_from_range(sh, r, by_rows);
@@ -926,7 +927,7 @@ pub fn build_chart(s: &Session, p: &Json) -> Result<(usize, Chart)> {
             Some("Chart Title".into())
         }
     });
-    let chart = Chart {
+    let mut chart = Chart {
         depth,
         alt: String::new(),
         elements: Default::default(),
@@ -969,7 +970,41 @@ pub fn build_chart(s: &Session, p: &Json) -> Result<(usize, Chart)> {
         by_rows,
         pivot: None,
     };
+    // the look the reference gives a chart it inserts: its family's Style 1, for the 2-D kinds
+    // with a Style page of their own
+    if let Some(st) = first_style(kind, depth) {
+        super::extra::put_style(&mut chart, st);
+    }
     Ok((sheet, chart))
+}
+
+/// A new chart's style: Style 1 of a 2-D column, bar, line, pie, doughnut, area or scatter chart.
+fn first_style(kind: ChartKind, depth: Depth) -> Option<&'static gridcraft_model::chart_style::ChartStyle> {
+    use ChartKind::*;
+    let own = matches!(
+        kind,
+        ColumnClustered
+            | ColumnStacked
+            | ColumnStacked100
+            | BarClustered
+            | BarStacked
+            | BarStacked100
+            | Line
+            | LineMarkers
+            | LineStacked
+            | LineStacked100
+            | LineStackedMarkers
+            | LineStacked100Markers
+            | Pie
+            | Doughnut
+            | Area
+            | AreaStacked
+            | AreaStacked100
+            | Scatter
+            | ScatterLines
+            | ScatterLinesNoMarkers
+    );
+    if own && depth == Depth::Flat { gridcraft_model::chart_style::styles_for(kind).first() } else { None }
 }
 
 fn insert_chart(s: &mut Session, p: &Json) -> Result<Json> {

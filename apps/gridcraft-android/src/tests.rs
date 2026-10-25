@@ -838,15 +838,17 @@ fn the_shapes_gallery_draws_every_shape_and_shapes_carry_their_outline() {
 #[test]
 fn a_chart_names_its_source_cells() {
     let m = MobileSession::new();
-    m.execute("range.setValues".into(), json!({ "range": "A1", "values": [["", "S1", "S2"], ["a", 1, 2], ["b", 3, 4]] }).to_string()).unwrap();
-    m.execute("insert.chart".into(), json!({ "range": "A1:C3", "type": "column" }).to_string()).unwrap();
+    // taller than wide: a series per column
+    m.execute("range.setValues".into(), json!({ "range": "A1", "values": [["", "S1", "S2"], ["a", 1, 2], ["b", 3, 4], ["c", 5, 6]] }).to_string())
+        .unwrap();
+    m.execute("insert.chart".into(), json!({ "range": "A1:C4", "type": "column" }).to_string()).unwrap();
     let id = m.objects().iter().find(|o| o.kind == "chart").expect("a chart").id;
     let src = m.chart_source(id);
     let find = |role: &str, series: u32| {
         src.iter().find(|b| b.role == role && b.series == series).map(|b| (b.first_row, b.first_col, b.last_row, b.last_col))
     };
-    assert_eq!(find("categories", 0), Some((1, 0, 2, 0)));
+    assert_eq!(find("categories", 0), Some((1, 0, 3, 0)));
     assert_eq!(find("name", 1), Some((0, 2, 0, 2)));
-    assert_eq!(find("values", 0), Some((1, 1, 2, 1)));
+    assert_eq!(find("values", 0), Some((1, 1, 3, 1)));
     assert!(m.chart_source(id + 1000).is_empty());
 }

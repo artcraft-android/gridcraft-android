@@ -723,33 +723,38 @@ fn chart_style(s: &mut Session, p: &Json) -> Result<Json> {
             .checked_sub(1)
             .and_then(|i| page.get(i as usize))
             .ok_or_else(|| bad("chart.style", format!("this chart's styles are numbered 1 to {}", page.len())))?;
-        c.elements.style = st.id;
-        c.legend = st.legend;
-        c.gridlines = st.value_lines;
-        let e = &mut c.elements;
-        e.hide_val_axis = !st.value_axis;
-        e.cat_gridlines = st.category_lines;
-        e.minor_val_gridlines = st.minor_lines;
-        e.minor_cat_gridlines = st.minor_category_lines;
-        e.drop_lines = st.drop_lines;
-        e.gap_width = (st.gap != 150).then_some(st.gap);
-        e.overlap = (st.overlap != 0).then_some(st.overlap);
-        if let Some(at) = st.labels_at {
-            c.data_labels = true;
-            c.elements.label_pos = at;
-            c.elements.last_point_labels = false;
-        }
-        if st.hole > 0 {
-            c.elements.hole_size = Some(st.hole);
-        }
-        if st.title_on && c.title.as_deref() == Some("") {
-            c.title = Some("Chart Title".into());
-        }
-        if let Some(say) = st.labels_say {
-            c.elements.label_text = say;
-        }
+        put_style(c, st);
         Ok(())
     })
+}
+
+/// Puts a Style page's style on a chart: its look and the elements it sets.
+pub(super) fn put_style(c: &mut Chart, st: &gridcraft_model::chart_style::ChartStyle) {
+    c.elements.style = st.id;
+    c.legend = st.legend;
+    c.gridlines = st.value_lines;
+    let e = &mut c.elements;
+    e.hide_val_axis = !st.value_axis;
+    e.cat_gridlines = st.category_lines;
+    e.minor_val_gridlines = st.minor_lines;
+    e.minor_cat_gridlines = st.minor_category_lines;
+    e.drop_lines = st.drop_lines;
+    e.gap_width = (st.gap != 150).then_some(st.gap);
+    e.overlap = (st.overlap != 0).then_some(st.overlap);
+    if let Some(at) = st.labels_at {
+        c.data_labels = true;
+        c.elements.label_pos = at;
+        c.elements.last_point_labels = false;
+    }
+    if st.hole > 0 {
+        c.elements.hole_size = Some(st.hole);
+    }
+    if st.title_on && c.title.as_deref() == Some("") {
+        c.title = Some("Chart Title".into());
+    }
+    if let Some(say) = st.labels_say {
+        c.elements.label_text = say;
+    }
 }
 
 fn change_colors(s: &mut Session, p: &Json) -> Result<Json> {

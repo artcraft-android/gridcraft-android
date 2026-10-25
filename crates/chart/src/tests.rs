@@ -1177,6 +1177,64 @@ fn a_data_table_lists_the_categories_once_and_the_values() {
 }
 
 #[test]
+fn a_bar_chart_keeps_its_category_labels_and_puts_the_table_under_its_value_labels() {
+    let mut c = chart(ChartKind::BarClustered);
+    c.data_labels = false;
+    c.elements.data_table = true;
+    let prims = render(&c, &sample(ChartKind::BarClustered), 640.0, 400.0, &ApproxMeasure);
+    let ys = |want: &str| -> Vec<f32> {
+        prims
+            .iter()
+            .filter_map(|p| match p {
+                Prim::Text { text, y, .. } if text == want => Some(*y),
+                _ => None,
+            })
+            .collect()
+    };
+    // the axis beside the bars and the table's heading both name each category
+    assert_eq!(ys("Q1").len(), 2, "{:?}", texts(&prims));
+    assert!(!ys("$10,000").is_empty(), "{:?}", texts(&prims));
+    let lowest_value_label = ys("$10,000").into_iter().fold(f32::NEG_INFINITY, f32::max);
+    let table_values = ys("$61,870");
+    assert_eq!(table_values.len(), 1);
+    assert!(table_values[0] > lowest_value_label, "{} under {lowest_value_label}", table_values[0]);
+}
+
+#[test]
+fn legends_list_clustered_bars_and_side_legends_of_stacks_last_first() {
+    let d = sample(ChartKind::ColumnClustered);
+    let first = d.series[0].name.clone();
+    let order = |kind: ChartKind, legend: LegendPos| {
+        let mut c = chart(kind);
+        c.legend = legend;
+        legend_entries(&c, &d).first().map(|e| e.0.clone()).unwrap_or_default()
+    };
+    let last = d.series.last().unwrap().name.clone();
+    assert_eq!(order(ChartKind::ColumnClustered, LegendPos::Right), first);
+    assert_eq!(order(ChartKind::BarClustered, LegendPos::Bottom), last);
+    assert_eq!(order(ChartKind::BarClustered, LegendPos::Right), last);
+    assert_eq!(order(ChartKind::ColumnStacked, LegendPos::Right), last);
+    assert_eq!(order(ChartKind::ColumnStacked, LegendPos::Bottom), first);
+    assert_eq!(order(ChartKind::AreaStacked, LegendPos::Left), last);
+    assert_eq!(order(ChartKind::BarStacked, LegendPos::Right), first);
+    assert_eq!(order(ChartKind::Area, LegendPos::Right), first);
+}
+
+#[test]
+fn area_charts_take_error_bars_on_their_edge() {
+    let mut c = chart(ChartKind::Area);
+    c.data_labels = false;
+    let dark = [0x26, 0x26, 0x26, 0xFF];
+    let d = sample(ChartKind::Area);
+    let count =
+        |c: &Chart| render(c, &d, 640.0, 400.0, &ApproxMeasure).iter().filter(|p| matches!(p, Prim::Line { color, .. } if *color == dark)).count();
+    let none = count(&c);
+    c.elements.error_bars = Some(gridcraft_model::ErrorAmount::Fixed(2000.0));
+    let points: usize = d.series.iter().map(|s| s.values.iter().flatten().count()).sum();
+    assert_eq!(count(&c) - none, 3 * points);
+}
+
+#[test]
 fn an_overlay_title_leaves_the_plot_its_height() {
     let tallest = |overlay: bool| {
         let mut c = chart(ChartKind::ColumnClustered);
@@ -1388,7 +1446,7 @@ fn columns_of(prims: &[Prim], color: Rgba) -> Vec<(f32, f32)> {
     prims
         .iter()
         .filter_map(|p| match p {
-            Prim::Rect { x, w, h, fill: Some(f), .. } if *f == color && *w > 8.0 && *h > 8.0 => Some((*x, *w)),
+            Prim::Rect { x, w, h, fill: Some(f), .. } if *f == color && *w > 12.0 && *h > 12.0 => Some((*x, *w)),
             _ => None,
         })
         .collect()
@@ -1489,4 +1547,12 @@ fn a_short_value_axis_takes_fewer_wider_steps() {
     };
     let t = small(300.0, 170.0);
     assert!(t.contains(&"$6".to_string()) && t.contains(&"$2".to_string()) && !t.contains(&"$1".to_string()), "{t:?}");
+    let t = small(300.0, 200.0);
+    assert!(t.contains(&"$6".to_string()) && !t.contains(&"$1".to_string()), "{t:?}");
+    let t = small(300.0, 150.0);
+    assert!(t.contains(&"$10".to_string()) && !t.contains(&"$5".to_string()), "{t:?}");
+    for (w, h) in [(360.0, 216.0), (480.0, 288.0)] {
+        let t = small(w, h);
+        assert!(t.contains(&"$1".to_string()) && t.contains(&"$6".to_string()), "{w}x{h}: {t:?}");
+    }
 }
