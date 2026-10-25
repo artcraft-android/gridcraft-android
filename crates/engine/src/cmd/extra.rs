@@ -739,6 +739,7 @@ pub(super) fn put_style(c: &mut Chart, st: &gridcraft_model::chart_style::ChartS
     e.minor_val_gridlines = st.minor_lines;
     e.minor_cat_gridlines = st.minor_category_lines;
     e.drop_lines = st.drop_lines;
+    e.no_cat_ticks = !gridcraft_model::chart_style::category_ticks(st.id);
     e.gap_width = (st.gap != 150).then_some(st.gap);
     e.overlap = (st.overlap != 0).then_some(st.overlap);
     if let Some(at) = st.labels_at {

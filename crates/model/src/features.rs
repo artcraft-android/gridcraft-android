@@ -617,6 +617,9 @@ pub struct ChartElements {
     /// The category axis (a scatter chart's X axis) or the value axis left out (`c:delete`).
     #[serde(default)]
     pub hide_cat_axis: bool,
+    /// The category axis without tick marks (`c:majorTickMark none`); outward ones otherwise.
+    #[serde(default)]
+    pub no_cat_ticks: bool,
     #[serde(default)]
     pub hide_val_axis: bool,
     /// Gridlines across the categories, and minor gridlines on either axis (the value axis's

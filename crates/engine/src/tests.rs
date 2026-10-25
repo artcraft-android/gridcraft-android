@@ -2353,14 +2353,17 @@ fn a_new_chart_plots_a_block_as_wide_as_tall_by_rows_in_its_family_s_first_style
     assert!(c.by_rows);
     assert_eq!(c.series.len(), 3);
     assert_eq!((c.elements.style, c.elements.gap_width, c.elements.overlap), (201, Some(219), Some(-27)));
+    assert!(c.elements.no_cat_ticks, "Style 1's category axis has no tick marks");
     // a taller block keeps a series per column; a doughnut gets its style's hole
     s.execute("insert.chart", json!({"type": "doughnut", "range": "A1:B7"})).unwrap();
     let c = s.doc().unwrap().wb.active().unwrap().charts[1].clone();
     assert!(!c.by_rows);
     assert_eq!(c.elements.hole_size, Some(75));
+    s.execute("insert.chart", json!({"type": "area", "range": "A1:C7"})).unwrap();
+    assert!(!s.doc().unwrap().wb.active().unwrap().charts[2].elements.no_cat_ticks, "an area chart's Style 1 has them");
     // kinds without a Style page of their own keep the plain look
     s.execute("insert.chart", json!({"type": "radar", "range": "A1:E7"})).unwrap();
-    assert_eq!(s.doc().unwrap().wb.active().unwrap().charts[2].elements.style, 0);
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().charts[3].elements.style, 0);
 }
 
 #[test]

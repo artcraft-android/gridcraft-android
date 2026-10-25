@@ -201,6 +201,7 @@ fn chart_elements_round_trip() {
         data_table: true,
         palette: 0,
         hide_cat_axis: true,
+        no_cat_ticks: true,
         hide_val_axis: false,
         cat_gridlines: true,
         minor_val_gridlines: true,

@@ -1129,6 +1129,7 @@ fn all_elements() -> gridcraft_model::ChartElements {
         data_table: true,
         palette: 0,
         hide_cat_axis: false,
+        no_cat_ticks: true,
         hide_val_axis: false,
         cat_gridlines: true,
         minor_val_gridlines: true,
@@ -1218,6 +1219,23 @@ fn legends_list_clustered_bars_and_side_legends_of_stacks_last_first() {
     assert_eq!(order(ChartKind::AreaStacked, LegendPos::Left), last);
     assert_eq!(order(ChartKind::BarStacked, LegendPos::Right), first);
     assert_eq!(order(ChartKind::Area, LegendPos::Right), first);
+}
+
+#[test]
+fn a_category_axis_has_tick_marks_between_its_categories_unless_its_style_has_none() {
+    // the axis's colour, before a style recolours it
+    let axis = [0xBF, 0xBF, 0xBF, 0xFE];
+    let ticks = |no_cat_ticks: bool| {
+        let mut c = chart(ChartKind::Area);
+        c.data_labels = false;
+        c.elements.no_cat_ticks = no_cat_ticks;
+        render(&c, &sample(ChartKind::Area), 640.0, 400.0, &ApproxMeasure)
+            .iter()
+            .filter(|p| matches!(p, Prim::Line { pts, color, .. } if *color != axis && pts.len() == 2 && pts[0][0] == pts[1][0] && (pts[1][1] - pts[0][1]).abs() < 5.0))
+            .count()
+    };
+    let d = sample(ChartKind::Area);
+    assert_eq!(ticks(false) - ticks(true), d.categories.len() + 1);
 }
 
 #[test]

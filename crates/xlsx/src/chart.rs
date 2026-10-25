@@ -346,6 +346,7 @@ pub fn read_chart(root: &El) -> Option<Chart> {
             .filter(|v| *v != 50)
             .map(|v| v.clamp(10, 90)),
         hide_cat_axis: x_ax.is_some_and(|a| bool_val(a, "delete")),
+        no_cat_ticks: x_ax.and_then(|a| a.child_val("majorTickMark")).is_some_and(|v| v == "none"),
         hide_val_axis: y_ax.is_some_and(|a| bool_val(a, "delete")),
         cat_gridlines: x_ax.is_some_and(|a| a.child("majorGridlines").is_some()),
         minor_cat_gridlines: x_ax.is_some_and(|a| a.child("minorGridlines").is_some()),
@@ -733,6 +734,16 @@ fn series_xml(
                 x.push_str(&crate::chart_look::marker(&mk, c));
             }
         }
+        // circles in the series' colour, as the reference saves a line with markers (a file that
+        // names no shape gets a different shape for each series)
+        G::Line { markers: true, .. } => {
+            if let Some(c) = &color {
+                let _ = write!(
+                    x,
+                    "<c:marker><c:symbol val=\"circle\"/><c:size val=\"5\"/><c:spPr><a:solidFill>{c}</a:solidFill><a:ln w=\"9525\"><a:solidFill>{c}</a:solidFill></a:ln></c:spPr></c:marker>"
+                );
+            }
+        }
         G::Bar { .. } | G::Bar3D { .. } => x.push_str("<c:invertIfNegative val=\"0\"/>"),
         G::Line { markers: false, .. } | G::Scatter { markers: false, .. } | G::Radar { filled: false, markers: false } | G::Stock => {
             x.push_str("<c:marker><c:symbol val=\"none\"/></c:marker>")
@@ -1047,6 +1058,8 @@ struct Ax<'a> {
     title: Option<&'a str>,
     crosses_max: bool,
     look: Option<&'a gridcraft_model::chart_style::ChartStyle>,
+    /// Outward tick marks (`c:majorTickMark out`), or none.
+    ticks: bool,
 }
 
 fn axis_xml(a: &Ax<'_>) -> String {
@@ -1069,7 +1082,8 @@ fn axis_xml(a: &Ax<'_>) -> String {
     }
     let _ = write!(
         s,
-        "<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/>{}<c:crossAx val=\"{}\"/><c:crosses val=\"{}\"/>",
+        "<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:majorTickMark val=\"{}\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/>{}<c:crossAx val=\"{}\"/><c:crosses val=\"{}\"/>",
+        if a.ticks { "out" } else { "none" },
         a.look.map(|st| crate::chart_look::axis(st, a.cat)).unwrap_or_default(),
         a.cross,
         if a.crosses_max { "max" } else { "autoZero" }
@@ -1161,6 +1175,7 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
             title: ch.x_title.as_deref(),
             crosses_max: false,
             look,
+            ticks: !el.no_cat_ticks,
         }));
         s.push_str(&axis_xml(&Ax {
             cat: false,
@@ -1173,6 +1188,7 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
             title: ch.y_title.as_deref(),
             crosses_max: false,
             look,
+            ticks: true,
         }));
     }
     if primary_g.rows() {
@@ -1190,6 +1206,7 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
             title: None,
             crosses_max: false,
             look,
+            ticks: true,
         }));
         s.push_str(&axis_xml(&Ax {
             cat: false,
@@ -1202,6 +1219,7 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
             title: None,
             crosses_max: true,
             look,
+            ticks: true,
         }));
     }
     // a data table sits after the axes; a pie has none

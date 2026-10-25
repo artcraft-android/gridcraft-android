@@ -47,6 +47,8 @@ const MAX_TABLE_SERIES: usize = 20;
 const MIN_GRID_GAP: f32 = 10.5;
 /// How far below the plot its category labels start (points), as the reference sets them.
 const CAT_LABEL_GAP: f32 = 7.0;
+/// How long a category axis's tick marks are (points).
+const TICK: f32 = 2.5;
 const GRID_LOST: f32 = 10.0;
 const MIN_GRID_GAP_ACROSS: f32 = 50.0;
 
@@ -424,9 +426,10 @@ pub fn legend_entries(chart: &Chart, data: &ChartData) -> Vec<(String, Rgba, Swa
     }
 }
 
-/// Whether the legend lists the series last first, as Excel's does: a clustered bar chart's in any
-/// place (its first series is the lowest bar), and a stacked chart's in a column beside the plot,
-/// so it reads in the stack's order from the top. Stacked bars read left to right and keep theirs.
+/// Whether the legend lists the series last first, as the reference's does: a clustered bar
+/// chart's in any place (its first series is the lowest bar), and a stacked chart's in a column
+/// beside the plot, so it reads in the stack's order from the top. Stacked bars read left to right
+/// and keep theirs.
 fn reversed_legend(chart: &Chart) -> bool {
     use ChartKind::*;
     match chart.kind {
@@ -834,6 +837,8 @@ struct Grid {
     /// Axes left out: their labels and line go and the plot takes their room.
     no_cat: bool,
     no_val: bool,
+    /// Tick marks out from the category axis, between the categories.
+    cat_ticks: bool,
 }
 
 impl Grid {
@@ -846,6 +851,7 @@ impl Grid {
             cat_minor: e.minor_cat_gridlines,
             no_cat: e.hide_cat_axis,
             no_val: e.hide_val_axis,
+            cat_ticks: !e.no_cat_ticks,
         }
     }
 
@@ -969,10 +975,19 @@ fn frame(ctx: &mut Ctx, area: Bx, cat: CatAxis, y: &ValAxis, y2: Option<&ValAxis
                 }
             }
         }
-        // the category axis's line, where the values are 0
+        // the category axis's line, where the values are 0, with its tick marks between the
+        // categories
         if !g.no_cat {
             let zero = if y.scale.min <= 0.0 && y.scale.max >= 0.0 { 0.0 } else { y.scale.min };
             ctx.hline(plot.x, plot.right(), at(zero), AXIS, 0.75);
+            if let CatAxis::Labels(l) = cat {
+                let n = l.len().max(1);
+                if g.cat_ticks && n <= MAX_GRID_CATS {
+                    for j in 0..=n {
+                        ctx.vline(plot.x + j as f32 * plot.w / n as f32, at(zero), at(zero) + TICK, AXIS, 0.75);
+                    }
+                }
+            }
         }
         plot
     } else {
@@ -1025,6 +1040,12 @@ fn frame(ctx: &mut Ctx, area: Bx, cat: CatAxis, y: &ValAxis, y2: Option<&ValAxis
         if !g.no_cat {
             let zero = if y.scale.min <= 0.0 && y.scale.max >= 0.0 { 0.0 } else { y.scale.min };
             ctx.vline(at(zero), plot.y, plot.bottom(), AXIS, 0.75);
+            if g.cat_ticks && matches!(cat, CatAxis::Labels(_)) && n <= MAX_GRID_CATS {
+                for j in 0..=n {
+                    let yy = plot.bottom() - j as f32 * ch;
+                    ctx.hline(at(zero) - TICK, at(zero), yy, AXIS, 0.75);
+                }
+            }
         }
         let k = ((lh / ch.max(1e-3)).ceil() as usize).clamp(1, n);
         for (j, t) in labels.iter().enumerate().step_by(k) {

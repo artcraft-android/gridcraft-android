@@ -752,6 +752,12 @@ pub fn styles_for(kind: crate::features::ChartKind) -> &'static [ChartStyle] {
     }
 }
 
+/// Whether a style's category axis has tick marks (outward, between the categories), as the
+/// reference writes its styles: a few bar and line styles and most area ones.
+pub fn category_ticks(id: u16) -> bool {
+    matches!(id, 221 | 224 | 225 | 231 | 276 | 278 | 280 | 281 | 283 | 346)
+}
+
 /// The style with this id (`cs:chartStyle id`); `None` for one not on a Style page.
 pub fn by_id(id: u16) -> Option<&'static ChartStyle> {
     STYLES
