@@ -188,10 +188,11 @@ fn tx_xml(t: &str, wb: &Workbook, si: usize, names: &mut Vec<String>) -> String 
     }
 }
 
-/// The chart style part a chartex part comes with: every element at its plain default.
-pub fn style_xml() -> String {
-    let mut s = String::from(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<cs:chartStyle xmlns:cs=\"http://schemas.microsoft.com/office/drawing/2012/chartStyle\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" id=\"201\">",
+/// The chart style part a chart comes with, naming its style `id` (201 for a chartex part):
+/// every element at its plain default, the chart part itself saying how each looks.
+pub fn style_xml(id: u16) -> String {
+    let mut s = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<cs:chartStyle xmlns:cs=\"http://schemas.microsoft.com/office/drawing/2012/chartStyle\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" id=\"{id}\">",
     );
     for e in [
         "axisTitle",

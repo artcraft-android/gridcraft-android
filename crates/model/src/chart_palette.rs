@@ -13,6 +13,10 @@ pub enum ColorMod {
     Tint(u32),
     /// This much of the colour, the rest black.
     Shade(u32),
+    /// Saturation times this.
+    SatMod(u32),
+    /// This opaque (the rest see-through).
+    Alpha(u32),
 }
 
 /// The Color page in order: Colorful 1-4, then Monochromatic 1-13, as (id, name shown).
@@ -79,20 +83,19 @@ pub fn series_color(id: u16, i: usize, n: usize) -> Option<(usize, Vec<ColorMod>
     })
 }
 
-/// A monochromatic palette's series spread from half shade to half tint (light to dark when
-/// `reversed`): six series take shade 50%, 70%, 90%, tint 90%, 70%, 50%.
+/// A monochromatic palette's series spread evenly from shade to tint (tint to shade when
+/// `reversed`), the plain colour in the middle: series `i` of `n` sits 140% × (i + 1) / (n + 1) less
+/// 70% along, in whole percents rounded down (six series: shade 50%, 70%, 90%, tint 90%, 70%, 50%;
+/// two: shade 76%, tint 77%).
 fn within(i: usize, n: usize, reversed: bool) -> Vec<ColorMod> {
-    if n < 2 {
-        return vec![];
-    }
-    let i = i.min(n - 1);
+    let n = n.max(1) as i64;
+    let i = (i as i64).min(n - 1);
     let k = if reversed { n - 1 - i } else { i };
-    // -0.5 (darkest) to +0.5 (lightest), in thousandths of a percent
-    let v = -50_000 + (100_000 * k as i64) / (n as i64 - 1);
+    let v = (140 * (k + 1) - 70 * (n + 1)).div_euclid(n + 1);
     match v {
         0 => vec![],
-        v if v < 0 => vec![ColorMod::Shade((100_000 + v) as u32)],
-        v => vec![ColorMod::Tint((100_000 - v) as u32)],
+        v if v < 0 => vec![ColorMod::Shade(((100 + v) * 1000) as u32)],
+        v => vec![ColorMod::Tint(((100 - v) * 1000) as u32)],
     }
 }
 
@@ -105,9 +108,17 @@ pub fn apply(rgb: [u8; 3], mods: &[ColorMod]) -> [u8; 3] {
             ColorMod::LumOff(v) => crate::style::with_luminance(c, |l| l + f64::from(v) / 100_000.0),
             ColorMod::Tint(v) => linear_mix(c, f64::from(v) / 100_000.0, 1.0),
             ColorMod::Shade(v) => linear_mix(c, f64::from(v) / 100_000.0, 0.0),
+            ColorMod::SatMod(v) => crate::style::with_saturation(c, |s| s * f64::from(v) / 100_000.0),
+            ColorMod::Alpha(_) => c,
         };
     }
     c
+}
+
+/// How opaque `mods` leave a colour, 0 to 255.
+pub fn opacity(mods: &[ColorMod]) -> u8 {
+    let a = mods.iter().fold(1.0, |a, m| if let ColorMod::Alpha(v) = m { a * f64::from(*v) / 100_000.0 } else { a });
+    (a.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
 /// `amount` of the colour, the rest `to` (white 1, black 0), mixed in linear light.
@@ -141,6 +152,8 @@ pub fn scheme_xml(slot: usize, mods: &[ColorMod]) -> String {
             ColorMod::LumOff(v) => ("lumOff", v),
             ColorMod::Tint(v) => ("tint", v),
             ColorMod::Shade(v) => ("shade", v),
+            ColorMod::SatMod(v) => ("satMod", v),
+            ColorMod::Alpha(v) => ("alpha", v),
         };
         s.push_str(&format!("<a:{tag} val=\"{v}\"/>"));
     }
@@ -171,6 +184,12 @@ mod tests {
             ]
         );
         assert_eq!(mods(26, 0), (9, vec![ColorMod::Tint(50000)]));
+        // fewer series spread less far, as the reference saves them
+        let few = |id, i, n| series_color(id, i, n).unwrap().1;
+        assert_eq!((few(17, 0, 2), few(17, 1, 2)), (vec![ColorMod::Shade(76000)], vec![ColorMod::Tint(77000)]));
+        assert_eq!((few(14, 0, 3), few(14, 1, 3), few(14, 2, 3)), (vec![ColorMod::Shade(65000)], vec![], vec![ColorMod::Tint(65000)]));
+        assert_eq!(few(21, 0, 3), vec![ColorMod::Tint(65000)]);
+        assert_eq!(few(14, 0, 1), vec![]);
         assert_eq!(mods(20, 3), (1, vec![ColorMod::Tint(98500)]));
         assert_eq!(series_color(10, 7, 12).unwrap(), (5, vec![ColorMod::LumMod(60000)]));
         assert!(series_color(9, 0, 1).is_none());

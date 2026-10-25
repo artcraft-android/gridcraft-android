@@ -132,6 +132,9 @@ object GridColors {
     /** A colour swatch's edge. */
     val SwatchEdge get() = pick(0xFFC8C8C8, 0xFF666666)
 
+    /** The outline of a chart in the Layout gallery's white tiles. */
+    val LayoutEdge = Color(0xFF8A8A8A)
+
     /** The filter sheet: its handle, the boxes on it, the search field, the tabs and the chosen one. */
     val Handle get() = pick(0xFFC8C8C8, 0xFF404040)
     val Card get() = pick(0xFFF0F0F0, 0xFF404040)

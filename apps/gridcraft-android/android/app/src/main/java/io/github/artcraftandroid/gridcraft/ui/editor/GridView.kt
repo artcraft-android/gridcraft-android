@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asAndroidPath
@@ -673,12 +674,15 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
         val sheet = vm.info?.activeSheet
         val cellPicture = { row: UInt, col: UInt -> sheet?.let { pictures[Triple(it, row, col)] } }
         val refs = if (vm.editing) formulaRefs(vm.editText) else emptyList()
+        // a selected chart marks its source cells, as the phone app does
+        val source = vm.selectedObject?.takeIf { it.kind == "chart" && !vm.editing }?.let { vm.chartSources[it.id] }.orEmpty()
         val x0 = rowHeaderW + fw
         val y0 = colHeaderH + fh
         clipRect(x0, y0, size.width, size.height) {
             drawCells(context, v, unit, ::screenX, ::screenY, grid, density, cellPicture)
             // the cell selection goes under the objects floating over the sheet
             drawSelection(vm, v, ::screenX, ::screenY, density)
+            drawChartSource(source, v, ::screenX, ::screenY, density)
             drawFormulaRefs(refs, v, ::screenX, ::screenY, density)
             drawObjects(vm, unit, ::screenX, ::screenY, density, iconPainters)
         }
@@ -687,6 +691,7 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                 drawRect(GridColors.Cells, Offset(x0, colHeaderH), Size(size.width - x0, fh))
                 drawCells(context, t, unit, ::screenX, ::fixedY, grid, density, cellPicture)
                 drawSelection(vm, t, ::screenX, ::fixedY, density)
+                drawChartSource(source, t, ::screenX, ::fixedY, density)
                 drawFormulaRefs(refs, t, ::screenX, ::fixedY, density)
             }
         }
@@ -695,6 +700,7 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                 drawRect(GridColors.Cells, Offset(rowHeaderW, y0), Size(fw, size.height - y0))
                 drawCells(context, l, unit, ::fixedX, ::screenY, grid, density, cellPicture)
                 drawSelection(vm, l, ::fixedX, ::screenY, density)
+                drawChartSource(source, l, ::fixedX, ::screenY, density)
                 drawFormulaRefs(refs, l, ::fixedX, ::screenY, density)
             }
         }
@@ -703,6 +709,7 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                 drawRect(GridColors.Cells, Offset(rowHeaderW, colHeaderH), Size(fw, fh))
                 drawCells(context, c, unit, ::fixedX, ::fixedY, grid, density, cellPicture)
                 drawSelection(vm, c, ::fixedX, ::fixedY, density)
+                drawChartSource(source, c, ::fixedX, ::fixedY, density)
                 drawFormulaRefs(refs, c, ::fixedX, ::fixedY, density)
             }
         }
@@ -2369,6 +2376,48 @@ private fun DrawScope.drawSelection(vm: AppViewModel, v: Viewport, screenX: (Dou
     if (cur.lastRow in rowsHere && cur.lastCol in colsHere) {
         drawCircle(GridColors.Cells, handle, Offset(x1, y1))
         drawCircle(accent, handle, Offset(x1, y1), style = Stroke(1.5f * density))
+    }
+}
+
+/** Tints for a selected chart's series' values, in turn. */
+private val SOURCE_TINTS = listOf(Color(0xFF2F6FDE), Color(0xFFCA6A0A), Color(0xFF1E8A4C), Color(0xFF8A3FB8), Color(0xFF0F8A8A), Color(0xFFC2399C))
+
+/**
+ * A selected chart's source: the series' names and the categories tinted in the accent, each
+ * series' values in a colour of its own, every block outlined in the accent, with handles at
+ * the corners of the whole.
+ */
+private fun DrawScope.drawChartSource(blocks: List<io.github.artcraftandroid.gridcraft.core.ChartSourceBlock>, v: Viewport, screenX: (Double) -> Float, screenY: (Double) -> Float, density: Float) {
+    val rows = v.rows
+    val cols = v.cols
+    if (blocks.isEmpty() || rows.isEmpty() || cols.isEmpty()) return
+    val rr = rows.first().index.toInt()..rows.last().index.toInt()
+    val cr = cols.first().index.toInt()..cols.last().index.toInt()
+    val accent = GridColors.Accent
+    // a block's place on screen, cut to the cells shown
+    fun box(r0: Int, c0: Int, r1: Int, c1: Int): Rect? {
+        if (r1 < rr.first || r0 > rr.last || c1 < cr.first || c0 > cr.last) return null
+        val top = rows.firstOrNull { it.index.toInt() >= r0 }?.start ?: return null
+        val bottom = rows.lastOrNull { it.index.toInt() <= r1 }?.let { it.start + it.size } ?: return null
+        val left = cols.firstOrNull { it.index.toInt() >= c0 }?.start ?: return null
+        val right = cols.lastOrNull { it.index.toInt() <= c1 }?.let { it.start + it.size } ?: return null
+        return Rect(screenX(left), screenY(top), screenX(right), screenY(bottom)).takeIf { it.width > 0f && it.height > 0f }
+    }
+    for (b in blocks) {
+        val r = box(b.firstRow.toInt(), b.firstCol.toInt(), b.lastRow.toInt(), b.lastCol.toInt()) ?: continue
+        val tint = if (b.role == "values") SOURCE_TINTS[b.series.toInt() % SOURCE_TINTS.size].copy(alpha = 0.2f) else accent.copy(alpha = 0.1f)
+        drawRect(tint, r.topLeft, r.size)
+    }
+    for (b in blocks) {
+        val r = box(b.firstRow.toInt(), b.firstCol.toInt(), b.lastRow.toInt(), b.lastCol.toInt()) ?: continue
+        drawRect(accent, r.topLeft, r.size, style = Stroke(1.5f * density))
+    }
+    val all = box(blocks.minOf { it.firstRow.toInt() }, blocks.minOf { it.firstCol.toInt() }, blocks.maxOf { it.lastRow.toInt() }, blocks.maxOf { it.lastCol.toInt() }) ?: return
+    val handle = 4.5f * density
+    for (p in listOf(all.topRight, all.bottomLeft, all.bottomRight)) {
+        drawCircle(accent, handle, p)
+        drawCircle(Color.White, handle - 1.5f * density, p)
+        drawCircle(accent, handle - 3f * density, p)
     }
 }
 

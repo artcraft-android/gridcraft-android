@@ -89,6 +89,17 @@ internal val PANEL_TITLES = mapOf(
     "chartTypeRecommended" to "Recommended",
     "chartLayout" to "Layout",
     "chartElements" to "Elements",
+    "chartElement:axes" to "Axes",
+    "chartElement:axisTitles" to "Axis Titles",
+    "chartElement:title" to "Chart Title",
+    "chartElement:labels" to "Data Labels",
+    "chartElement:table" to "Data Table",
+    "chartElement:errorBars" to "Error Bars",
+    "chartElement:gridlines" to "Gridlines",
+    "chartElement:legend" to "Legend",
+    "chartElement:lines" to "Lines",
+    "chartElement:trendline" to "Trendline",
+    "chartElement:upDownBars" to "Up/Down Bars",
     "chartColors" to "Color",
     "arrange" to "Arrange",
     "pictures" to "Pictures",
@@ -795,9 +806,7 @@ private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
         }
         "tableStyles" -> TableStylesPanel(vm)
         "tableAltText" -> TableAltTextPanel(vm)
-        "chartStyle" -> Scrolling {
-            for (n in 1..8) ChoiceRow("Style $n", false, onClick = { vm.chartCommand("chart.set", org.json.JSONObject().put("style", n)) })
-        }
+        "chartStyle" -> ChartStylesPanel(vm)
         "shapeFill" -> ColorGridPanel(vm, "No Fill") { c -> vm.setShapeFill(c) }
         "shapeOutline" -> ColorGridPanel(vm, "No Outline") { c -> vm.setShapeOutline(c) }
         "shapeSize" -> ObjectSizePanel(vm)
@@ -809,83 +818,168 @@ private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
         "picturePosition" -> PicturePositionPanel(vm)
         "cropPosition" -> CropPositionPanel(vm)
         "shapeStyles" -> ShapeStylesPanel(vm)
-        "chartLayout" -> Scrolling {
-            for (n in 1..6) ChoiceRow("Layout $n", false, onClick = { vm.chartCommand("chart.quickLayout", org.json.JSONObject().put("layout", n)) })
-        }
-        "chartElements" -> Scrolling {
-            LaunchedEffect(vm.selectedObject?.id) { vm.loadChartInfo() }
-            val ci = vm.chartInfo
-            fun set(element: String, on: Boolean, extra: org.json.JSONObject.() -> Unit = {}) =
-                vm.chartCommand("chart.addElement", org.json.JSONObject().put("element", element).put("on", on).apply(extra))
-            SectionBand("Axis Titles")
-            ChoiceRow("Primary Horizontal and Vertical", ci?.axisTitles == true, onClick = { set("axisTitles", ci?.axisTitles != true) })
-            val kind = ci?.kind.orEmpty()
-            val lineLike = kind.startsWith("Line")
-            SectionBand("Chart Title")
-            ChoiceRow("None", ci?.title == false, onClick = { set("title", false) })
-            ChoiceRow("Above Chart", ci?.title == true && ci.titleOverlay != true, onClick = { set("title", true) { put("position", "above") } })
-            ChoiceRow("Centered Overlay", ci?.title == true && ci.titleOverlay == true, onClick = { set("title", true) { put("position", "overlay") } })
-            SectionBand("Data Labels")
-            ChoiceRow("None", ci?.dataLabels == false, onClick = { set("dataLabels", false) })
-            val positions = labelPositions(kind)
-            if (positions.isEmpty()) {
-                ChoiceRow("Show", ci?.dataLabels == true, onClick = { set("dataLabels", true) })
-            } else {
-                for ((label, pos) in positions) {
-                    // automatic is the kind's usual place, listed first
-                    val on = ci?.dataLabels == true && (ci.labelPosition == pos || (ci.labelPosition == "auto" && pos == positions.first().second))
-                    ChoiceRow(label, on, onClick = { set("dataLabels", true) { put("position", pos) } })
-                }
-            }
-            if (kind.startsWith("Column") || lineLike || kind.startsWith("Area")) {
-                SectionBand("Data Table")
-                ChoiceRow("None", ci?.dataTable == false, onClick = { set("dataTable", false) })
-                ChoiceRow("With Legend Keys", ci?.dataTable == true, onClick = { set("dataTable", true) })
-            }
-            if (kind.startsWith("Column") || kind.startsWith("Bar") || lineLike || kind.startsWith("Scatter")) {
-                SectionBand("Error Bars")
-                for ((label, type) in listOf("None" to "none", "Standard Error" to "standardError", "Percentage" to "percentage", "Standard Deviation" to "standardDeviation")) {
-                    ChoiceRow(label, ci?.errorBars == type, onClick = { if (type == "none") set("errorBars", false) else set("errorBars", true) { put("type", type) } })
-                }
-            }
-            SectionBand("Gridlines")
-            ChoiceRow("Primary Major Horizontal", ci?.gridlines == true, onClick = { set("gridlines", ci?.gridlines != true) })
-            SectionBand("Legend")
-            for ((label, pos) in listOf("None" to "none", "Right" to "right", "Top" to "top", "Left" to "left", "Bottom" to "bottom")) {
-                ChoiceRow(label, ci?.legend == pos, onClick = { if (pos == "none") set("legend", false) else set("legend", true) { put("position", pos) } })
-            }
-            if (lineLike || kind.startsWith("Area")) {
-                SectionBand("Lines")
-                val lines = listOf("None" to "none", "Drop Lines" to "drop") + if (lineLike) listOf("High-Low Lines" to "highLow") else emptyList()
-                for ((label, type) in lines) {
-                    ChoiceRow(label, ci?.lines == type, onClick = { if (type == "none") set("lines", false) else set("lines", true) { put("type", type) } })
-                }
-            }
-            SectionBand("Trendline")
-            for ((label, type) in listOf("None" to "none", "Linear" to "linear", "Exponential" to "exponential", "Linear Forecast" to "linearForecast", "Moving Average" to "movingAverage")) {
-                ChoiceRow(label, ci?.trendline == type, onClick = {
-                    if (type == "none") set("trendline", false) else set("trendline", true) { put("type", type); put("replace", true) }
-                })
-            }
-            if (lineLike) {
-                SectionBand("Up/Down Bars")
-                ChoiceRow("None", ci?.upDownBars == false, onClick = { set("upDownBars", false) })
-                ChoiceRow("Up/Down Bars", ci?.upDownBars == true, onClick = { set("upDownBars", true) })
-            }
-        }
+        "chartLayout" -> ChartLayoutsPanel(vm)
+        "chartElements" -> ChartElementsMenu(vm)
         "chartColors" -> ChartColorsPanel(vm)
-        else -> return false
+        else -> if (panel.startsWith(CHART_ELEMENT)) ChartElementPanel(vm, panel.removePrefix(CHART_ELEMENT)) else return false
     }
     return true
 }
 
-/** Data label positions a chart of this kind offers, its automatic one first; none for a kind without. */
+/** The Elements submenus' panels: `chartElement:axes` and so on. */
+private const val CHART_ELEMENT = "chartElement:"
+
+/**
+ * Chart › Elements, as the phone app's menu: a row for each kind of element the chart can have,
+ * each opening its choices.
+ */
+@Composable
+private fun ChartElementsMenu(vm: AppViewModel) {
+    LaunchedEffect(vm.selectedObject?.id) { vm.loadChartInfo() }
+    val ci = vm.chartInfo
+    val kind = ci?.kind.orEmpty()
+    val axes = ci?.hasAxes != false
+    val lineLike = kind.startsWith("Line")
+    Scrolling {
+        fun row(label: String, glyph: Glyph, key: String) = @Composable { PaletteRow(label, glyph, onClick = { vm.pushPanel(CHART_ELEMENT + key) }, chevron = true) }
+        val rows = buildList {
+            if (axes) add(row("Axes", LucideIcons.Axis3d.glyph(), "axes"))
+            if (axes) add(row("Axis Titles", LucideIcons.Type.glyph(), "axisTitles"))
+            add(row("Chart Title", LucideIcons.Heading.glyph(), "title"))
+            add(row("Data Labels", LucideIcons.Tag.glyph(), "labels"))
+            if (kind.startsWith("Column") || lineLike || kind.startsWith("Area")) add(row("Data Table", LucideIcons.Table2.glyph(), "table"))
+            if (kind.startsWith("Column") || kind.startsWith("Bar") || lineLike || kind.startsWith("Scatter")) add(row("Error Bars", LucideIcons.ChartCandlestick.glyph(), "errorBars"))
+            if (axes) add(row("Gridlines", LucideIcons.Grid3x3.glyph(), "gridlines"))
+            add(row("Legend", LucideIcons.List.glyph(), "legend"))
+            if (lineLike || kind.startsWith("Area")) add(row("Lines", LucideIcons.ChartLine.glyph(), "lines"))
+            if (axes) add(row("Trendline", LucideIcons.TrendingUp.glyph(), "trendline"))
+            if (lineLike) add(row("Up/Down Bars", LucideIcons.ChartCandlestick.glyph(), "upDownBars"))
+        }
+        for (r in rows) r()
+    }
+}
+
+/** One of the Elements submenus: its choices with the current ones lit (the axes and gridlines are switches). */
+@Composable
+private fun ChartElementPanel(vm: AppViewModel, which: String) {
+    LaunchedEffect(vm.selectedObject?.id) { vm.loadChartInfo() }
+    val ci = vm.chartInfo
+    val kind = ci?.kind.orEmpty()
+    fun set(element: String, on: Boolean, extra: org.json.JSONObject.() -> Unit = {}) =
+        vm.chartCommand("chart.addElement", org.json.JSONObject().put("element", element).put("on", on).apply(extra))
+    @Composable
+    fun choice(label: String, glyph: Glyph, on: Boolean, onClick: () -> Unit) = PaletteRow(label, glyph, onClick = onClick, pressed = on)
+    // the horizontal axis is a bar chart's value axis, any other chart's category (or X) axis
+    val bar = ci?.horizontal == true
+    val (hAxis, vAxis) = if (bar) "value" to "category" else "category" to "value"
+    fun shown(axis: String) = if (axis == "category") ci?.catAxis != false else ci?.valAxis != false
+    fun titled(axis: String) = if (axis == "category") ci?.catAxisTitle == true else ci?.valAxisTitle == true
+    val none = LucideIcons.X.glyph()
+    Scrolling {
+        when (which) {
+            "axes" -> {
+                choice("Primary Horizontal", LucideIcons.MoveHorizontal.glyph(), shown(hAxis)) { set("axis", !shown(hAxis)) { put("which", hAxis) } }
+                choice("Primary Vertical", LucideIcons.MoveVertical.glyph(), shown(vAxis)) { set("axis", !shown(vAxis)) { put("which", vAxis) } }
+            }
+            "axisTitles" -> {
+                choice("Primary Horizontal", LucideIcons.MoveHorizontal.glyph(), titled(hAxis)) { set("axisTitles", !titled(hAxis)) { put("which", hAxis) } }
+                choice("Primary Vertical", LucideIcons.MoveVertical.glyph(), titled(vAxis)) { set("axisTitles", !titled(vAxis)) { put("which", vAxis) } }
+            }
+            "title" -> {
+                choice("None", none, ci?.title == false) { set("title", false) }
+                choice("Above Chart", LucideIcons.PanelTop.glyph(), ci?.title == true && ci.titleOverlay != true) { set("title", true) { put("position", "above") } }
+                choice("Centered Overlay", LucideIcons.Heading.glyph(), ci?.title == true && ci.titleOverlay == true) { set("title", true) { put("position", "overlay") } }
+            }
+            "labels" -> {
+                choice("None", none, ci?.dataLabels == false) { set("dataLabels", false) }
+                val positions = labelPositions(kind)
+                if (positions.isEmpty()) {
+                    choice("Show", LucideIcons.Tag.glyph(), ci?.dataLabels == true) { set("dataLabels", true) }
+                } else {
+                    val auto = autoLabelPosition(kind)
+                    for ((label, pos) in positions) {
+                        val on = ci?.dataLabels == true && (ci.labelPosition == pos || (ci.labelPosition == "auto" && pos == auto))
+                        choice(label, LucideIcons.Tag.glyph(), on) { set("dataLabels", true) { put("position", pos) } }
+                    }
+                }
+            }
+            "table" -> {
+                choice("None", none, ci?.dataTable == false) { set("dataTable", false) }
+                choice("With Legend Keys", LucideIcons.Table2.glyph(), ci?.dataTable == true && ci.dataTableKeys) { set("dataTable", true) { put("keys", true) } }
+                choice("No Legend Keys", LucideIcons.Table.glyph(), ci?.dataTable == true && !ci.dataTableKeys) { set("dataTable", true) { put("keys", false) } }
+            }
+            "errorBars" -> for ((label, type) in listOf("None" to "none", "Standard Error" to "standardError", "Percentage" to "percentage", "Standard Deviation" to "standardDeviation")) {
+                choice(label, if (type == "none") none else LucideIcons.ChartCandlestick.glyph(), ci?.errorBars == type) {
+                    if (type == "none") set("errorBars", false) else set("errorBars", true) { put("type", type) }
+                }
+            }
+            "gridlines" -> {
+                // horizontal lines run across the value axis of a column chart, across the categories of a bar chart
+                val (hMajor, vMajor) = if (bar) "majorCategory" to "majorValue" else "majorValue" to "majorCategory"
+                val (hMinor, vMinor) = if (bar) "minorCategory" to "minorValue" else "minorValue" to "minorCategory"
+                fun lit(w: String) = when (w) {
+                    "majorValue" -> ci?.gridlines == true
+                    "majorCategory" -> ci?.catGridlines == true
+                    "minorValue" -> ci?.minorValGridlines == true
+                    else -> ci?.minorCatGridlines == true
+                }
+                for ((label, w) in listOf("Primary Major Horizontal" to hMajor, "Primary Major Vertical" to vMajor, "Primary Minor Horizontal" to hMinor, "Primary Minor Vertical" to vMinor)) {
+                    val glyph = if (label.endsWith("Horizontal")) LucideIcons.Rows3.glyph() else LucideIcons.Columns3.glyph()
+                    choice(label, glyph, lit(w)) { set("gridlines", !lit(w)) { put("which", w) } }
+                }
+            }
+            "legend" -> for ((label, pos) in listOf("None" to "none", "Right" to "right", "Top" to "top", "Left" to "left", "Bottom" to "bottom")) {
+                val glyph = when (pos) {
+                    "none" -> none
+                    "right" -> LucideIcons.PanelRight.glyph()
+                    "top" -> LucideIcons.PanelTop.glyph()
+                    "left" -> LucideIcons.PanelLeft.glyph()
+                    else -> LucideIcons.PanelBottom.glyph()
+                }
+                choice(label, glyph, ci?.legend == pos) { if (pos == "none") set("legend", false) else set("legend", true) { put("position", pos) } }
+            }
+            "lines" -> {
+                val lines = listOf("None" to "none", "Drop Lines" to "drop") + if (kind.startsWith("Line")) listOf("High-Low Lines" to "highLow") else emptyList()
+                for ((label, type) in lines) {
+                    choice(label, if (type == "none") none else LucideIcons.ChartLine.glyph(), ci?.lines == type) {
+                        if (type == "none") set("lines", false) else set("lines", true) { put("type", type) }
+                    }
+                }
+            }
+            "trendline" -> for ((label, type) in listOf("None" to "none", "Linear" to "linear", "Exponential" to "exponential", "Linear Forecast" to "linearForecast", "Moving Average" to "movingAverage")) {
+                val glyph = when (type) {
+                    "none" -> none
+                    "exponential" -> LucideIcons.ChartSpline.glyph()
+                    "movingAverage" -> LucideIcons.Activity.glyph()
+                    else -> LucideIcons.TrendingUp.glyph()
+                }
+                choice(label, glyph, ci?.trendline == type) {
+                    if (type == "none") set("trendline", false) else set("trendline", true) { put("type", type); put("replace", true) }
+                }
+            }
+            "upDownBars" -> {
+                choice("None", none, ci?.upDownBars == false) { set("upDownBars", false) }
+                choice("Up/Down Bars", LucideIcons.ChartCandlestick.glyph(), ci?.upDownBars == true) { set("upDownBars", true) }
+            }
+        }
+    }
+}
+
+/** Data label positions a chart of this kind offers, in the phone app's order; none for a kind without. */
 private fun labelPositions(kind: String): List<Pair<String, String>> = when (kind) {
-    "ColumnClustered", "BarClustered" -> listOf("Outside End" to "outsideEnd", "Center" to "center", "Inside End" to "insideEnd", "Inside Base" to "insideBase")
+    "ColumnClustered", "BarClustered" -> listOf("Center" to "center", "Inside End" to "insideEnd", "Inside Base" to "insideBase", "Outside End" to "outsideEnd")
     "ColumnStacked", "ColumnStacked100", "BarStacked", "BarStacked100" -> listOf("Center" to "center", "Inside End" to "insideEnd", "Inside Base" to "insideBase")
     "Line", "LineMarkers", "LineStacked", "Scatter", "ScatterLines", "Bubble" ->
-        listOf("Above" to "above", "Center" to "center", "Left" to "left", "Right" to "right", "Below" to "below")
+        listOf("Center" to "center", "Left" to "left", "Right" to "right", "Above" to "above", "Below" to "below")
     "Pie" -> listOf("Center" to "center", "Inside End" to "insideEnd", "Outside End" to "outsideEnd", "Best Fit" to "bestFit")
     else -> emptyList()
+}
+
+/** Where a kind's labels go when no position is set: lit as that choice. */
+private fun autoLabelPosition(kind: String): String = when (kind) {
+    "ColumnClustered", "BarClustered" -> "outsideEnd"
+    "ColumnStacked", "ColumnStacked100", "BarStacked", "BarStacked100" -> "center"
+    "Pie" -> "bestFit"
+    else -> "above"
 }
 

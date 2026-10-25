@@ -253,5 +253,6 @@ pub fn resolve(wb: &Workbook, sheet: usize, chart: &Chart) -> ChartData {
     let categories = categories.unwrap_or_else(|| (1..=n).map(|i| i.to_string()).collect());
     // charts coloured by point take the chart's palette across the points
     let palette = (0..n.min(PALETTE_CYCLE)).map(|i| palette_color(&wb.theme, chart.elements.palette, i, n)).collect();
-    ChartData { categories, series, palette }
+    let theme = wb.theme.colors.iter().map(|c| [(c >> 16) as u8, (c >> 8) as u8, *c as u8]).collect();
+    ChartData { categories, series, palette, style: chart.elements.style, theme }
 }

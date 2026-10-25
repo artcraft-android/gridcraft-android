@@ -279,6 +279,15 @@ pub fn read_drawing(cx: &mut Ctx<'_>, part: &str, sheet: &mut Sheet) -> Result<(
                                     {
                                         ch.elements.palette = id;
                                     }
+                                    // the Style page's style, from the style part
+                                    if !chartex
+                                        && let Some(style) = cx.pkg.rels(&target)?.into_iter().find(|r| r.kind == "chartStyle")
+                                        && let Some(c) = cx.optional_xml(&style.target)?
+                                        && let Some(id) = c.attr_u32("id").and_then(|v| u16::try_from(v).ok())
+                                        && gridcraft_model::chart_style::by_id(id).is_some()
+                                    {
+                                        ch.elements.style = id;
+                                    }
                                     ch.anchor = anchor;
                                     ch.alt = obj.path(&["nvGraphicFramePr", "cNvPr"]).and_then(|c| c.attr("descr")).unwrap_or("").to_string();
                                     if is_decorative(obj.path(&["nvGraphicFramePr", "cNvPr"])) {

@@ -921,6 +921,40 @@ pub struct ChartInfo {
     pub palette: u16,
     /// The range the chart was made from ("" when not known), for recommending other types.
     pub source: String,
+    /// It has axes; its categories run up the side (a bar chart: its horizontal axis is the
+    /// value axis). A scatter chart's X axis counts as its category axis.
+    pub has_axes: bool,
+    pub horizontal: bool,
+    /// Each axis shown, and with a title.
+    pub cat_axis: bool,
+    pub val_axis: bool,
+    pub cat_axis_title: bool,
+    pub val_axis_title: bool,
+    /// Gridlines beyond the value axis's major ones (`gridlines`).
+    pub cat_gridlines: bool,
+    pub minor_val_gridlines: bool,
+    pub minor_cat_gridlines: bool,
+    /// The data table shows the series' colour keys.
+    pub data_table_keys: bool,
+    /// How many layouts the Layout gallery offers it.
+    pub layouts: u32,
+    /// Its Style page style (1-based); 0 for none. How many styles its page has.
+    pub style: u32,
+    pub styles: u32,
+}
+
+/// A block of a chart's source on the active sheet, which the sheet marks while the chart is
+/// selected: a series' name, the categories or a series' values, and its cells (0-based).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ChartSourceBlock {
+    /// `name`, `categories` or `values`.
+    pub role: String,
+    /// The series it belongs to (0 for the categories).
+    pub series: u32,
+    pub first_row: u32,
+    pub first_col: u32,
+    pub last_row: u32,
+    pub last_col: u32,
 }
 
 /// A palette of the chart Color page: what `chart.changeColors` takes, the name a screen reader
@@ -976,6 +1010,45 @@ impl MobileSession {
 
     /// The workbook, its active sheet's index and the document's revision, to read without
     /// holding the session.
+    /// Chart `id`'s type, colours and title over sample data, with `command` run on it, drawn
+    /// `width` × `height`: the Layout and Style galleries' previews.
+    fn chart_sample(&self, id: u32, command: &str, params: Json, width: f32, height: f32) -> Vec<ChartPrim> {
+        let Some((wb, si, _)) = self.snapshot() else { return vec![] };
+        let Some(own) = wb.sheet(si).and_then(|sh| sh.charts.iter().find(|c| c.id == id)) else { return vec![] };
+        let mut s = Session::new();
+        s.new_workbook();
+        // made in the chart's family (whose layouts these are); a pie's show the shares of four quarters
+        let three = || json!([["", "Series1", "Series2", "Series3"], ["Category 1", 4.2, 2.5, 1.9], ["Category 2", 2.6, 4.3, 2.1]]);
+        let (values, range, kind) = match gridcraft_engine::cmd::extra::quick_layouts(own.kind) {
+            7 => (json!([["", "Sales"], ["Q1", 7.8], ["Q2", 3.5], ["Q3", 1.6], ["Q4", 1.1]]), "A1:B5", "pie"),
+            12 => (three(), "A1:D3", "line"),
+            _ => (three(), "A1:D3", "column"),
+        };
+        // the title the chart shows: its own, or the one series' name it takes on its own
+        let title = match own.title.as_deref().map(str::trim) {
+            Some(t) if !t.is_empty() => t.to_string(),
+            None if own.series.len() == 1 => gridcraft_chart::resolve(&wb, si, own).series.first().map(|s| s.name.clone()).unwrap_or_default(),
+            _ => String::new(),
+        };
+        let title = if title.is_empty() { "Chart Title".to_string() } else { title };
+        let made = s.run("range.setValues", json!({ "range": "A1", "values": values })).is_ok()
+            && s.run("insert.chart", json!({ "range": range, "type": kind, "title": title })).is_ok()
+            && s.run(command, params).is_ok();
+        let Some(d) = s.active().filter(|_| made) else { return vec![] };
+        let psi = d.wb.active_sheet;
+        let Some(mut chart) = d.wb.sheet(psi).and_then(|sh| sh.charts.first()).cloned() else { return vec![] };
+        chart.kind = own.kind;
+        chart.depth = own.depth;
+        chart.elements.palette = own.elements.palette;
+        let size = |v: f32| if v.is_finite() { v.clamp(1.0, 4096.0) } else { 1.0 };
+        let data = gridcraft_chart::resolve(&d.wb, psi, &chart);
+        gridcraft_chart::render(&chart, &data, size(width), size(height), &gridcraft_chart::ApproxMeasure)
+            .into_iter()
+            .take(20_000)
+            .map(prim)
+            .collect()
+    }
+
     fn snapshot(&self) -> Option<(Arc<Workbook>, usize, u64)> {
         let s = self.lock();
         let d = s.active()?;
@@ -1471,6 +1544,59 @@ impl MobileSession {
         gridcraft_chart::render(chart, &data, size(width), size(height), &gridcraft_chart::ApproxMeasure).into_iter().take(20_000).map(prim).collect()
     }
 
+    /// The Layout gallery's preview of layout `layout` for chart `id`: a chart of its type, colours
+    /// and title over sample data like the other galleries' (four quarters for a pie), laid out that
+    /// way. Empty past its layouts.
+    pub fn chart_layout_preview(&self, id: u32, layout: u32, width: f32, height: f32) -> Vec<ChartPrim> {
+        self.chart_sample(id, "chart.quickLayout", json!({ "layout": layout }), width, height)
+    }
+
+    /// The Style page's preview of style `style` for chart `id`, as the Layout gallery's.
+    pub fn chart_style_preview(&self, id: u32, style: u32, width: f32, height: f32) -> Vec<ChartPrim> {
+        self.chart_sample(id, "chart.style", json!({ "style": style }), width, height)
+    }
+
+    /// Chart `id`'s source on the active sheet: each series' name and values and the categories
+    /// (once), where they are cells of this sheet.
+    pub fn chart_source(&self, id: u32) -> Vec<ChartSourceBlock> {
+        let Some((wb, si, _)) = self.snapshot() else { return vec![] };
+        let Some(sh) = wb.sheet(si) else { return vec![] };
+        let Some(ch) = sh.charts.iter().find(|c| c.id == id) else { return vec![] };
+        // a reference to cells of this sheet (its own name or none)
+        let here = |f: &str| -> Option<RangeRef> {
+            let f = f.trim().trim_start_matches('=');
+            let (name, body) = match f.rsplit_once('!') {
+                Some((n, b)) => (Some(n.trim_matches('\'').replace("''", "'")), b),
+                None => (None, f),
+            };
+            if name.is_some_and(|n| !n.eq_ignore_ascii_case(&sh.name)) {
+                return None;
+            }
+            RangeRef::parse(&body.replace('$', ""))
+        };
+        let block = |role: &str, series: usize, r: RangeRef| ChartSourceBlock {
+            role: role.into(),
+            series: series as u32,
+            first_row: r.start.row,
+            first_col: r.start.col,
+            last_row: r.end.row,
+            last_col: r.end.col,
+        };
+        let mut out = Vec::new();
+        if let Some(r) = ch.series.iter().find_map(|se| se.categories.as_deref().and_then(here)) {
+            out.push(block("categories", 0, r));
+        }
+        for (i, se) in ch.series.iter().enumerate().take(64) {
+            if let Some(r) = se.name.as_deref().and_then(here) {
+                out.push(block("name", i, r));
+            }
+            if let Some(r) = here(&se.values) {
+                out.push(block("values", i, r));
+            }
+        }
+        out
+    }
+
     /// The chart Color page's palettes, Colorful then Monochromatic, each as six series take it.
     pub fn chart_palettes(&self) -> Vec<ChartPalette> {
         let theme = self.snapshot().map(|(wb, _, _)| wb.theme.clone()).unwrap_or_default();
@@ -1908,7 +2034,7 @@ impl MobileSession {
 
     /// What the chart with id `id` on the active sheet shows.
     pub fn chart_info(&self, id: u32) -> Option<ChartInfo> {
-        use gridcraft_engine::model::{ErrorAmount, LabelPos, LegendPos, TrendlineKind};
+        use gridcraft_engine::model::{ChartKind, ErrorAmount, LabelPos, LegendPos, TrendlineKind};
         let s = self.lock();
         let ch = s.active()?.wb.active()?.charts.iter().find(|c| c.id == id)?.clone();
         let trendline = match ch.series.first().and_then(|se| se.trendlines.first()) {
@@ -1970,6 +2096,25 @@ impl MobileSession {
             data_table: ch.elements.data_table,
             palette: if ch.elements.palette == 0 { gridcraft_engine::model::chart_palette::AUTOMATIC } else { ch.elements.palette },
             source: ch.source.clone().unwrap_or_default(),
+            has_axes: !matches!(
+                ch.kind,
+                ChartKind::Pie | ChartKind::PieOfPie | ChartKind::BarOfPie | ChartKind::Doughnut | ChartKind::Treemap | ChartKind::Sunburst
+            ),
+            horizontal: matches!(ch.kind, ChartKind::BarClustered | ChartKind::BarStacked | ChartKind::BarStacked100),
+            cat_axis: !ch.elements.hide_cat_axis,
+            val_axis: !ch.elements.hide_val_axis,
+            cat_axis_title: ch.x_title.is_some(),
+            val_axis_title: ch.y_title.is_some(),
+            cat_gridlines: ch.elements.cat_gridlines,
+            minor_val_gridlines: ch.elements.minor_val_gridlines,
+            minor_cat_gridlines: ch.elements.minor_cat_gridlines,
+            data_table_keys: !ch.elements.data_table_no_keys,
+            layouts: gridcraft_engine::cmd::extra::quick_layouts(ch.kind),
+            style: gridcraft_engine::model::chart_style::styles_for(ch.kind)
+                .iter()
+                .position(|st| st.id == ch.elements.style)
+                .map_or(0, |i| i as u32 + 1),
+            styles: gridcraft_engine::model::chart_style::styles_for(ch.kind).len() as u32,
         })
     }
 

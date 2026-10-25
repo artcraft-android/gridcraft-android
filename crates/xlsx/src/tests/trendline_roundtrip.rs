@@ -200,6 +200,17 @@ fn chart_elements_round_trip() {
         high_low_lines: true,
         data_table: true,
         palette: 0,
+        hide_cat_axis: true,
+        hide_val_axis: false,
+        cat_gridlines: true,
+        minor_val_gridlines: true,
+        minor_cat_gridlines: false,
+        gap_width: None,
+        overlap: None,
+        data_table_no_keys: true,
+        last_point_labels: false,
+        label_text: gridcraft_model::LabelText::of(true, true, false, false),
+        style: 0,
     };
     let back = round_trip(c.clone());
     assert_eq!(back.elements, c.elements);
@@ -208,6 +219,25 @@ fn chart_elements_round_trip() {
     col.data_labels = true;
     col.elements = ChartElements { label_pos: LabelPos::InsideBase, error_bars: Some(ErrorAmount::StandardError), ..Default::default() };
     assert_eq!(round_trip(col.clone()).elements, col.elements);
+    // the Layout gallery's spacing and axes on a column chart
+    col.elements = ChartElements { gap_width: Some(75), overlap: Some(-25), hide_val_axis: true, minor_cat_gridlines: true, ..Default::default() };
+    assert_eq!(round_trip(col.clone()).elements, col.elements);
+    // labels on the last points only, with the series' names
+    col.elements = ChartElements {
+        last_point_labels: true,
+        label_pos: LabelPos::OutsideEnd,
+        label_text: gridcraft_model::LabelText::of(true, false, true, false),
+        ..Default::default()
+    };
+    let back = round_trip(col.clone());
+    assert!(back.data_labels);
+    assert_eq!(back.elements, col.elements);
+    // a scatter chart's X axis is its category axis here
+    let mut xy = chart(1, ChartKind::Scatter, vec![]);
+    xy.gridlines = false;
+    xy.elements = ChartElements { cat_gridlines: true, hide_val_axis: true, ..Default::default() };
+    let back = round_trip(xy.clone());
+    assert_eq!((back.gridlines, back.elements), (false, xy.elements));
     let mut area = chart(1, ChartKind::Area, vec![]);
     area.data_labels = true;
     area.elements.label_pos = LabelPos::Above;

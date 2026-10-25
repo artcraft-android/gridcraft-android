@@ -893,6 +893,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return e.view { chartPreview(kind, CHART_PREVIEW_W, CHART_PREVIEW_H) }.also { chartPreviews[kind] = it }
     }
 
+    /** The Layout gallery's preview of layout [n], or the Style page's of style [n] ([style]), for the selected chart (its type, colours and title). */
+    suspend fun chartLookPreview(n: Int, style: Boolean): List<io.github.artcraftandroid.gridcraft.core.ChartPrim> {
+        val o = selectedObject?.takeIf { it.kind == "chart" } ?: return emptyList()
+        val e = engine ?: return emptyList()
+        return e.view {
+            if (style) chartStylePreview(o.id, n.toUInt(), CHART_PREVIEW_W, CHART_PREVIEW_H) else chartLayoutPreview(o.id, n.toUInt(), CHART_PREVIEW_W, CHART_PREVIEW_H)
+        }
+    }
+
     /** The Shapes gallery's bands, and its tiles' drawings by shape, made once. */
     private var shapeBands: List<io.github.artcraftandroid.gridcraft.core.ShapeBand>? = null
     private val shapePreviews = mutableMapOf<String, List<io.github.artcraftandroid.gridcraft.core.ShapePiece>>()
@@ -1139,6 +1148,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (i.dirty) scheduleAutoSave()
     }
 
+    /** Each chart's source cells on the active sheet, by chart id: marked while it is selected. */
+    var chartSources by mutableStateOf<Map<UInt, List<io.github.artcraftandroid.gridcraft.core.ChartSourceBlock>>>(emptyMap())
+        private set
+
     /** The objects over the active sheet, their charts laid out and their pictures decoded. */
     private suspend fun loadObjects(e: Engine, sheetChanged: Boolean) {
         val list = e.view { objects() }
@@ -1147,6 +1160,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         chartDrawings = list.filter { it.kind == "chart" }.associate { o ->
             o.index to e.view { chartPrims(o.index, o.width.toFloat(), o.height.toFloat()) }
         }
+        chartSources = list.filter { it.kind == "chart" }.associate { o -> o.id to e.view { chartSource(o.id) } }
         if (sheetChanged) pictures = emptyMap()
         val missing = list.filter { it.kind == "image" && it.index !in pictures }
         if (missing.isNotEmpty()) {

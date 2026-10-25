@@ -614,6 +614,68 @@ pub struct ChartElements {
     /// automatic one: the colours of series without their own.
     #[serde(default)]
     pub palette: u16,
+    /// The category axis (a scatter chart's X axis) or the value axis left out (`c:delete`).
+    #[serde(default)]
+    pub hide_cat_axis: bool,
+    #[serde(default)]
+    pub hide_val_axis: bool,
+    /// Gridlines across the categories, and minor gridlines on either axis (the value axis's
+    /// major ones are `Chart::gridlines`).
+    #[serde(default)]
+    pub cat_gridlines: bool,
+    #[serde(default)]
+    pub minor_val_gridlines: bool,
+    #[serde(default)]
+    pub minor_cat_gridlines: bool,
+    /// Columns and bars: the gap between categories as a percentage of a column's width
+    /// (`c:gapWidth`, 150 when unset), and how far a category's columns overlap (`c:overlap`,
+    /// -100 to 100; below 0 leaves gaps between them).
+    #[serde(default)]
+    pub gap_width: Option<u16>,
+    #[serde(default)]
+    pub overlap: Option<i8>,
+    /// The data table without the series' colour keys (`c:showKeys` 0).
+    #[serde(default)]
+    pub data_table_no_keys: bool,
+    /// Data labels on each series' last point only (a `c:dLbl`), as one of the Layout gallery's
+    /// layouts puts them.
+    #[serde(default)]
+    pub last_point_labels: bool,
+    /// What data labels say.
+    #[serde(default)]
+    pub label_text: LabelText,
+    /// The Style page's style (`cs:chartStyle id`, see [`crate::chart_style`]); 0 for the plain look.
+    #[serde(default)]
+    pub style: u16,
+}
+
+/// What a data label says (`c:showVal`, `showCatName`, `showSerName`, `showPercent`): the
+/// value by default; the category's and series' names and a pie slice's share as well or instead.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LabelText {
+    pub value: bool,
+    pub category: bool,
+    pub series: bool,
+    pub percent: bool,
+}
+
+impl Default for LabelText {
+    fn default() -> Self {
+        LabelText { value: true, category: false, series: false, percent: false }
+    }
+}
+
+impl LabelText {
+    /// The parts a layout names, value first.
+    pub const fn of(value: bool, category: bool, series: bool, percent: bool) -> Self {
+        LabelText { value, category, series, percent }
+    }
+
+    /// Says something.
+    pub fn any(&self) -> bool {
+        self.value || self.category || self.series || self.percent
+    }
 }
 
 impl ChartElements {

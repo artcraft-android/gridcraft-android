@@ -128,6 +128,12 @@ pub struct ChartData {
     /// Workbook-theme colours for the points of pie-like charts, repeating (point `j` uses entry `j % len`); empty uses the default theme.
     #[serde(default)]
     pub palette: Vec<Rgba>,
+    /// The chart's Style page style (`cs:chartStyle id`; 0 for the plain look) and the workbook's
+    /// theme colours its looks are made from (`Theme::colors` order; empty for the default theme).
+    #[serde(default)]
+    pub style: u16,
+    #[serde(default)]
+    pub theme: Vec<[u8; 3]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

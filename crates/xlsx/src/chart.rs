@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use gridcraft_core::Value;
 use gridcraft_formula::{Expr, SheetSel};
 use gridcraft_model::{
-    Chart, ChartElements, ChartKind, Color, Depth, ErrorAmount, LabelPos, LegendPos, LineDash, Series, Trendline, TrendlineKind, Workbook,
+    Chart, ChartElements, ChartKind, Color, Depth, ErrorAmount, LabelPos, LabelText, LegendPos, LineDash, Series, Trendline, TrendlineKind, Workbook,
 };
 
 use crate::drawing::{dml_color, srgb};
@@ -254,9 +254,22 @@ pub fn read_chart(root: &El) -> Option<Chart> {
     }
     let kind = if groups.len() > 1 { ChartKind::Combo } else { first_kind };
     let depth = if groups.len() > 1 { Depth::Flat } else { group_depth(first) };
-    let show_val = |e: &El| e.child("dLbls").is_some_and(|d| bool_val(d, "showVal"));
-    let data_labels = groups.iter().any(|(g, _)| show_val(g) || g.kids("ser").any(show_val));
+    // labels that say something: the value, a name or a share
+    let says = |d: &El| ["showVal", "showCatName", "showSerName", "showPercent"].iter().any(|t| bool_val(d, t));
+    let text_of = |d: &El| LabelText::of(bool_val(d, "showVal"), bool_val(d, "showCatName"), bool_val(d, "showSerName"), bool_val(d, "showPercent"));
+    let show_val = |e: &El| e.child("dLbls").is_some_and(says);
+    // a series' label on one point that names it (the Layout gallery's last-point labels)
+    // a series' label on one point only (the Layout gallery's last-point labels)
+    let last_point = groups.iter().flat_map(|(g, _)| g.kids("ser")).find_map(|s| s.child("dLbls").and_then(|d| d.kids("dLbl").find(|l| says(l))));
+    let last_point_labels = last_point.is_some();
+    let data_labels = last_point_labels || groups.iter().any(|(g, _)| show_val(g) || g.kids("ser").any(show_val));
+    // what the labels say: the first that say something
+    let label_text = last_point
+        .or_else(|| groups.iter().flat_map(|(g, _)| std::iter::once(*g).chain(g.kids("ser"))).filter_map(|e| e.child("dLbls")).find(|d| says(d)))
+        .map(text_of)
+        .unwrap_or_default();
     let val_axes: Vec<&El> = plot.kids("valAx").collect();
+    let bar_group = groups.iter().map(|(g, _)| *g).find(|g| matches!(g.name.as_str(), "barChart" | "bar3DChart"));
     let cat_ax = plot.child("catAx").or_else(|| plot.child("dateAx"));
     let scatter = matches!(first_kind, ChartKind::Scatter | ChartKind::ScatterLines | ChartKind::ScatterLinesNoMarkers | ChartKind::Bubble);
     let (x_ax, y_ax) = if scatter {
@@ -279,7 +292,7 @@ pub fn read_chart(root: &El) -> Option<Chart> {
     let label_pos = groups
         .iter()
         .flat_map(|(g, _)| std::iter::once(*g).chain(g.kids("ser")))
-        .find_map(|e| e.path(&["dLbls", "dLblPos"]).and_then(|p| p.attr("val")))
+        .find_map(|e| e.path(&["dLbls", "dLblPos"]).or_else(|| e.path(&["dLbls", "dLbl", "dLblPos"])).and_then(|p| p.attr("val")))
         .map(|v| match v {
             "ctr" => LabelPos::Center,
             "inEnd" => LabelPos::InsideEnd,
@@ -312,8 +325,25 @@ pub fn read_chart(root: &El) -> Option<Chart> {
         // a stock chart always has its high-low lines; only a line chart's are a choice
         high_low_lines: groups.iter().any(|(g, k)| *k != ChartKind::Stock && g.child("hiLowLines").is_some()),
         data_table: plot.child("dTable").is_some(),
-        // the colour part beside the chart part says which (see the drawing reader)
+        last_point_labels,
+        label_text,
+        data_table_no_keys: plot.child("dTable").is_some_and(|t| t.child("showKeys").is_some() && !bool_val(t, "showKeys")),
+        // the colour and style parts beside the chart part say which (see the drawing reader)
         palette: 0,
+        style: 0,
+        hide_cat_axis: x_ax.is_some_and(|a| bool_val(a, "delete")),
+        hide_val_axis: y_ax.is_some_and(|a| bool_val(a, "delete")),
+        cat_gridlines: x_ax.is_some_and(|a| a.child("majorGridlines").is_some()),
+        minor_cat_gridlines: x_ax.is_some_and(|a| a.child("minorGridlines").is_some()),
+        minor_val_gridlines: y_ax.is_some_and(|a| a.child("minorGridlines").is_some()),
+        // the first column group's spacing, when not the usual
+        gap_width: bar_group.and_then(|g| g.child_val("gapWidth")).and_then(|v| v.parse::<u16>().ok()).filter(|v| *v != 150).map(|v| v.min(500)),
+        overlap: bar_group
+            .filter(|g| g.child_val("grouping").is_none_or(|v| v == "clustered"))
+            .and_then(|g| g.child_val("overlap"))
+            .and_then(|v| v.parse::<i16>().ok())
+            .filter(|v| *v != 0)
+            .map(|v| v.clamp(-100, 100) as i8),
     };
     Some(Chart {
         depth,
@@ -326,7 +356,7 @@ pub fn read_chart(root: &El) -> Option<Chart> {
         series,
         legend,
         data_labels,
-        gridlines: val_axes.iter().any(|a| a.child("majorGridlines").is_some()),
+        gridlines: y_ax.is_some_and(|a| a.child("majorGridlines").is_some()),
         style: root.child_val("style").and_then(|v| v.parse().ok()).unwrap_or(2),
         x_title: x_ax.and_then(|a| a.child("title")).and_then(rich_title),
         y_title: y_ax.and_then(|a| a.child("title")).and_then(rich_title),
@@ -613,7 +643,26 @@ pub fn colors_xml(palette: u16) -> Option<String> {
 }
 
 /// `auto`: the colour of the chart's palette for this series, written when it has none of its own.
-fn series_xml(s: &Series, idx: usize, g: G, err: Option<ErrorAmount>, bubble3d: bool, auto: Option<String>, wb: &Workbook, si: usize) -> String {
+/// The chart's Style page style, when it has one.
+fn look_of(ch: &Chart) -> Option<&'static gridcraft_model::chart_style::ChartStyle> {
+    (ch.elements.style != 0).then(|| gridcraft_model::chart_style::by_id(ch.elements.style)).flatten()
+}
+
+/// `last_label`: a label on the series' last point saying this, at this position. `look`: the
+/// chart's style, which fills a column series its way.
+fn series_xml(
+    s: &Series,
+    idx: usize,
+    g: G,
+    err: Option<ErrorAmount>,
+    bubble3d: bool,
+    auto: Option<String>,
+    last_label: Option<(Option<&str>, LabelText)>,
+    look: Option<&gridcraft_model::chart_style::ChartStyle>,
+    palette: u16,
+    wb: &Workbook,
+    si: usize,
+) -> String {
     let mut x = format!("<c:ser><c:idx val=\"{idx}\"/><c:order val=\"{idx}\"/>");
     if let Some(n) = &s.name {
         if is_ref(n) {
@@ -625,10 +674,20 @@ fn series_xml(s: &Series, idx: usize, g: G, err: Option<ErrorAmount>, bubble3d: 
     }
     let color = s.color.as_ref().and_then(|c: &Color| srgb(c, &wb.theme)).or(auto);
     let line_like = matches!(g, G::Line { .. } | G::Radar { filled: false, .. } | G::Scatter { lines: true, .. });
+    let styled = look.filter(|_| matches!(g, G::Bar { .. } | G::Bar3D { .. }));
     match (&color, line_like) {
-        (Some(c), true) => {
-            let _ = write!(x, "<c:spPr><a:ln w=\"28575\" cap=\"rnd\"><a:solidFill>{c}</a:solidFill><a:round/></a:ln></c:spPr>");
+        (Some(c), false) if styled.is_some() => {
+            if let Some(st) = styled {
+                x.push_str(&crate::chart_look::series(st, c));
+            }
         }
+        (Some(c), true) => match look.filter(|_| matches!(g, G::Line { .. })) {
+            // a style's line
+            Some(st) => x.push_str(&crate::chart_look::line_series(st, c)),
+            None => {
+                let _ = write!(x, "<c:spPr><a:ln w=\"28575\" cap=\"rnd\"><a:solidFill>{c}</a:solidFill><a:round/></a:ln></c:spPr>");
+            }
+        },
         (Some(c), false) if matches!(g, G::Scatter { lines: false, .. }) => {
             let _ = write!(
                 x,
@@ -643,13 +702,41 @@ fn series_xml(s: &Series, idx: usize, g: G, err: Option<ErrorAmount>, bubble3d: 
         }
         _ => {}
     }
+    // a style's markers on a line
+    let styled_marker = look.filter(|_| matches!(g, G::Line { .. })).and_then(|st| st.marker.map(|m| (st, m)));
     match g {
+        G::Line { .. } if styled_marker.is_some() => {
+            if let (Some((_, mk)), Some(c)) = (styled_marker, &color) {
+                x.push_str(&crate::chart_look::marker(&mk, c));
+            }
+        }
         G::Bar { .. } | G::Bar3D { .. } => x.push_str("<c:invertIfNegative val=\"0\"/>"),
         G::Line { markers: false, .. } | G::Scatter { markers: false, .. } | G::Radar { filled: false, markers: false } | G::Stock => {
             x.push_str("<c:marker><c:symbol val=\"none\"/></c:marker>")
         }
         G::Bubble => x.push_str("<c:invertIfNegative val=\"0\"/>"),
         _ => {}
+    }
+    // a pie's slices in the style, each in its colour from the palette
+    if let Some(st) = look.filter(|_| matches!(g, G::Pie | G::Doughnut | G::OfPie { .. })) {
+        let n =
+            if s.values.trim().starts_with('{') { s.values.split([',', ';']).count() } else { ref_values(wb, si, &s.values).map_or(0, |v| v.len()) };
+        let palette = if palette == 0 { gridcraft_model::chart_palette::AUTOMATIC } else { palette };
+        for j in 0..n.min(255) {
+            if let Some((slot, mods)) = gridcraft_model::chart_palette::series_color(palette, j, n) {
+                let base = gridcraft_model::chart_palette::scheme_xml(slot, &mods);
+                let _ = write!(x, "<c:dPt><c:idx val=\"{j}\"/><c:bubble3D val=\"0\"/>{}</c:dPt>", crate::chart_look::series(st, &base));
+            }
+        }
+    }
+    if let Some((pos, text)) = last_label {
+        let n =
+            if s.values.trim().starts_with('{') { s.values.split([',', ';']).count() } else { ref_values(wb, si, &s.values).map_or(0, |v| v.len()) };
+        if let Some(last) = n.checked_sub(1) {
+            let pos = pos.map(|p| format!("<c:dLblPos val=\"{p}\"/>")).unwrap_or_default();
+            let _ =
+                write!(x, "<c:dLbls><c:dLbl><c:idx val=\"{last}\"/>{pos}{}</c:dLbl>{}</c:dLbls>", label_flags(true, text), label_flags(false, text));
+        }
     }
     // Trendlines sit between dLbls and the data in CT_LineSer, CT_BarSer, CT_AreaSer,
     // CT_ScatterSer and CT_BubbleSer; pie and radar series have none.
@@ -746,11 +833,22 @@ fn trendline_xml(t: &Trendline, wb: &Workbook) -> String {
     x
 }
 
-fn dlbls(show: bool, pos: Option<&str>) -> String {
+fn dlbls(show: bool, pos: Option<&str>, text: LabelText, look: Option<&gridcraft_model::chart_style::ChartStyle>) -> String {
     let pos = pos.filter(|_| show).map(|p| format!("<c:dLblPos val=\"{p}\"/>")).unwrap_or_default();
+    // the style's type goes before the position
+    let ty = look.filter(|_| show).map(crate::chart_look::labels).unwrap_or_default();
+    format!("<c:dLbls>{ty}{pos}{}</c:dLbls>", label_flags(show, text))
+}
+
+/// A label's `c:show*` flags: what it says when shown.
+fn label_flags(show: bool, t: LabelText) -> String {
+    let f = |on: bool| u8::from(show && on);
     format!(
-        "<c:dLbls>{pos}<c:showLegendKey val=\"0\"/><c:showVal val=\"{}\"/><c:showCatName val=\"0\"/><c:showSerName val=\"0\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/></c:dLbls>",
-        show as u8
+        "<c:showLegendKey val=\"0\"/><c:showVal val=\"{}\"/><c:showCatName val=\"{}\"/><c:showSerName val=\"{}\"/><c:showPercent val=\"{}\"/><c:showBubbleSize val=\"0\"/>",
+        f(t.value),
+        f(t.category),
+        f(t.series),
+        f(t.percent)
     )
 }
 
@@ -794,14 +892,21 @@ fn group_xml(g: G, series: &[(usize, &Series)], ch: &Chart, axes: (u32, u32), wb
     // a palette picked on the Color page: each series' colour as the theme colour it is made from,
     // as the reference writes it (charts coloured by point keep theirs)
     let count = ch.series.len();
+    let look = look_of(ch);
+    // a style fills series in their colours: the automatic ones are named too
+    let palette = if el.palette == 0 && look.is_some() { gridcraft_model::chart_palette::AUTOMATIC } else { el.palette };
     let auto = |i: usize| {
-        (el.palette != 0 && !matches!(g, G::Pie | G::OfPie { .. } | G::Doughnut))
-            .then(|| gridcraft_model::chart_palette::series_color(el.palette, i, count))
+        (palette != 0 && !matches!(g, G::Pie | G::OfPie { .. } | G::Doughnut))
+            .then(|| gridcraft_model::chart_palette::series_color(palette, i, count))
             .flatten()
             .map(|(slot, mods)| gridcraft_model::chart_palette::scheme_xml(slot, &mods))
     };
-    let sers: String = series.iter().map(|(i, s)| series_xml(s, *i, g, el.error_bars, bubble3d, auto(*i), wb, si)).collect();
-    let dl = dlbls(ch.data_labels, label_pos_xml(el.label_pos, g));
+    // labels on the last points only: the group's show nothing
+    let last_only = ch.data_labels && el.last_point_labels && !matches!(g, G::Pie | G::OfPie { .. } | G::Doughnut);
+    let last_label = last_only.then(|| (label_pos_xml(el.label_pos, g), el.label_text));
+    let sers: String =
+        series.iter().map(|(i, s)| series_xml(s, *i, g, el.error_bars, bubble3d, auto(*i), last_label, look, el.palette, wb, si)).collect();
+    let dl = dlbls(ch.data_labels && !last_only, label_pos_xml(el.label_pos, g), el.label_text, look);
     // drop lines, high-low lines and up/down bars, in the order CT_LineChart has them
     let drop = if el.drop_lines { "<c:dropLines/>" } else { "" };
     let lines = format!(
@@ -809,15 +914,21 @@ fn group_xml(g: G, series: &[(usize, &Series)], ch: &Chart, axes: (u32, u32), wb
         if el.high_low_lines { "<c:hiLowLines/>" } else { "" },
         if el.up_down_bars { "<c:upDownBars><c:gapWidth val=\"150\"/><c:upBars/><c:downBars/></c:upDownBars>" } else { "" }
     );
+    let gap = el.gap_width.unwrap_or(150).min(500);
     let mut ax = format!("<c:axId val=\"{}\"/><c:axId val=\"{}\"/>", axes.0, axes.1);
     if g.rows() {
         let _ = write!(ax, "<c:axId val=\"{}\"/>", SER_AX);
     }
     match g {
         G::Bar { bar, grouping } => {
-            let overlap = if grouping == "clustered" { String::new() } else { "<c:overlap val=\"100\"/>".into() };
+            // a stack's columns lie on each other
+            let overlap = match (grouping, el.overlap) {
+                ("clustered", None) => String::new(),
+                ("clustered", Some(o)) => format!("<c:overlap val=\"{}\"/>", o.clamp(-100, 100)),
+                _ => "<c:overlap val=\"100\"/>".into(),
+            };
             format!(
-                "<c:barChart><c:barDir val=\"{}\"/><c:grouping val=\"{grouping}\"/><c:varyColors val=\"0\"/>{sers}{dl}<c:gapWidth val=\"150\"/>{overlap}{ax}</c:barChart>",
+                "<c:barChart><c:barDir val=\"{}\"/><c:grouping val=\"{grouping}\"/><c:varyColors val=\"0\"/>{sers}{dl}<c:gapWidth val=\"{gap}\"/>{overlap}{ax}</c:barChart>",
                 if bar { "bar" } else { "col" }
             )
         }
@@ -846,7 +957,7 @@ fn group_xml(g: G, series: &[(usize, &Series)], ch: &Chart, axes: (u32, u32), wb
             if el.up_down_bars { "<c:upDownBars><c:gapWidth val=\"150\"/><c:upBars/><c:downBars/></c:upDownBars>" } else { "" }
         ),
         G::Bar3D { bar, grouping, .. } => format!(
-            "<c:bar3DChart><c:barDir val=\"{}\"/><c:grouping val=\"{grouping}\"/><c:varyColors val=\"0\"/>{sers}{dl}<c:gapWidth val=\"150\"/><c:shape val=\"box\"/>{ax}</c:bar3DChart>",
+            "<c:bar3DChart><c:barDir val=\"{}\"/><c:grouping val=\"{grouping}\"/><c:varyColors val=\"0\"/>{sers}{dl}<c:gapWidth val=\"{gap}\"/><c:shape val=\"box\"/>{ax}</c:bar3DChart>",
             if bar { "bar" } else { "col" }
         ),
         G::Line3D => format!("<c:line3DChart><c:grouping val=\"standard\"/><c:varyColors val=\"0\"/>{sers}{dl}{drop}{ax}</c:line3DChart>"),
@@ -888,10 +999,12 @@ fn view3d_xml(g: G) -> &'static str {
     }
 }
 
-fn title_xml(t: &str, overlay: bool) -> String {
+/// A title; `def`: its run properties (a style's type), plain when empty.
+fn title_xml(t: &str, overlay: bool, def: &str) -> String {
+    let def = if def.is_empty() { "<a:defRPr/>" } else { def };
     let mut s = String::from("<c:title><c:tx><c:rich><a:bodyPr/><a:lstStyle/>");
     for line in t.split('\n') {
-        let _ = write!(s, "<a:p><a:pPr><a:defRPr/></a:pPr><a:r><a:t>{}</a:t></a:r></a:p>", esc(line));
+        let _ = write!(s, "<a:p><a:pPr>{def}</a:pPr><a:r><a:t>{}</a:t></a:r></a:p>", esc(line));
     }
     let _ = write!(s, "</c:rich></c:tx><c:overlay val=\"{}\"/></c:title>", overlay as u8);
     s
@@ -904,8 +1017,10 @@ struct Ax<'a> {
     pos: &'a str,
     delete: bool,
     grid: bool,
+    minor: bool,
     title: Option<&'a str>,
     crosses_max: bool,
+    look: Option<&'a gridcraft_model::chart_style::ChartStyle>,
 }
 
 fn axis_xml(a: &Ax<'_>) -> String {
@@ -916,15 +1031,20 @@ fn axis_xml(a: &Ax<'_>) -> String {
         a.delete as u8,
         a.pos
     );
+    let lines = |minor: bool| a.look.map(|st| crate::chart_look::gridlines(st, minor)).unwrap_or_default();
     if a.grid {
-        s.push_str("<c:majorGridlines/>");
+        let _ = write!(s, "<c:majorGridlines>{}</c:majorGridlines>", lines(false));
+    }
+    if a.minor {
+        let _ = write!(s, "<c:minorGridlines>{}</c:minorGridlines>", lines(true));
     }
     if let Some(t) = a.title {
-        s.push_str(&title_xml(t, false));
+        s.push_str(&title_xml(t, false, ""));
     }
     let _ = write!(
         s,
-        "<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/><c:crossAx val=\"{}\"/><c:crosses val=\"{}\"/>",
+        "<c:numFmt formatCode=\"General\" sourceLinked=\"1\"/><c:majorTickMark val=\"out\"/><c:minorTickMark val=\"none\"/><c:tickLblPos val=\"nextTo\"/>{}<c:crossAx val=\"{}\"/><c:crosses val=\"{}\"/>",
+        a.look.map(|st| crate::chart_look::axis(st, a.cat)).unwrap_or_default(),
         a.cross,
         if a.crosses_max { "max" } else { "autoZero" }
     );
@@ -938,6 +1058,7 @@ fn axis_xml(a: &Ax<'_>) -> String {
 
 /// Chart part XML for a model chart on sheet `si`.
 pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
+    let look = look_of(ch);
     let mut s = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<c:chartSpace xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><c:roundedCorners val=\"0\"/>",
     );
@@ -951,7 +1072,7 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
     s.push_str("<c:chart>");
     match &ch.title {
         Some(t) if !t.is_empty() => {
-            s.push_str(&title_xml(t, ch.elements.title_overlay));
+            s.push_str(&title_xml(t, ch.elements.title_overlay, &look.map(|st| crate::chart_look::def_rpr(&st.title)).unwrap_or_default()));
             s.push_str("<c:autoTitleDeleted val=\"0\"/>");
         }
         _ => s.push_str("<c:autoTitleDeleted val=\"1\"/>"),
@@ -994,87 +1115,79 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
         primary_g = solo;
         s.push_str(&group_xml(primary_g, &all, ch, (1, 2), wb, si));
     }
-    match primary_g {
-        G::Pie | G::OfPie { .. } | G::Doughnut | G::Pie3D => {}
-        G::Scatter { .. } | G::Bubble => {
-            s.push_str(&axis_xml(&Ax {
-                cat: false,
-                id: 1,
-                cross: 2,
-                pos: "b",
-                delete: false,
-                grid: false,
-                title: ch.x_title.as_deref(),
-                crosses_max: false,
-            }));
-            s.push_str(&axis_xml(&Ax {
-                cat: false,
-                id: 2,
-                cross: 1,
-                pos: "l",
-                delete: false,
-                grid: ch.gridlines,
-                title: ch.y_title.as_deref(),
-                crosses_max: false,
-            }));
-        }
-        G::Bar { bar: true, .. } | G::Bar3D { bar: true, .. } => {
-            s.push_str(&axis_xml(&Ax {
-                cat: true,
-                id: 1,
-                cross: 2,
-                pos: "l",
-                delete: false,
-                grid: false,
-                title: ch.x_title.as_deref(),
-                crosses_max: false,
-            }));
-            s.push_str(&axis_xml(&Ax {
-                cat: false,
-                id: 2,
-                cross: 1,
-                pos: "b",
-                delete: false,
-                grid: ch.gridlines,
-                title: ch.y_title.as_deref(),
-                crosses_max: false,
-            }));
-        }
-        _ => {
-            s.push_str(&axis_xml(&Ax {
-                cat: true,
-                id: 1,
-                cross: 2,
-                pos: "b",
-                delete: false,
-                grid: false,
-                title: ch.x_title.as_deref(),
-                crosses_max: false,
-            }));
-            s.push_str(&axis_xml(&Ax {
-                cat: false,
-                id: 2,
-                cross: 1,
-                pos: "l",
-                delete: false,
-                grid: ch.gridlines,
-                title: ch.y_title.as_deref(),
-                crosses_max: false,
-            }));
-        }
+    let el = &ch.elements;
+    // the category axis (a scatter chart's X axis) and the value axis, where this kind puts them
+    let axes = match primary_g {
+        G::Pie | G::OfPie { .. } | G::Doughnut | G::Pie3D => None,
+        G::Scatter { .. } | G::Bubble => Some((false, "b", "l")),
+        G::Bar { bar: true, .. } | G::Bar3D { bar: true, .. } => Some((true, "l", "b")),
+        _ => Some((true, "b", "l")),
+    };
+    if let Some((cat, cat_pos, val_pos)) = axes {
+        s.push_str(&axis_xml(&Ax {
+            cat,
+            id: 1,
+            cross: 2,
+            pos: cat_pos,
+            delete: el.hide_cat_axis,
+            grid: el.cat_gridlines,
+            minor: el.minor_cat_gridlines,
+            title: ch.x_title.as_deref(),
+            crosses_max: false,
+            look,
+        }));
+        s.push_str(&axis_xml(&Ax {
+            cat: false,
+            id: 2,
+            cross: 1,
+            pos: val_pos,
+            delete: el.hide_val_axis,
+            grid: ch.gridlines,
+            minor: el.minor_val_gridlines,
+            title: ch.y_title.as_deref(),
+            crosses_max: false,
+            look,
+        }));
     }
     if primary_g.rows() {
         s.push_str(&ser_axis_xml(false));
     }
     if secondary.is_some() {
-        s.push_str(&axis_xml(&Ax { cat: true, id: 3, cross: 4, pos: "b", delete: true, grid: false, title: None, crosses_max: false }));
-        s.push_str(&axis_xml(&Ax { cat: false, id: 4, cross: 3, pos: "r", delete: false, grid: false, title: None, crosses_max: true }));
+        s.push_str(&axis_xml(&Ax {
+            cat: true,
+            id: 3,
+            cross: 4,
+            pos: "b",
+            delete: true,
+            grid: false,
+            minor: false,
+            title: None,
+            crosses_max: false,
+            look,
+        }));
+        s.push_str(&axis_xml(&Ax {
+            cat: false,
+            id: 4,
+            cross: 3,
+            pos: "r",
+            delete: false,
+            grid: false,
+            minor: false,
+            title: None,
+            crosses_max: true,
+            look,
+        }));
     }
     // a data table sits after the axes; a pie has none
-    if ch.elements.data_table && !matches!(primary_g, G::Pie | G::OfPie { .. } | G::Doughnut) && !primary_g.deep() {
-        s.push_str(
-            "<c:dTable><c:showHorzBorder val=\"1\"/><c:showVertBorder val=\"1\"/><c:showOutline val=\"1\"/><c:showKeys val=\"1\"/></c:dTable>",
+    if el.data_table && !matches!(primary_g, G::Pie | G::OfPie { .. } | G::Doughnut) && !primary_g.deep() {
+        let _ = write!(
+            s,
+            "<c:dTable><c:showHorzBorder val=\"1\"/><c:showVertBorder val=\"1\"/><c:showOutline val=\"1\"/><c:showKeys val=\"{}\"/></c:dTable>",
+            u8::from(!el.data_table_no_keys)
         );
+    }
+    if let Some(st) = look {
+        s.push_str(&crate::chart_look::plot(st));
     }
     s.push_str("</c:plotArea>");
     let pos = match ch.legend {
@@ -1085,8 +1198,13 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
         LegendPos::Right => Some("r"),
     };
     if let Some(p) = pos {
-        let _ = write!(s, "<c:legend><c:legendPos val=\"{p}\"/><c:overlay val=\"0\"/></c:legend>");
+        let ty = look.map(crate::chart_look::legend).unwrap_or_default();
+        let _ = write!(s, "<c:legend><c:legendPos val=\"{p}\"/><c:overlay val=\"0\"/>{ty}</c:legend>");
     }
-    s.push_str("<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart></c:chartSpace>");
+    s.push_str("<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart>");
+    if let Some(st) = look {
+        s.push_str(&crate::chart_look::area(st));
+    }
+    s.push_str("</c:chartSpace>");
     s
 }

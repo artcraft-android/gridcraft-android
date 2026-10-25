@@ -513,7 +513,7 @@ pub fn write_sheet(wb: &Workbook, si: usize, selected: bool, out: &mut Out) -> (
                 let xml = crate::chartex::write_chartex(wb, si, ch, &mut out.chart_names);
                 out.part(&format!("xl/charts/chartEx{n}.xml"), Some(crate::chartex::CT_CHARTEX), xml.into_bytes());
                 // Excel expects a chartex part's style and colour parts.
-                out.part(&format!("xl/charts/style{n}.xml"), Some(crate::chartex::CT_STYLE), crate::chartex::style_xml().into_bytes());
+                out.part(&format!("xl/charts/style{n}.xml"), Some(crate::chartex::CT_STYLE), crate::chartex::style_xml(201).into_bytes());
                 out.part(&format!("xl/charts/colors{n}.xml"), Some(crate::chartex::CT_COLORS), crate::chartex::colors_xml().into_bytes());
                 let mut crels = Rels::default();
                 crels.add_uri(crate::chartex::REL_STYLE, &format!("style{n}.xml"));
@@ -524,11 +524,22 @@ pub fn write_sheet(wb: &Workbook, si: usize, selected: bool, out: &mut Out) -> (
                 let n = out.charts;
                 let name = format!("xl/charts/chart{n}.xml");
                 out.part(&name, Some(CT_CHART), crate::chart::write_chart(wb, si, ch).into_bytes());
-                // a palette picked on the Color page goes in a colour part, as the reference keeps it
+                // a palette picked on the Color page goes in a colour part and a Style page style
+                // in a style part, as the reference keeps them
+                let mut crels = Rels::default();
+                if gridcraft_model::chart_style::by_id(ch.elements.style).is_some() {
+                    out.part(
+                        &format!("xl/charts/style{n}.xml"),
+                        Some(crate::chartex::CT_STYLE),
+                        crate::chartex::style_xml(ch.elements.style).into_bytes(),
+                    );
+                    crels.add_uri(crate::chartex::REL_STYLE, &format!("style{n}.xml"));
+                }
                 if let Some(xml) = crate::chart::colors_xml(ch.elements.palette) {
                     out.part(&format!("xl/charts/colors{n}.xml"), Some(crate::chartex::CT_COLORS), xml.into_bytes());
-                    let mut crels = Rels::default();
                     crels.add_uri(crate::chartex::REL_COLORS, &format!("colors{n}.xml"));
+                }
+                if !crels.is_empty() {
                     out.part(&format!("xl/charts/_rels/chart{n}.xml.rels"), None, crels.xml().into_bytes());
                 }
                 drels.add("chart", &format!("../charts/chart{n}.xml"))

@@ -482,6 +482,48 @@ fn chart_info_follows_the_elements() {
 }
 
 #[test]
+fn the_layout_gallery_previews_each_layout_and_the_info_follows() {
+    let m = MobileSession::new();
+    for (i, v) in ["Sales", "3", "5", "4"].iter().enumerate() {
+        m.execute("cell.set".into(), json!({ "cell": format!("A{}", i + 1), "input": v }).to_string()).unwrap();
+    }
+    m.execute("selection.set".into(), json!({ "range": "A1:A4" }).to_string()).unwrap();
+    m.execute("insert.chart".into(), json!({ "type": "bar" }).to_string()).unwrap();
+    let id = m.objects().iter().find(|o| o.kind == "chart").expect("a chart").id;
+    let previews: Vec<_> = (1..=11).map(|n| m.chart_layout_preview(id, n, 380.0, 234.6)).collect();
+    assert!(previews.iter().all(|p| !p.is_empty()));
+    assert_ne!(previews[0], previews[1], "layouts 1 and 2 differ");
+    assert!(m.chart_layout_preview(id, 12, 380.0, 234.6).is_empty());
+    assert!(m.chart_layout_preview(id + 1000, 1, 380.0, 234.6).is_empty());
+    m.execute("chart.quickLayout".into(), json!({ "chart": id, "layout": 2 }).to_string()).unwrap();
+    let info = m.chart_info(id).expect("its info");
+    assert!(info.has_axes && info.horizontal && info.cat_axis && !info.val_axis && !info.gridlines);
+    m.execute("chart.quickLayout".into(), json!({ "chart": id, "layout": 7 }).to_string()).unwrap();
+    let info = m.chart_info(id).expect("its info");
+    assert!(info.val_axis && info.minor_val_gridlines && info.cat_axis_title && info.val_axis_title && info.data_table_keys);
+    assert_eq!(info.layouts, 11);
+    // a pie has seven, previewed over its own sample
+    m.execute("chart.changeType".into(), json!({ "chart": id, "type": "pie" }).to_string()).unwrap();
+    assert_eq!(m.chart_info(id).expect("its info").layouts, 7);
+    assert!((1..=7).all(|n| !m.chart_layout_preview(id, n, 380.0, 234.6).is_empty()));
+    assert!(m.chart_layout_preview(id, 8, 380.0, 234.6).is_empty());
+    // a line chart's twelve
+    m.execute("chart.changeType".into(), json!({ "chart": id, "type": "line" }).to_string()).unwrap();
+    assert_eq!(m.chart_info(id).expect("its info").layouts, 12);
+    assert_eq!(m.chart_info(id).expect("its info").styles, 13, "a line chart's own styles");
+    assert!(!m.chart_style_preview(id, 13, 380.0, 234.6).is_empty() && m.chart_style_preview(id, 14, 380.0, 234.6).is_empty());
+    assert!(!m.chart_layout_preview(id, 12, 380.0, 234.6).is_empty());
+    // the Style page's fourteen
+    m.execute("chart.changeType".into(), json!({ "chart": id, "type": "column" }).to_string()).unwrap();
+    let styles: Vec<_> = (1..=14).map(|n| m.chart_style_preview(id, n, 380.0, 234.6)).collect();
+    assert!(styles.iter().all(|p| !p.is_empty()));
+    assert_ne!(styles[0], styles[7], "a dark style differs");
+    assert!(m.chart_style_preview(id, 15, 380.0, 234.6).is_empty());
+    m.execute("chart.style".into(), json!({ "chart": id, "style": 8 }).to_string()).unwrap();
+    assert_eq!(m.chart_info(id).expect("its info").style, 8);
+}
+
+#[test]
 fn checkbox_cells_say_whether_they_are_ticked() {
     let m = MobileSession::new();
     m.execute("insert.checkbox".into(), json!({ "range": "A1:A2" }).to_string()).unwrap();
@@ -790,4 +832,20 @@ fn the_shapes_gallery_draws_every_shape_and_shapes_carry_their_outline() {
     assert_eq!(shapes[0].pieces.len(), 1);
     assert_eq!(shapes[0].pieces[0].paint, "fill");
     assert!(shapes[1].pieces.is_empty());
+}
+
+#[test]
+fn a_chart_names_its_source_cells() {
+    let m = MobileSession::new();
+    m.execute("range.setValues".into(), json!({ "range": "A1", "values": [["", "S1", "S2"], ["a", 1, 2], ["b", 3, 4]] }).to_string()).unwrap();
+    m.execute("insert.chart".into(), json!({ "range": "A1:C3", "type": "column" }).to_string()).unwrap();
+    let id = m.objects().iter().find(|o| o.kind == "chart").expect("a chart").id;
+    let src = m.chart_source(id);
+    let find = |role: &str, series: u32| {
+        src.iter().find(|b| b.role == role && b.series == series).map(|b| (b.first_row, b.first_col, b.last_row, b.last_col))
+    };
+    assert_eq!(find("categories", 0), Some((1, 0, 2, 0)));
+    assert_eq!(find("name", 1), Some((0, 2, 0, 2)));
+    assert_eq!(find("values", 0), Some((1, 1, 2, 1)));
+    assert!(m.chart_source(id + 1000).is_empty());
 }

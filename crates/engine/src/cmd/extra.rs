@@ -15,11 +15,28 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add Chart Element",
             ["Chart Design", "Chart Layouts"],
             None,
-            "{chart?, element: title|legend|dataLabels|gridlines|axisTitles|smooth|trendline|errorBars|upDownBars|lines|dataTable, on?: bool, position?: bottom|top|left|right (legend) | above|overlay (title) | auto|center|insideEnd|insideBase|outsideEnd|bestFit|left|right|above|below (dataLabels); errorBars: type?: standardError|percentage|standardDeviation|fixed, value?; lines: type: none|drop|highLow; trendline: series?: index (default all), type?: linear|exponential|linearForecast|movingAverage|logarithmic|power|polynomial, order?: 2..6, period?: 2..255, forward?, backward?, displayEquation?, displayRSquared?, replace?: bool (the series' trendlines give way to this one)}",
+            "{chart?, element: title|legend|dataLabels|gridlines|axis|axisTitles|smooth|trendline|errorBars|upDownBars|lines|dataTable, on?: bool, position?: bottom|top|left|right (legend) | above|overlay (title) | auto|center|insideEnd|insideBase|outsideEnd|bestFit|left|right|above|below (dataLabels); gridlines: which?: majorValue|majorCategory|minorValue|minorCategory; axis: which?: category|value; axisTitles: which?: category|value (default both); dataTable: keys?: bool; errorBars: type?: standardError|percentage|standardDeviation|fixed, value?; lines: type: none|drop|highLow; trendline: series?: index (default all), type?: linear|exponential|linearForecast|movingAverage|logarithmic|power|polynomial, order?: 2..6, period?: 2..255, forward?, backward?, displayEquation?, displayRSquared?, replace?: bool (the series' trendlines give way to this one)}",
             has_doc,
             add_element
         ),
-        cmd!("chart.quickLayout", "Quick Layout", ["Chart Design", "Chart Layouts"], None, "{chart?, layout: 1..6}", has_doc, quick_layout),
+        cmd!(
+            "chart.quickLayout",
+            "Quick Layout",
+            ["Chart Design", "Chart Layouts"],
+            None,
+            "{chart?, layout: 1..11 (line charts 1..12, pie charts 1..7)}",
+            has_doc,
+            quick_layout
+        ),
+        cmd!(
+            "chart.style",
+            "Chart Style",
+            ["Chart Design", "Chart Styles"],
+            None,
+            "{chart?, style: 1..14 (the Style page's styles; line charts 1..13)}",
+            has_doc,
+            chart_style
+        ),
         cmd!(
             "chart.changeColors",
             "Change Colors",
@@ -314,6 +331,7 @@ fn add_element(s: &mut Session, p: &Json) -> Result<Json> {
             }
             "dataLabels" => {
                 c.data_labels = on;
+                c.elements.last_point_labels = false;
                 if let Some(p) = pos.as_deref() {
                     c.elements.label_pos = match p {
                         "center" => LabelPos::Center,
@@ -354,11 +372,32 @@ fn add_element(s: &mut Session, p: &Json) -> Result<Json> {
                     other => return Err(bad("chart.addElement", format!("unknown lines `{other}`"))),
                 };
             }
-            "dataTable" => c.elements.data_table = on,
-            "gridlines" => c.gridlines = on,
+            "dataTable" => {
+                c.elements.data_table = on;
+                c.elements.data_table_no_keys = on && !bool_param(p, "keys").unwrap_or(true);
+            }
+            // the category axis is a scatter chart's X axis
+            "gridlines" => match str_param(p, "which").unwrap_or("majorValue") {
+                "majorValue" => c.gridlines = on,
+                "majorCategory" => c.elements.cat_gridlines = on,
+                "minorValue" => c.elements.minor_val_gridlines = on,
+                "minorCategory" => c.elements.minor_cat_gridlines = on,
+                other => return Err(bad("chart.addElement", format!("unknown gridlines `{other}`"))),
+            },
+            "axis" => match str_param(p, "which").unwrap_or("value") {
+                "category" => c.elements.hide_cat_axis = !on,
+                "value" => c.elements.hide_val_axis = !on,
+                other => return Err(bad("chart.addElement", format!("unknown axis `{other}`"))),
+            },
             "axisTitles" => {
-                c.x_title = on.then(|| c.x_title.clone().unwrap_or_else(|| "Axis Title".into()));
-                c.y_title = on.then(|| c.y_title.clone().unwrap_or_else(|| "Axis Title".into()));
+                let which = str_param(p, "which");
+                let title = |t: &Option<String>| on.then(|| t.clone().unwrap_or_else(|| "Axis Title".into()));
+                if which != Some("value") {
+                    c.x_title = title(&c.x_title);
+                }
+                if which != Some("category") {
+                    c.y_title = title(&c.y_title);
+                }
             }
             "smooth" => {
                 for s in &mut c.series {
@@ -431,26 +470,183 @@ fn trendline_param(p: &Json) -> Result<Trendline> {
     Ok(t)
 }
 
+/// How many layouts the Layout gallery offers a chart of this kind: the reference's sets for line
+/// charts (12), pie charts (7) and column and other charts with axes (11).
+pub fn quick_layouts(kind: ChartKind) -> u32 {
+    if pie_like(kind) {
+        7
+    } else if line_like(kind) {
+        12
+    } else {
+        11
+    }
+}
+
+fn line_like(kind: ChartKind) -> bool {
+    matches!(
+        kind,
+        ChartKind::Line
+            | ChartKind::LineMarkers
+            | ChartKind::LineStacked
+            | ChartKind::LineStackedMarkers
+            | ChartKind::LineStacked100
+            | ChartKind::LineStacked100Markers
+    )
+}
+
+fn pie_like(kind: ChartKind) -> bool {
+    matches!(kind, ChartKind::Pie | ChartKind::PieOfPie | ChartKind::BarOfPie | ChartKind::Doughnut)
+}
+
 fn quick_layout(s: &mut Session, p: &Json) -> Result<Json> {
     let n = u32_param(p, "layout").unwrap_or(1);
     with_chart(s, p, |c| {
-        let (legend, labels, grid, axes) = match n {
-            2 => (LegendPos::Top, true, false, false),
-            3 => (LegendPos::Bottom, false, true, false),
-            4 => (LegendPos::Bottom, true, false, false),
-            5 => (LegendPos::None, false, true, true),
-            6 => (LegendPos::Right, false, true, true),
-            _ => (LegendPos::Right, false, true, false),
-        };
-        c.legend = legend;
-        c.data_labels = labels;
-        c.gridlines = grid;
-        if axes {
-            c.x_title.get_or_insert_with(|| "Axis Title".into());
-            c.y_title.get_or_insert_with(|| "Axis Title".into());
+        let count = quick_layouts(c.kind);
+        if !(1..=count).contains(&n) {
+            return Err(bad("chart.quickLayout", format!("this chart's layouts are numbered 1 to {count}")));
+        }
+        if pie_like(c.kind) {
+            pie_layout(c, n);
+        } else if line_like(c.kind) {
+            line_layout(c, n);
         } else {
-            c.x_title = None;
-            c.y_title = None;
+            column_layout(c, n);
+        }
+        Ok(())
+    })
+}
+
+/// The title as a layout has it: kept (or the placeholder) when shown, gone when not.
+fn layout_title(c: &mut Chart, shown: bool) {
+    c.title = if shown { c.title.clone().filter(|t| !t.is_empty()).or(Some("Chart Title".into())) } else { Some(String::new()) };
+    c.elements.title_overlay = false;
+}
+
+/// The reference's eleven layouts as they set a column chart.
+fn column_layout(c: &mut Chart, n: u32) {
+    // (title, legend, data labels, value gridlines, axis titles (category, value), gap width, overlap)
+    let (title, legend, labels, grid, titles, gap, overlap) = match n {
+        2 => (true, LegendPos::Top, true, false, (false, false), 150, -25),
+        3 => (true, LegendPos::Bottom, false, true, (false, false), 75, -25),
+        4 => (false, LegendPos::Bottom, true, false, (false, false), 75, 0),
+        5 => (true, LegendPos::None, false, true, (false, true), 150, 0),
+        6 => (true, LegendPos::None, true, true, (false, true), 150, 0),
+        7 => (false, LegendPos::Right, false, true, (true, true), 300, 0),
+        8 => (true, LegendPos::None, false, false, (true, true), 0, 0),
+        9 => (true, LegendPos::Right, false, true, (true, true), 150, 0),
+        10 => (true, LegendPos::Right, true, true, (false, false), 75, 40),
+        11 => (false, LegendPos::Right, false, true, (false, false), 150, 0),
+        _ => (true, LegendPos::Right, false, true, (false, false), 150, 0),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels;
+    c.gridlines = grid;
+    let keep = |t: &Option<String>, on: bool| on.then(|| t.clone().unwrap_or_else(|| "Axis Title".into()));
+    c.x_title = keep(&c.x_title, titles.0);
+    c.y_title = keep(&c.y_title, titles.1);
+    let e = &mut c.elements;
+    e.label_pos = if n == 10 { LabelPos::InsideEnd } else { LabelPos::Auto };
+    e.hide_cat_axis = false;
+    e.hide_val_axis = n == 2;
+    e.cat_gridlines = false;
+    e.minor_cat_gridlines = false;
+    e.minor_val_gridlines = n == 7;
+    e.data_table = n == 5;
+    e.data_table_no_keys = false;
+    e.last_point_labels = n == 6;
+    e.label_text = if n == 6 { LabelText::of(true, false, true, false) } else { LabelText::default() };
+    e.gap_width = (gap != 150).then_some(gap);
+    e.overlap = (overlap != 0).then_some(overlap);
+}
+
+/// The reference's twelve line layouts.
+fn line_layout(c: &mut Chart, n: u32) {
+    // (title, legend, data labels where, value gridlines, axis titles (category, value), axes
+    // hidden (category, value))
+    let (title, legend, labels, grid, titles, hidden) = match n {
+        2 => (true, LegendPos::Top, Some(LabelPos::Auto), false, (false, false), (false, true)),
+        3 => (true, LegendPos::Bottom, None, true, (false, false), (false, false)),
+        4 => (false, LegendPos::Bottom, None, false, (false, false), (false, false)),
+        5 => (true, LegendPos::None, None, true, (false, true), (false, false)),
+        6 => (true, LegendPos::None, Some(LabelPos::Right), true, (false, true), (false, false)),
+        7 => (false, LegendPos::Right, None, true, (true, true), (false, false)),
+        8 => (true, LegendPos::Bottom, Some(LabelPos::Center), false, (false, false), (false, true)),
+        9 => (true, LegendPos::Right, Some(LabelPos::Auto), true, (false, false), (false, false)),
+        10 => (true, LegendPos::Right, None, true, (true, true), (false, false)),
+        11 => (false, LegendPos::None, None, false, (false, false), (true, true)),
+        12 => (false, LegendPos::Right, None, true, (false, false), (false, false)),
+        _ => (true, LegendPos::Right, None, true, (false, true), (false, false)),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels.is_some();
+    c.gridlines = grid;
+    let keep = |t: &Option<String>, on: bool| on.then(|| t.clone().unwrap_or_else(|| "Axis Title".into()));
+    c.x_title = keep(&c.x_title, titles.0);
+    c.y_title = keep(&c.y_title, titles.1);
+    let e = &mut c.elements;
+    e.label_pos = labels.unwrap_or_default();
+    (e.hide_cat_axis, e.hide_val_axis) = hidden;
+    e.cat_gridlines = false;
+    e.minor_cat_gridlines = false;
+    e.minor_val_gridlines = false;
+    e.data_table = n == 5;
+    e.data_table_no_keys = false;
+    e.drop_lines = n == 7;
+    e.high_low_lines = n == 10;
+    e.last_point_labels = n == 6;
+    e.label_text = if n == 6 { LabelText::of(true, false, true, false) } else { LabelText::default() };
+}
+
+/// The reference's seven pie layouts: (title, legend, what the labels say; none for no labels).
+fn pie_layout(c: &mut Chart, n: u32) {
+    let (title, legend, labels) = match n {
+        2 => (true, LegendPos::Top, Some(LabelText::of(false, false, false, true))),
+        3 => (false, LegendPos::Bottom, None),
+        4 => (false, LegendPos::None, Some(LabelText::of(true, true, false, false))),
+        5 => (true, LegendPos::None, Some(LabelText::of(false, true, false, false))),
+        6 => (true, LegendPos::Right, Some(LabelText::of(false, false, false, true))),
+        7 => (false, LegendPos::Right, None),
+        _ => (true, LegendPos::None, Some(LabelText::of(false, true, false, true))),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels.is_some();
+    let e = &mut c.elements;
+    e.label_pos = LabelPos::Auto;
+    e.last_point_labels = false;
+    e.label_text = labels.unwrap_or_default();
+}
+
+/// A style from the Style page: its look, and the elements it sets (the legend's side, the value
+/// axis, gridlines, data labels it brings in, the columns' spacing), as the reference sets them.
+fn chart_style(s: &mut Session, p: &Json) -> Result<Json> {
+    let n = u32_param(p, "style").unwrap_or(1);
+    with_chart(s, p, |c| {
+        let page = gridcraft_model::chart_style::styles_for(c.kind);
+        let st = n
+            .checked_sub(1)
+            .and_then(|i| page.get(i as usize))
+            .ok_or_else(|| bad("chart.style", format!("this chart's styles are numbered 1 to {}", page.len())))?;
+        c.elements.style = st.id;
+        c.legend = st.legend;
+        c.gridlines = st.value_lines;
+        let e = &mut c.elements;
+        e.hide_val_axis = !st.value_axis;
+        e.cat_gridlines = st.category_lines;
+        e.minor_val_gridlines = st.minor_lines;
+        e.minor_cat_gridlines = st.minor_category_lines;
+        e.drop_lines = st.drop_lines;
+        e.gap_width = (st.gap != 150).then_some(st.gap);
+        e.overlap = (st.overlap != 0).then_some(st.overlap);
+        if let Some(at) = st.labels_at {
+            c.data_labels = true;
+            c.elements.label_pos = at;
+            c.elements.last_point_labels = false;
+        }
+        if let Some(say) = st.labels_say {
+            c.elements.label_text = say;
         }
         Ok(())
     })

@@ -774,6 +774,65 @@ private fun ChartTile(vm: AppViewModel, kind: String, modifier: Modifier, onClic
 }
 
 /**
+ * Chart › Layout, as the phone app's gallery: the chart type's layouts (eleven, a pie's seven) two
+ * to a row, 24 dp in from the
+ * sides and 16 dp apart, each the chart's type and title over sample data laid out that way, in an
+ * outline on a white tile.
+ */
+@Composable
+internal fun ChartLayoutsPanel(vm: AppViewModel) = ChartLookGallery(vm, style = false)
+
+/** Chart › Style, as the phone app's page: the chart type's styles (fourteen, a line chart's thirteen) two to a row, as the Layout gallery. */
+@Composable
+internal fun ChartStylesPanel(vm: AppViewModel) = ChartLookGallery(vm, style = true)
+
+@Composable
+private fun ChartLookGallery(vm: AppViewModel, style: Boolean) {
+    LaunchedEffect(vm.selectedObject?.id) { vm.loadChartInfo() }
+    val count = if (style) vm.chartInfo?.styles?.toInt() ?: 14 else vm.chartInfo?.layouts?.toInt() ?: 11
+    Scrolling {
+        Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            for (row in (1..count).chunked(2)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    for (n in row) ChartLookTile(vm, n, style, Modifier.weight(1f))
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChartLookTile(vm: AppViewModel, n: Int, style: Boolean, modifier: Modifier) {
+    // drawn again when the chart's type, title or colours change
+    val info = vm.chartInfo
+    var prims by remember(n, style) { mutableStateOf<List<io.github.artcraftandroid.gridcraft.core.ChartPrim>>(emptyList()) }
+    LaunchedEffect(n, style, info?.kind, info?.palette, info?.title) { prims = vm.chartLookPreview(n, style) }
+    val w = io.github.artcraftandroid.gridcraft.ui.CHART_PREVIEW_W
+    val h = io.github.artcraftandroid.gridcraft.ui.CHART_PREVIEW_H
+    // the chart's own style on a green frame, as the phone app marks it
+    val current = style && info?.style?.toInt() == n
+    Box(
+        modifier.aspectRatio(LAYOUT_TILE_ASPECT).background(Color.White)
+            .then(if (current) Modifier.border(4.dp, GridColors.Accent) else Modifier)
+            .clickable { if (style) vm.chartCommand("chart.style", org.json.JSONObject().put("style", n)) else vm.chartCommand("chart.quickLayout", org.json.JSONObject().put("layout", n)) }
+            .semantics { contentDescription = if (style) "Style $n" else "Layout $n" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.fillMaxHeight().aspectRatio(w / h).border(androidx.compose.ui.unit.Dp.Hairline, GridColors.LayoutEdge)) {
+            val nc = drawContext.canvas.nativeCanvas
+            nc.save()
+            nc.scale(size.width / w, size.height / h)
+            for (p in prims) drawPrim(nc, p)
+            nc.restore()
+        }
+    }
+}
+
+/** The Layout gallery's tiles: 230 by 138 dp on the reference's phone. */
+private const val LAYOUT_TILE_ASPECT = 473f / 284f
+
+/**
  * Chart › Color, as the phone app's page: a strip of the six colours each palette gives six
  * series, Colorful then Monochromatic; the chart's own on a frame.
  */
