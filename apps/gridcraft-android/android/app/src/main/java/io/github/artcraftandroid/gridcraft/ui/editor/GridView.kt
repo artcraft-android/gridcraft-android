@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -1637,39 +1638,9 @@ private fun DrawScope.drawObjects(
             }
             "image" -> {
                 val img = vm.pictures[o.index]
-                // the outline it is cut to (a gallery shape's filled pieces after Change Shape:
-                // none for a line, which shows nothing of it), its shadow, its frame
-                val outline = androidx.compose.ui.graphics.Path().apply {
-                    fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
-                    when {
-                        o.shape == "preset" -> {
-                            val sx = w / o.width.toFloat().coerceAtLeast(1e-3f)
-                            val sy = h / o.height.toFloat().coerceAtLeast(1e-3f)
-                            for (p in o.pieces) addPath(piecePath(p, left, top, sx, sy).first)
-                        }
-                        o.shape == "roundedRectangle" -> addRoundRect(androidx.compose.ui.geometry.RoundRect(left, top, left + w, top + h, androidx.compose.ui.geometry.CornerRadius(minOf(w, h) / 6f)))
-                        o.shape == "ellipse" -> addOval(androidx.compose.ui.geometry.Rect(left, top, left + w, top + h))
-                        else -> addRect(androidx.compose.ui.geometry.Rect(left, top, left + w, top + h))
-                    }
-                }
-                if (o.shadow) {
-                    translate(3f * unit, 3f * unit) { drawPath(outline, Color.Black.copy(alpha = 0.35f)) }
-                }
-                clipPath(outline) {
-                    if (img != null) {
-                        // the part shown of a cropped picture
-                        val c = (if (dragged) vm.cropPreview else null) ?: o.crop.takeIf { it.size == 4 } ?: listOf(0f, 0f, 1f, 1f)
-                        val sx = (c[0] * img.width).toInt().coerceIn(0, img.width - 1)
-                        val sy = (c[1] * img.height).toInt().coerceIn(0, img.height - 1)
-                        val sw = (c[2] * img.width).toInt().coerceIn(1, img.width - sx)
-                        val sh = (c[3] * img.height).toInt().coerceIn(1, img.height - sy)
-                        drawImage(img, srcOffset = androidx.compose.ui.unit.IntOffset(sx, sy), srcSize = androidx.compose.ui.unit.IntSize(sw, sh),
-                            dstOffset = androidx.compose.ui.unit.IntOffset(left.toInt(), top.toInt()), dstSize = androidx.compose.ui.unit.IntSize(w.toInt().coerceAtLeast(1), h.toInt().coerceAtLeast(1)))
-                    } else {
-                        drawRect(Color(0xFFE0E0E0), Offset(left, top), Size(w, h))
-                    }
-                }
-                o.line?.let { frame -> drawPath(outline, Color(frame), style = Stroke((o.lineWidth * 96f / 72f * unit).coerceAtLeast(1f))) }
+                // the part shown of a cropped picture
+                val c = (if (dragged) vm.cropPreview else null) ?: o.crop.takeIf { it.size == 4 } ?: listOf(0f, 0f, 1f, 1f)
+                drawPictureObject(o, left, top, w, h, 96f / 72f * unit, turn) { drawPicturePart(img, c, left, top, w, h) }
             }
             else -> if (o.shape == "icon") {
                 icons[o.text.lowercase()]?.let { painter ->
@@ -1798,6 +1769,177 @@ internal fun DrawScope.drawPieces(
         if (gradient != null && p.paint == "fill" && closed) drawPath(path, gradient) else if (paint != null && closed) drawPath(path, paint)
         val ink = if (p.paint == "none") openInk ?: line else line
         if (p.stroke && ink != null) drawPath(path, ink, style = Stroke(width, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+    }
+}
+
+/**
+ * A picture as the sheet shows it, in the box ([left], [top], [w], [h]): cut to its outline (a
+ * gallery shape's filled pieces after Change Shape: none for a line, which shows nothing of it),
+ * with its reflection and a shadow cast outside it under it, a shadow inside it, soft edges and
+ * its frame. [ptPx]: a point on screen; [turn]: how far it is drawn turned (a shadow that
+ * doesn't turn with it undoes it); [picture] draws the picture itself into the box.
+ */
+internal fun DrawScope.drawPictureObject(o: io.github.artcraftandroid.gridcraft.core.SheetObject, left: Float, top: Float, w: Float, h: Float, ptPx: Float, turn: Float, picture: DrawScope.() -> Unit) {
+    val centre = Offset(left + w / 2, top + h / 2)
+    val outline = androidx.compose.ui.graphics.Path().apply {
+        fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd
+        when {
+            o.shape == "preset" -> {
+                val sx = w / o.width.toFloat().coerceAtLeast(1e-3f)
+                val sy = h / o.height.toFloat().coerceAtLeast(1e-3f)
+                for (p in o.pieces) addPath(piecePath(p, left, top, sx, sy).first)
+            }
+            o.shape == "roundedRectangle" -> addRoundRect(androidx.compose.ui.geometry.RoundRect(left, top, left + w, top + h, androidx.compose.ui.geometry.CornerRadius(minOf(w, h) / 6f)))
+            o.shape == "ellipse" -> addOval(androidx.compose.ui.geometry.Rect(left, top, left + w, top + h))
+            else -> addRect(androidx.compose.ui.geometry.Rect(left, top, left + w, top + h))
+        }
+    }
+    o.reflection?.let { r -> drawReflection(r, outline, left, top, w, h, ptPx, picture) }
+    o.shadow?.takeIf { !it.inner }?.let { sh -> drawOuterShadow(sh, outline, left, top, w, h, shadowMove(sh, ptPx, turn, o.flipH, o.flipV), ptPx) }
+    // a style's 3-D camera may tilt the picture: drawn flat, turned about its centre
+    withTransform({ if (o.viewTurn != 0f) rotate(o.viewTurn, centre) }) {
+        val inside: DrawScope.() -> Unit = {
+            picture()
+            o.shadow?.takeIf { it.inner }?.let { sh -> drawInnerShadow(sh, outline, left, top, w, h, shadowMove(sh, ptPx, turn, o.flipH, o.flipV), ptPx) }
+        }
+        if (o.softEdge > 0f) drawSoftEdged(outline, o.softEdge * ptPx, left, top, w, h, inside) else clipPath(outline) { inside() }
+        o.line?.let { frame -> drawFrame(outline, Color(frame), (o.lineWidth * ptPx).coerceAtLeast(1f), o.lineParts, o.lineMiter, left, top, w, h) }
+    }
+}
+
+/**
+ * A picture's frame along its [outline]: one line [width] wide centred on the edge, or a frame's
+ * several lines ([parts]: start and end fraction pairs across the width, from the outside in),
+ * each drawn on the outline grown or shrunk to its place; corners mitred or rounded.
+ */
+private fun DrawScope.drawFrame(outline: androidx.compose.ui.graphics.Path, color: Color, width: Float, parts: List<Float>, miter: Boolean, left: Float, top: Float, w: Float, h: Float) {
+    val join = if (miter) androidx.compose.ui.graphics.StrokeJoin.Miter else androidx.compose.ui.graphics.StrokeJoin.Round
+    if (parts.size < 4) {
+        drawPath(outline, color, style = Stroke(width, join = join))
+        return
+    }
+    val centre = Offset(left + w / 2, top + h / 2)
+    for (i in 0 until parts.size / 2) {
+        val (a, b) = parts[2 * i] to parts[2 * i + 1]
+        // how far this line's middle lies outside the frame's middle line
+        val out = (0.5f - (a + b) / 2) * width
+        withTransform({ scale((w + 2 * out) / w.coerceAtLeast(1f), (h + 2 * out) / h.coerceAtLeast(1f), centre) }) {
+            drawPath(outline, color, style = Stroke((b - a) * width / ((w + 2 * out) / w.coerceAtLeast(1f)).coerceAtLeast(0.1f), join = join))
+        }
+    }
+}
+
+/**
+ * A picture's soft edges: what [content] draws, fading out over [radius] inside its [outline]
+ * (an inset, blurred copy of the outline keeps it).
+ */
+private fun DrawScope.drawSoftEdged(outline: androidx.compose.ui.graphics.Path, radius: Float, left: Float, top: Float, w: Float, h: Float, content: DrawScope.() -> Unit) {
+    drawIntoCanvas { canvas ->
+        canvas.saveLayer(androidx.compose.ui.geometry.Rect(left - 2f, top - 2f, left + w + 2f, top + h + 2f), androidx.compose.ui.graphics.Paint())
+        clipPath(outline) { content() }
+        val inset = (radius / 2).coerceAtMost(minOf(w, h) / 2 - 1f).coerceAtLeast(0f)
+        val m = android.graphics.Matrix().apply {
+            setScale((w - 2 * inset) / w.coerceAtLeast(1f), (h - 2 * inset) / h.coerceAtLeast(1f), left + w / 2, top + h / 2)
+        }
+        val mask = android.graphics.Path(outline.asAndroidPath()).apply { transform(m) }
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.BLACK
+            xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+            if (inset > 0f) maskFilter = android.graphics.BlurMaskFilter(inset, android.graphics.BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.nativeCanvas.drawPath(mask, paint)
+        canvas.restore()
+    }
+}
+
+/** The part [c] (left, top, width, height fractions) of [img] shown in the box; grey while it loads. */
+private fun DrawScope.drawPicturePart(img: androidx.compose.ui.graphics.ImageBitmap?, c: List<Float>, left: Float, top: Float, w: Float, h: Float) {
+    if (img == null) {
+        drawRect(Color(0xFFE0E0E0), Offset(left, top), Size(w, h))
+        return
+    }
+    val sx = (c[0] * img.width).toInt().coerceIn(0, img.width - 1)
+    val sy = (c[1] * img.height).toInt().coerceIn(0, img.height - 1)
+    val sw = (c[2] * img.width).toInt().coerceIn(1, img.width - sx)
+    val sh = (c[3] * img.height).toInt().coerceIn(1, img.height - sy)
+    drawImage(img, srcOffset = androidx.compose.ui.unit.IntOffset(sx, sy), srcSize = androidx.compose.ui.unit.IntSize(sw, sh),
+        dstOffset = androidx.compose.ui.unit.IntOffset(left.toInt(), top.toInt()), dstSize = androidx.compose.ui.unit.IntSize(w.toInt().coerceAtLeast(1), h.toInt().coerceAtLeast(1)))
+}
+
+/**
+ * How far a shadow moves on screen, in the picture's own frame (it is drawn turned [turn]
+ * degrees and mirrored): one that doesn't turn with the picture keeps the sheet's direction.
+ */
+private fun shadowMove(sh: io.github.artcraftandroid.gridcraft.core.ObjectShadow, ptPx: Float, turn: Float, flipH: Boolean, flipV: Boolean): Offset {
+    val v = Offset(sh.dx * ptPx, sh.dy * ptPx)
+    if (sh.turns) return v
+    val a = Math.toRadians(-turn.toDouble())
+    val (ca, sa) = kotlin.math.cos(a).toFloat() to kotlin.math.sin(a).toFloat()
+    val r = Offset(v.x * ca - v.y * sa, v.x * sa + v.y * ca)
+    return Offset(if (flipH) -r.x else r.x, if (flipV) -r.y else r.y)
+}
+
+/** A paint in a shadow's colour, blurred as it is. */
+private fun shadowPaint(sh: io.github.artcraftandroid.gridcraft.core.ObjectShadow, ptPx: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    color = sh.color
+    if (sh.blur > 0f) maskFilter = android.graphics.BlurMaskFilter(sh.blur * ptPx, android.graphics.BlurMaskFilter.Blur.NORMAL)
+}
+
+/**
+ * A shadow cast outside a picture: its [outline] scaled and leaned about the shadow's align
+ * point (a perspective shadow), moved [move] and blurred.
+ */
+internal fun DrawScope.drawOuterShadow(sh: io.github.artcraftandroid.gridcraft.core.ObjectShadow, outline: androidx.compose.ui.graphics.Path, left: Float, top: Float, w: Float, h: Float, move: Offset, ptPx: Float) {
+    val ax = left + w * sh.alignX
+    val ay = top + h * sh.alignY
+    val m = android.graphics.Matrix().apply {
+        setTranslate(-ax, -ay)
+        postScale(sh.scaleX / 100f, sh.scaleY / 100f)
+        postSkew(kotlin.math.tan(Math.toRadians(sh.skewX.toDouble())).toFloat(), kotlin.math.tan(Math.toRadians(sh.skewY.toDouble())).toFloat())
+        postTranslate(ax + move.x, ay + move.y)
+    }
+    val path = android.graphics.Path(outline.asAndroidPath()).apply { transform(m) }
+    drawIntoCanvas { it.nativeCanvas.drawPath(path, shadowPaint(sh, ptPx)) }
+}
+
+/**
+ * A shadow inside a picture (the caller clips to its [outline]): the outside, moved against
+ * [move] and blurred, so the edges the shadow's direction points to darken (as the phone app
+ * draws "Inside: Bottom Right" along the bottom and right).
+ */
+internal fun DrawScope.drawInnerShadow(sh: io.github.artcraftandroid.gridcraft.core.ObjectShadow, outline: androidx.compose.ui.graphics.Path, left: Float, top: Float, w: Float, h: Float, move: Offset, ptPx: Float) {
+    val pad = sh.blur * ptPx * 2f + kotlin.math.abs(move.x) + kotlin.math.abs(move.y) + 4f
+    val outside = android.graphics.Path().apply {
+        fillType = android.graphics.Path.FillType.EVEN_ODD
+        addRect(left - pad, top - pad, left + w + pad, top + h + pad, android.graphics.Path.Direction.CW)
+        addPath(outline.asAndroidPath())
+        offset(-move.x, -move.y)
+    }
+    drawIntoCanvas { it.nativeCanvas.drawPath(outside, shadowPaint(sh, ptPx)) }
+}
+
+/**
+ * A picture's reflection: [picture] drawn turned over below the box, [r]'s distance down, cut to
+ * its [outline] and fading from its start to its end opacity over its share of the height.
+ */
+internal fun DrawScope.drawReflection(r: io.github.artcraftandroid.gridcraft.core.ObjectReflection, outline: androidx.compose.ui.graphics.Path, left: Float, top: Float, w: Float, h: Float, ptPx: Float, picture: DrawScope.() -> Unit) {
+    val gap = r.distance * ptPx
+    val reach = h * r.endPos.coerceIn(0f, 1f)
+    if (reach < 1f) return
+    val y0 = top + h + gap
+    drawIntoCanvas { canvas ->
+        canvas.saveLayer(androidx.compose.ui.geometry.Rect(left - 2f, y0, left + w + 2f, y0 + reach), androidx.compose.ui.graphics.Paint())
+        withTransform({ scale(1f, -1f, pivot = Offset(left, top + h + gap / 2f)) }) {
+            clipPath(outline) { picture() }
+        }
+        // past the layer's edges too, so no row at its rim is left unfaded
+        drawRect(
+            Brush.verticalGradient(0f to Color.Black.copy(alpha = r.start.coerceIn(0f, 1f)), 1f to Color.Black.copy(alpha = r.end.coerceIn(0f, 1f)), startY = y0, endY = y0 + reach),
+            Offset(left - 4f, y0 - 2f),
+            Size(w + 8f, reach + 4f),
+            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
+        )
+        canvas.restore()
     }
 }
 

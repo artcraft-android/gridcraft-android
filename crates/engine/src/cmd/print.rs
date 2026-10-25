@@ -1338,6 +1338,45 @@ fn decode_image(data: &[u8], max_w: u32, max_h: u32) -> Option<(Vec<u8>, u32, u3
     Some((rgba.into_raw(), pw, ph))
 }
 
+/// A picture's reflection on the page: the picture (`px`, `pw`×`ph` RGBA) turned over below its
+/// box `r.distance` points (`pt` page units each) down, cut to the turned-over `outline` when
+/// `cut`, its fade baked into the copy's alpha (the page has no soft masks).
+fn print_reflection(
+    pg: &mut Page,
+    r: &gridcraft_model::Reflection,
+    outline: &[Vec<[f32; 2]>],
+    (x, y, w, h): (f32, f32, f32, f32),
+    pt: f32,
+    (px, pw, ph): (&[u8], u32, u32),
+    cut: bool,
+) {
+    let reach = h * r.end_pos;
+    let rows = ((ph as f32 * r.end_pos).ceil() as u32).min(ph);
+    if reach < 0.5 || rows == 0 || px.len() < (pw as usize) * (ph as usize) * 4 {
+        return;
+    }
+    let row = pw as usize * 4;
+    let mut copy = Vec::with_capacity(row * rows as usize);
+    for j in 0..rows as usize {
+        // the picture's bottom rows first, fading from the start opacity to the end one
+        let src = (ph as usize - 1 - j) * row;
+        let a = r.start + (r.end - r.start) * ((j as f32 + 0.5) / rows as f32);
+        for p in px.get(src..src + row).unwrap_or_default().as_chunks::<4>().0 {
+            copy.extend_from_slice(&[p[0], p[1], p[2], (f32::from(p[3]) * a).round().clamp(0.0, 255.0) as u8]);
+        }
+    }
+    let y0 = y + h + r.distance * pt;
+    // the outline turned over about the line halfway between the picture and its reflection
+    let m = y + h + r.distance * pt / 2.0;
+    pg.save();
+    if cut {
+        let turned: Vec<Vec<[f32; 2]>> = outline.iter().map(|v| v.iter().map(|q| [q[0], 2.0 * m - q[1]]).collect()).collect();
+        pg.clip_polygons(&turned);
+    }
+    pg.image_rgba(x, y0, w, reach, &copy, pw, rows);
+    pg.restore();
+}
+
 /// The part (x, y, width, height fractions) of an RGBA picture.
 fn crop_rgba(px: Vec<u8>, pw: u32, ph: u32, (l, t, w, h): (f32, f32, f32, f32)) -> (Vec<u8>, u32, u32) {
     if (l, t, w, h) == (0.0, 0.0, 1.0, 1.0) {
@@ -1392,31 +1431,81 @@ fn draw_objects(pg: &mut Page, wb: &Workbook, si: usize, sh: &Sheet, b: &Block) 
         let (cl, ct, cw, chh) = im.crop.shown();
         let (fw, fh) = (((mw as f32) / cw).ceil().min(8000.0) as u32, ((mh as f32) / chh).ceil().min(8000.0) as u32);
         // a picture changed to a line shows nothing
-        let outline = gridcraft_chart::shapes::cut(im.look.shape.preset(), x, y, w, h);
+        let outline = gridcraft_chart::shapes::cut(im.look.shape.preset(), im.look.adj(), x, y, w, h);
         if outline.is_empty() {
             continue;
         }
         if let Some((px, pw, ph)) = decode_image(&im.data, fw, fh).map(|(px, pw, ph)| crop_rgba(px, pw, ph, (cl, ct, cw, chh))) {
             pg.save();
-            pg.turn(x + w / 2.0, y + h / 2.0, im.turn.rotation, im.turn.flip_h, im.turn.flip_v);
-            if im.look.shadow {
-                let d = 3.0 * b.k;
-                let shade: Vec<Vec<[f32; 2]>> = outline.iter().map(|v| v.iter().map(|q| [q[0] + d, q[1] + d]).collect()).collect();
+            // (a style's 3-D camera may tilt it too: drawn flat)
+            pg.turn(x + w / 2.0, y + h / 2.0, im.turn.rotation + im.look.camera_turn(), im.turn.flip_h, im.turn.flip_v);
+            // Picture Effects, without their blur: the reflection and a shadow cast outside go
+            // under the picture, a shadow inside over it
+            let pt = 96.0 / 72.0 * b.k;
+            let cut = im.look.shape != gridcraft_model::PictureShape::Rectangle;
+            if let Some(r) = im.look.reflection.map(gridcraft_model::Reflection::sane) {
+                print_reflection(pg, &r, &outline, (x, y, w, h), pt, (&px, pw, ph), cut);
+            }
+            let shadow = im.look.shadow.map(gridcraft_model::Shadow::sane).and_then(|sh| rgb_of(sh.color, wb).map(|c| (sh, c)));
+            let shadow_move = |sh: &gridcraft_model::Shadow| {
+                let (dx, dy) = sh.offset();
+                let (dx, dy) = (dx * pt, dy * pt);
+                if sh.turns {
+                    return (dx, dy);
+                }
+                // one that doesn't turn with the picture keeps the page's direction
+                let a = (-im.turn.rotation).to_radians();
+                let (rx, ry) = (dx * a.cos() - dy * a.sin(), dx * a.sin() + dy * a.cos());
+                (if im.turn.flip_h { -rx } else { rx }, if im.turn.flip_v { -ry } else { ry })
+            };
+            if let Some((sh, c)) = shadow.filter(|(sh, _)| !sh.inner) {
+                let (dx, dy) = shadow_move(&sh);
+                let shade: Vec<Vec<[f32; 2]>> = outline
+                    .iter()
+                    .map(|v| {
+                        v.iter()
+                            .map(|q| {
+                                let (sx, sy) = sh.project(q[0], q[1], x, y, w, h);
+                                [sx + dx, sy + dy]
+                            })
+                            .collect()
+                    })
+                    .collect();
                 pg.save();
-                pg.opacity(0.35);
-                pg.polygons(&shade, true, Some([0, 0, 0]), None);
+                pg.opacity(sh.opacity);
+                pg.polygons(&shade, true, Some(c), None);
                 pg.restore();
             }
             pg.save();
-            if im.look.shape != gridcraft_model::PictureShape::Rectangle {
+            let inner = shadow.filter(|(sh, _)| sh.inner);
+            if cut || inner.is_some() {
                 pg.clip_polygons(&outline);
             }
             pg.image_rgba(x, y, w, h, &px, pw, ph);
+            if let Some((sh, c)) = inner {
+                // the outside, moved against the shadow's direction: the edges it points to darken
+                let (dx, dy) = shadow_move(&sh);
+                let (dx, dy) = (-dx, -dy);
+                let pad = dx.abs() + dy.abs() + sh.blur * pt + 4.0;
+                let mut polys = vec![vec![[x - pad, y - pad], [x + w + pad, y - pad], [x + w + pad, y + h + pad], [x - pad, y + h + pad]]];
+                polys.extend(outline.iter().map(|v| v.iter().map(|q| [q[0] + dx, q[1] + dy]).collect::<Vec<_>>()));
+                pg.opacity(sh.opacity);
+                pg.polygons(&polys, true, Some(c), None);
+            }
             pg.restore();
             if let Some((c, bw)) = im.look.border
                 && let Some(c) = rgb_of(c, wb)
             {
-                pg.polygons(&outline, true, None, Some((c, (bw * b.scale).max(0.25))));
+                // a frame of several lines: each on the outline grown or shrunk to its place
+                let width = (bw * b.scale).max(0.25);
+                let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+                for (a, e) in im.look.frame.compound.lines() {
+                    let out = (0.5 - (a + e) / 2.0) * width;
+                    let (kx, ky) = ((w + 2.0 * out) / w.max(1e-3), (h + 2.0 * out) / h.max(1e-3));
+                    let line: Vec<Vec<[f32; 2]>> =
+                        outline.iter().map(|v| v.iter().map(|q| [cx + (q[0] - cx) * kx, cy + (q[1] - cy) * ky]).collect()).collect();
+                    pg.polygons(&line, true, None, Some((c, ((e - a) * width).max(0.25))));
+                }
             }
             pg.restore();
         }

@@ -3784,13 +3784,65 @@ fn picture_styles_set_the_look() {
     let id = add_image(&mut s, "B2", gridcraft_model::AnchorMode::MoveOnly);
     s.execute("picture.style", json!({"id": id, "preset": "whiteFrame"})).unwrap();
     let look = s.active().unwrap().wb.sheet(0).unwrap().images[0].look.clone();
-    assert_eq!((look.border, look.shadow), (Some((Color::Rgb(0xFFFFFF), 6.0)), true));
+    assert_eq!((look.border, look.shadow), (Some((Color::Rgb(0xFFFFFF), 6.0)), Some(gridcraft_model::Shadow::drop())));
     s.execute("picture.style", json!({"id": id, "shape": "oval", "border": "#FF0000", "shadow": false})).unwrap();
     let look = s.active().unwrap().wb.sheet(0).unwrap().images[0].look.clone();
-    assert_eq!((look.shape, look.border, look.shadow), (PictureShape::Oval, Some((Color::Rgb(0xFF0000), 6.0)), false));
+    assert_eq!((look.shape, look.border, look.shadow), (PictureShape::Oval, Some((Color::Rgb(0xFF0000), 6.0)), None));
     s.execute("picture.style", json!({"id": id, "preset": "none"})).unwrap();
     assert!(s.active().unwrap().wb.sheet(0).unwrap().images[0].look.is_none());
     assert!(s.execute("picture.style", json!({"id": id, "preset": "sparkly"})).is_err());
+}
+
+/// Picture Effects: a shadow and a reflection by preset, "none" clearing each, an unknown name
+/// refused; a document from before shadows had settings still has its drop shadow.
+#[test]
+fn picture_effects_take_presets() {
+    use gridcraft_model::{PictureLook, Reflection, Shadow};
+    let mut s = Session::new();
+    s.new_workbook();
+    let id = add_image(&mut s, "B2", gridcraft_model::AnchorMode::MoveOnly);
+    let look = |s: &Session| s.active().unwrap().wb.sheet(0).unwrap().images[0].look.clone();
+    s.execute("picture.style", json!({"id": id, "shadow": "perspectiveBelow", "reflection": "half4pt"})).unwrap();
+    assert_eq!((look(&s).shadow, look(&s).reflection), (Shadow::preset("perspectiveBelow"), Reflection::preset("half4pt")));
+    s.execute("picture.style", json!({"id": id, "shadow": "insideCenter"})).unwrap();
+    assert!(look(&s).shadow.is_some_and(|sh| sh.inner) && look(&s).reflection.is_some());
+    s.execute("picture.style", json!({"id": id, "shadow": "none", "reflection": "none"})).unwrap();
+    assert!(look(&s).is_none());
+    assert!(s.execute("picture.style", json!({"id": id, "shadow": "sideways"})).is_err());
+    assert!(s.execute("picture.style", json!({"id": id, "reflection": "half"})).is_err());
+    assert!(s.execute("picture.style", json!({"id": id, "shadow": 3})).is_err());
+    let old: PictureLook = serde_json::from_str(r#"{"shape":"Oval","border":null,"shadow":true}"#).unwrap();
+    assert_eq!(old.shadow, Some(Shadow::drop()));
+    let none: PictureLook = serde_json::from_str(r#"{"shadow":false}"#).unwrap();
+    assert!(none.is_none());
+    // every preset the galleries offer
+    for n in ["offsetBottomRight", "offsetCenter", "offsetTopLeft", "insideTopLeft", "insideCenter", "perspectiveUpperLeft", "perspectiveLowerRight"]
+    {
+        assert!(Shadow::preset(n).is_some(), "{n}");
+    }
+    for n in ["tightTouching", "half4pt", "full8pt"] {
+        assert!(Reflection::preset(n).is_some(), "{n}");
+    }
+}
+
+/// Picture Styles: a style of the gallery replaces the picture's look (frame, effects, the 3-D it
+/// keeps); an unknown one is refused.
+#[test]
+fn picture_styles_gallery_replaces_the_look() {
+    let mut s = Session::new();
+    s.new_workbook();
+    let id = add_image(&mut s, "B2", gridcraft_model::AnchorMode::MoveOnly);
+    let look = |s: &Session| s.active().unwrap().wb.sheet(0).unwrap().images[0].look.clone();
+    s.execute("picture.style", json!({"id": id, "shadow": "insideCenter"})).unwrap();
+    s.execute("picture.style", json!({"id": id, "style": "compoundFrameBlack"})).unwrap();
+    let l = look(&s);
+    assert_eq!(l.frame.compound, gridcraft_model::Compound::ThickThin);
+    assert!(l.border.is_some() && l.shadow.is_some_and(|sh| sh.inner && sh.blur == 6.0));
+    s.execute("picture.style", json!({"id": id, "style": "softEdgeOval"})).unwrap();
+    let l = look(&s);
+    assert_eq!((l.shape, l.border, l.no_frame), (gridcraft_model::PictureShape::Oval, None, true));
+    assert!(l.soft_edge.is_some() && l.shadow.is_none());
+    assert!(s.execute("picture.style", json!({"id": id, "style": "glittery"})).is_err());
 }
 
 /// Change Shape on a picture: any gallery shape cuts it, the three named outlines stay themselves,

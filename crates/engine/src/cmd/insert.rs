@@ -170,7 +170,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Picture Styles",
             [],
             None,
-            "{id, preset?: none|whiteFrame|blackFrame|shadow|rounded|roundedShadow|oval, shape?: rectangle|roundedRectangle|oval, border?: color|\"none\", borderWidth?: pt, shadow?: bool}",
+            "{id, style?: simpleFrameWhite|beveledMatteWhite|…|bevelPerspectiveLeftWhite (Picture Styles' gallery), preset?: none|whiteFrame|blackFrame|shadow|rounded|roundedShadow|oval, shape?: rectangle|roundedRectangle|oval|a Shapes gallery name, border?: color|\"none\", borderWidth?: pt, shadow?: bool|\"none\"|offsetBottomRight…|insideTopLeft…|perspectiveBelow…, reflection?: \"none\"|tightTouching|half4pt|full8pt…}",
             has_doc,
             style_picture
         ),
@@ -1624,19 +1624,25 @@ fn crop_picture(s: &mut Session, p: &Json) -> Result<Json> {
     })
 }
 
-/// Picture Styles and Effects: the outline a picture is cut to, its frame, its shadow; a preset
-/// sets all three, then the other fields change what they name.
+/// Picture Styles and Effects: the outline a picture is cut to, its frame, its shadow and its
+/// reflection; a preset sets them all, then the other fields change what they name. A shadow or
+/// reflection is one of Picture Effects' presets (`true` is the bottom-right drop shadow).
 fn style_picture(s: &mut Session, p: &Json) -> Result<Json> {
     let id = u32_param(p, "id").ok_or_else(|| bad("picture.style", "missing `id`"))?;
+    // a style of the Picture Styles gallery replaces the whole look, as a preset does
+    let style = match str_param(p, "style") {
+        None => None,
+        Some(id) => Some(gridcraft_xlsx::picture_styles::picture_style(id).ok_or_else(|| bad("picture.style", format!("unknown style `{id}`")))?),
+    };
     let preset = match str_param(p, "preset") {
         None => None,
         Some(name) => Some(match name {
             "none" => PictureLook::default(),
-            "whiteFrame" => PictureLook { border: Some((Color::Rgb(0xFFFFFF), 6.0)), shadow: true, ..Default::default() },
+            "whiteFrame" => PictureLook { border: Some((Color::Rgb(0xFFFFFF), 6.0)), shadow: Some(Shadow::drop()), ..Default::default() },
             "blackFrame" => PictureLook { border: Some((Color::Rgb(0x000000), 4.0)), ..Default::default() },
-            "shadow" => PictureLook { shadow: true, ..Default::default() },
+            "shadow" => PictureLook { shadow: Some(Shadow::drop()), ..Default::default() },
             "rounded" => PictureLook { shape: PictureShape::RoundedRectangle, ..Default::default() },
-            "roundedShadow" => PictureLook { shape: PictureShape::RoundedRectangle, shadow: true, ..Default::default() },
+            "roundedShadow" => PictureLook { shape: PictureShape::RoundedRectangle, shadow: Some(Shadow::drop()), ..Default::default() },
             "oval" => PictureLook { shape: PictureShape::Oval, ..Default::default() },
             other => return Err(bad("picture.style", format!("unknown preset `{other}`"))),
         }),
@@ -1664,22 +1670,37 @@ fn style_picture(s: &mut Session, p: &Json) -> Result<Json> {
         Some(v) => Some(Some(super::format::color_param(Some(v)).ok_or_else(|| bad("picture.style", "invalid `border` colour"))?)),
     };
     let width = f64_param(p, "borderWidth").filter(|w| w.is_finite()).map(|w| w.clamp(0.25, 100.0) as f32);
-    let shadow = bool_param(p, "shadow");
+    let shadow = match p.get("shadow") {
+        None => None,
+        Some(Json::Bool(on)) => Some(on.then(Shadow::drop)),
+        Some(Json::String(n)) if n == "none" => Some(None),
+        Some(Json::String(n)) => Some(Some(Shadow::preset(n).ok_or_else(|| bad("picture.style", format!("unknown shadow `{n}`")))?)),
+        Some(_) => return Err(bad("picture.style", "`shadow` is true, false, \"none\" or a preset name")),
+    };
+    let reflection = match str_param(p, "reflection") {
+        None => None,
+        Some("none") => Some(None),
+        Some(n) => Some(Some(Reflection::preset(n).ok_or_else(|| bad("picture.style", format!("unknown reflection `{n}`")))?)),
+    };
     let sheet = s.doc()?.wb.active_sheet;
     edit(s, |cx| {
         let sh = cx.sheet_mut(sheet)?;
         let img = sh.images.iter_mut().find(|i| i.id == id).ok_or_else(|| bad("picture.style", "no such picture"))?;
-        let mut look = preset.unwrap_or_else(|| img.look.clone());
+        let mut look = style.or(preset).unwrap_or_else(|| img.look.clone());
         if let Some(sh) = shape {
             look.shape = sh;
+            look.adjust.clear();
         }
         if let Some(b) = border {
             look.border = b.map(|c| (c, width.or(look.border.map(|b| b.1)).unwrap_or(1.5)));
         } else if let (Some(w), Some((c, _))) = (width, look.border) {
             look.border = Some((c, w));
         }
-        if let Some(on) = shadow {
-            look.shadow = on;
+        if let Some(sh) = shadow {
+            look.shadow = sh;
+        }
+        if let Some(r) = reflection {
+            look.reflection = r;
         }
         img.look = look;
         Ok(Json::Null)

@@ -23,6 +23,7 @@ mod fmla;
 mod ods;
 mod package;
 mod passthrough;
+pub mod picture_styles;
 mod pivot;
 mod read;
 mod richdata;

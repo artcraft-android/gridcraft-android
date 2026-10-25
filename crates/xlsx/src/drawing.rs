@@ -5,8 +5,8 @@ use std::fmt::Write as _;
 
 use gridcraft_core::{CellRef, MAX_COLS, MAX_ROWS};
 use gridcraft_model::{
-    Anchor, AnchorMode, Color, Crop, GradientStop, Image, PictureLook, PictureShape, Shape, ShapeFormat, ShapeKind, ShapeTextAlign, ShapeTextAnchor,
-    Sheet, Theme, Turn,
+    Anchor, AnchorMode, BoxAlign, Color, Compound, Crop, GradientStop, Image, LineCap, LineJoin, PictureLook, PictureShape, Reflection, Shadow,
+    Shape, ShapeFormat, ShapeKind, ShapeTextAlign, ShapeTextAnchor, Sheet, Theme, Turn,
 };
 
 use crate::IoError;
@@ -473,30 +473,262 @@ fn descr_attr(alt: &str) -> String {
 
 /// A picture's frame and shadow inside its `spPr` (`a:ln`, `a:effectLst`).
 fn look_xml(l: &PictureLook, theme: &Theme) -> String {
-    let mut s = String::new();
+    // spPr's order: a fill behind the picture, the frame, the effects, then 3-D
+    let mut s = l.backdrop_xml.clone();
     if let Some((c, w)) = l.border
         && let Some(c) = srgb(&c, theme)
     {
         let emu = ((if w.is_finite() { w.clamp(0.25, 100.0) } else { 1.0 }) * 12700.0).round() as i64;
-        let _ = write!(s, "<a:ln w=\"{emu}\"><a:solidFill>{c}</a:solidFill></a:ln>");
+        let f = l.frame;
+        let _ = write!(s, "<a:ln w=\"{emu}\"");
+        if let Some(cap) = f.cap {
+            let _ = write!(
+                s,
+                " cap=\"{}\"",
+                match cap {
+                    LineCap::Square => "sq",
+                    LineCap::Round => "rnd",
+                    LineCap::Flat => "flat",
+                }
+            );
+        }
+        if f.compound != Compound::Single {
+            let _ = write!(s, " cmpd=\"{}\"", f.compound.name());
+        }
+        let _ = write!(s, "><a:solidFill>{c}</a:solidFill>");
+        if f.solid {
+            s.push_str("<a:prstDash val=\"solid\"/>");
+        }
+        match f.join {
+            Some(LineJoin::Round) => s.push_str("<a:round/>"),
+            Some(LineJoin::Bevel) => s.push_str("<a:bevel/>"),
+            Some(LineJoin::Miter(lim)) => {
+                let _ = write!(s, "<a:miter lim=\"{lim}\"/>");
+            }
+            None => {}
+        }
+        s.push_str("</a:ln>");
+    } else if l.no_frame {
+        s.push_str("<a:ln><a:noFill/></a:ln>");
     }
-    if l.shadow {
-        s.push_str("<a:effectLst><a:outerShdw blurRad=\"50800\" dist=\"38100\" dir=\"2700000\" algn=\"tl\" rotWithShape=\"0\"><a:prstClr val=\"black\"><a:alpha val=\"40000\"/></a:prstClr></a:outerShdw></a:effectLst>");
+    let soft_edge = l.soft_edge.filter(|r| r.is_finite() && *r > 0.0);
+    if l.shadow.is_some() || l.reflection.is_some() || soft_edge.is_some() {
+        s.push_str("<a:effectLst>");
+        if let Some(sh) = l.shadow.map(Shadow::sane) {
+            let tag = if sh.inner { "innerShdw" } else { "outerShdw" };
+            // as the phone app writes them: no distance or direction when it is 0
+            let _ = write!(s, "<a:{tag} blurRad=\"{}\"", emu(sh.blur));
+            if sh.distance != 0.0 {
+                let _ = write!(s, " dist=\"{}\"", emu(sh.distance));
+            }
+            if sh.direction != 0.0 {
+                let _ = write!(s, " dir=\"{}\"", angle(sh.direction));
+            }
+            if !sh.inner {
+                for (name, v, unit, dflt) in [
+                    ("sx", sh.scale_x, 1000.0, 100.0),
+                    ("sy", sh.scale_y, 1000.0, 100.0),
+                    ("kx", sh.skew_x, 60000.0, 0.0),
+                    ("ky", sh.skew_y, 60000.0, 0.0),
+                ] {
+                    if v != dflt {
+                        let _ = write!(s, " {name}=\"{}\"", (f64::from(v) * unit).round() as i64);
+                    }
+                }
+                if sh.align != BoxAlign::Bottom {
+                    let _ = write!(s, " algn=\"{}\"", sh.align.name());
+                }
+                if !sh.turns {
+                    s.push_str(" rotWithShape=\"0\"");
+                }
+            }
+            let _ = write!(s, ">{}</a:{tag}>", effect_color(&sh.color, sh.opacity, sh.named, theme));
+        }
+        if let Some(r) = l.reflection.map(Reflection::sane) {
+            let pct = |v: f32| (f64::from(v) * 100_000.0).round() as i64;
+            // no end opacity when it is 0, as the phone app's styles write it
+            let _ = write!(s, "<a:reflection blurRad=\"{}\" stA=\"{}\"", emu(r.blur), pct(r.start));
+            if pct(r.end) != 0 {
+                let _ = write!(s, " endA=\"{}\"", pct(r.end));
+            }
+            let _ = write!(s, " endPos=\"{}\"", pct(r.end_pos));
+            if r.distance != 0.0 {
+                let _ = write!(s, " dist=\"{}\"", emu(r.distance));
+            }
+            let _ = write!(s, " dir=\"{}\" sy=\"{}\"", angle(r.direction), (f64::from(r.scale_y) * 1000.0).round() as i64);
+            if r.align != BoxAlign::Bottom {
+                let _ = write!(s, " algn=\"{}\"", r.align.name());
+            }
+            if !r.turns {
+                s.push_str(" rotWithShape=\"0\"");
+            }
+            s.push_str("/>");
+        }
+        if let Some(r) = soft_edge {
+            let _ = write!(s, "<a:softEdge rad=\"{}\"/>", emu(r.min(200.0)));
+        }
+        s.push_str("</a:effectLst>");
     }
+    s.push_str(&l.three_d_xml);
     s
+}
+
+/// A DrawingML element as XML again, every element in the `a:` namespace (all of a picture's
+/// spPr is): what GridCraft keeps but doesn't draw, written back as it came.
+fn dml_xml(e: &El) -> String {
+    let mut s = format!("<a:{}", e.name);
+    for (k, v) in &e.attrs {
+        let _ = write!(s, " {k}=\"{}\"", esc_attr(v));
+    }
+    if e.children.is_empty() && e.text.is_empty() {
+        s.push_str("/>");
+        return s;
+    }
+    s.push('>');
+    s.push_str(&esc(&e.text));
+    for c in &e.children {
+        s.push_str(&dml_xml(c));
+    }
+    let _ = write!(s, "</a:{}>", e.name);
+    s
+}
+
+/// An `a:avLst` of adjust values (`val` formulas only), empty when there are none.
+fn av_lst(adjust: &[(String, i64)]) -> String {
+    if adjust.is_empty() {
+        return "<a:avLst/>".into();
+    }
+    let mut s = String::from("<a:avLst>");
+    for (name, v) in adjust.iter().take(16) {
+        let _ = write!(s, "<a:gd name=\"{}\" fmla=\"val {v}\"/>", esc_attr(&ShapeFormat::clean_preset(name)));
+    }
+    s.push_str("</a:avLst>");
+    s
+}
+
+/// Points as EMUs.
+fn emu(pt: f32) -> i64 {
+    (f64::from(pt) * 12700.0).round() as i64
+}
+
+/// Degrees as DrawingML's 60000ths.
+fn angle(deg: f32) -> i64 {
+    (f64::from(deg) * 60000.0).round() as i64
+}
+
+/// A shadow's colour with its opacity: black by name (`a:prstClr`) when it was said that way, as
+/// Picture Effects write it; otherwise as RGB.
+fn effect_color(c: &Color, opacity: f32, named: bool, theme: &Theme) -> String {
+    let a = if opacity.is_finite() { opacity.clamp(0.0, 1.0) } else { 1.0 };
+    match c.resolve(theme) {
+        Some(rgb) if rgb != [0, 0, 0] || !named => srgb_alpha(c, theme, a).unwrap_or_default(),
+        _ if a < 1.0 => format!("<a:prstClr val=\"black\"><a:alpha val=\"{}\"/></a:prstClr>", (a * 100_000.0).round() as i64),
+        _ => "<a:prstClr val=\"black\"/>".into(),
+    }
 }
 
 /// A picture's outline, frame and shadow from its `spPr`.
 fn read_look(sp: Option<&El>) -> PictureLook {
     let Some(sp) = sp else { return PictureLook::default() };
     let shape = PictureShape::from_preset(sp.child("prstGeom").and_then(|g| g.attr("prst")).unwrap_or_default());
-    let border = sp.child("ln").and_then(|ln| {
+    let ln = sp.child("ln");
+    let border = ln.and_then(|ln| {
         let c = ln.child("solidFill").and_then(dml_color)?;
         let w = ln.attr_i64("w").map_or(0.75, |w| (w as f32 / 12700.0).clamp(0.25, 100.0));
         Some((c, w))
     });
-    let shadow = sp.path(&["effectLst", "outerShdw"]).is_some();
-    PictureLook { shape, border, shadow }
+    let frame = ln.map_or_else(gridcraft_model::FrameStyle::default, |ln| gridcraft_model::FrameStyle {
+        cap: match ln.attr("cap") {
+            Some("sq") => Some(LineCap::Square),
+            Some("rnd") => Some(LineCap::Round),
+            Some("flat") => Some(LineCap::Flat),
+            _ => None,
+        },
+        compound: ln.attr("cmpd").map_or(Compound::Single, Compound::from_name),
+        solid: ln.child("prstDash").and_then(|d| d.attr("val")) == Some("solid"),
+        join: if ln.child("round").is_some() {
+            Some(LineJoin::Round)
+        } else if ln.child("bevel").is_some() {
+            Some(LineJoin::Bevel)
+        } else {
+            ln.child("miter").map(|m| LineJoin::Miter(m.attr_u32("lim").unwrap_or(800_000)))
+        },
+    });
+    let no_frame = ln.is_some_and(|ln| ln.child("noFill").is_some());
+    // kept as they came: a fill behind the picture, its 3-D settings
+    let backdrop_xml: String = sp
+        .children
+        .iter()
+        .filter(|c| matches!(c.name.as_str(), "solidFill" | "gradFill" | "pattFill" | "blipFill" | "noFill"))
+        .map(dml_xml)
+        .collect();
+    let three_d_xml: String = sp.children.iter().filter(|c| matches!(c.name.as_str(), "scene3d" | "sp3d")).map(dml_xml).collect();
+    let fx = sp.child("effectLst");
+    let turns = |e: &El| e.attr("rotWithShape").is_none_or(|v| v != "0" && v != "false");
+    let shadow =
+        fx.and_then(|fx| fx.child("outerShdw").map(|e| (e, false)).or_else(|| fx.child("innerShdw").map(|e| (e, true)))).map(|(e, inner)| {
+            Shadow {
+                inner,
+                color: dml_color(e).unwrap_or(Color::Rgb(0)),
+                opacity: dml_alpha(e).unwrap_or(1.0),
+                blur: pt_attr(e, "blurRad", 0.0),
+                distance: pt_attr(e, "dist", 0.0),
+                direction: deg_attr(e, "dir", 0.0),
+                scale_x: pct_attr(e, "sx", 100.0),
+                scale_y: pct_attr(e, "sy", 100.0),
+                skew_x: deg_attr(e, "kx", 0.0),
+                skew_y: deg_attr(e, "ky", 0.0),
+                align: e.attr("algn").map_or(BoxAlign::Bottom, BoxAlign::from_name),
+                turns: turns(e),
+                named: e.child("prstClr").is_some(),
+            }
+            .sane()
+        });
+    let reflection = fx.and_then(|fx| fx.child("reflection")).map(|e| {
+        Reflection {
+            blur: pt_attr(e, "blurRad", 0.0),
+            start: frac_attr(e, "stA", 1.0),
+            end: frac_attr(e, "endA", 0.0),
+            end_pos: frac_attr(e, "endPos", 1.0),
+            distance: pt_attr(e, "dist", 0.0),
+            direction: deg_attr(e, "dir", 0.0),
+            scale_y: pct_attr(e, "sy", 100.0),
+            align: e.attr("algn").map_or(BoxAlign::Bottom, BoxAlign::from_name),
+            turns: turns(e),
+        }
+        .sane()
+    });
+    let soft_edge = fx.and_then(|fx| fx.child("softEdge")).map(|e| pt_attr(e, "rad", 0.0)).filter(|r| *r > 0.0);
+    let adjust = sp
+        .path(&["prstGeom", "avLst"])
+        .map(|av| {
+            av.kids("gd")
+                .filter_map(|gd| Some((gd.attr("name")?.to_string(), gd.attr("fmla")?.strip_prefix("val ")?.trim().parse::<i64>().ok()?)))
+                .take(16)
+                .collect()
+        })
+        .unwrap_or_default();
+    PictureLook { shape, border, shadow, reflection, frame, no_frame, soft_edge, backdrop_xml, three_d_xml, adjust }
+}
+
+/// An EMU length attribute in points (`d` when absent or not a number).
+fn pt_attr(e: &El, name: &str, d: f32) -> f32 {
+    e.attr_f64(name).filter(|v| v.is_finite()).map_or(d, |v| (v / 12700.0) as f32)
+}
+
+/// A 60000ths-of-a-degree attribute in degrees.
+fn deg_attr(e: &El, name: &str, d: f32) -> f32 {
+    e.attr_f64(name).filter(|v| v.is_finite()).map_or(d, |v| (v / 60000.0) as f32)
+}
+
+/// A thousandths-of-a-percent attribute as a fraction (0 to 1 for 0% to 100%).
+fn frac_attr(e: &El, name: &str, d: f32) -> f32 {
+    e.attr_f64(name).filter(|v| v.is_finite()).map_or(d, |v| (v / 100_000.0) as f32)
+}
+
+/// A thousandths-of-a-percent attribute in percent.
+fn pct_attr(e: &El, name: &str, d: f32) -> f32 {
+    e.attr_f64(name).filter(|v| v.is_finite()).map_or(d, |v| (v / 1000.0) as f32)
 }
 
 /// `a:srcRect` for a cropped picture (nothing when it isn't).
@@ -554,13 +786,14 @@ pub fn write_drawing(sheet: &Sheet, theme: &Theme, objs: &[Obj<'_>]) -> String {
                 s.push_str(&open);
                 let _ = write!(
                     s,
-                    "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"{id}\" name=\"Picture {}\" descr=\"{}\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed=\"{rid}\"/>{}<a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr>{}<a:prstGeom prst=\"{}\"><a:avLst/></a:prstGeom>{}</xdr:spPr></xdr:pic>",
+                    "<xdr:pic><xdr:nvPicPr><xdr:cNvPr id=\"{id}\" name=\"Picture {}\" descr=\"{}\"/><xdr:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed=\"{rid}\"/>{}<a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr>{}<a:prstGeom prst=\"{}\">{}</a:prstGeom>{}</xdr:spPr></xdr:pic>",
                     id - 1,
                     esc_attr(&img.alt),
                     src_rect(&img.crop),
                     xfrm_turned(&img.anchor, "a:xfrm", &img.turn),
                     // a name as files may hold it (the model's own are; one from elsewhere may not be)
                     Some(ShapeFormat::clean_preset(img.look.shape.preset())).filter(|n| !n.is_empty()).unwrap_or_else(|| "rect".into()),
+                    av_lst(&img.look.adjust),
                     look_xml(&img.look, theme)
                 );
             }
@@ -798,5 +1031,317 @@ pub fn image_content_type(ext: &str) -> &'static str {
         "wmf" => "image/x-wmf",
         "webp" => "image/webp",
         _ => "image/png",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Picture Effects' presets are written exactly as the phone app writes them: every shadow,
+    /// each with a reflection or none (from its own saved workbooks).
+    #[test]
+    fn effects_written_as_the_phone_app_writes_them() {
+        let theme = Theme::default();
+        let cases: [(&str, &str, &str); 23] = [
+            (
+                "offsetBottomRight",
+                "tightTouching",
+                r#"<a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="2700000" algn="tl" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="52000" endA="300" endPos="35000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "offsetBottom",
+                "halfTouching",
+                r#"<a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="5400000" algn="t" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="50000" endA="300" endPos="55000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "offsetBottomLeft",
+                "fullTouching",
+                r#"<a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="8100000" algn="tr" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="50000" endA="300" endPos="90000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "offsetRight",
+                "tight4pt",
+                r#"<a:effectLst><a:outerShdw blurRad="50800" dist="38100" algn="l" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="50000" endA="300" endPos="38500" dist="50800" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "offsetCenter",
+                "full4pt",
+                r#"<a:effectLst><a:outerShdw blurRad="63500" sx="102000" sy="102000" algn="ctr" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="50000" endA="300" endPos="90000" dist="50800" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "offsetLeft",
+                "tight8pt",
+                r#"<a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="10800000" algn="r" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="50000" endA="275" endPos="40000" dist="101600" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "offsetTopRight",
+                "half8pt",
+                r#"<a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="18900000" algn="bl" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="50000" endA="300" endPos="55500" dist="101600" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "offsetTop",
+                "full8pt",
+                r#"<a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="16200000" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="50000" endA="295" endPos="92000" dist="101600" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "offsetTopLeft",
+                "tightTouching",
+                r#"<a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="13500000" algn="br" rotWithShape="0"><a:prstClr val="black"><a:alpha val="40000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="52000" endA="300" endPos="35000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "insideTopLeft",
+                "none",
+                r#"<a:effectLst><a:innerShdw blurRad="63500" dist="101600" dir="13500000"><a:prstClr val="black"><a:alpha val="50000"/></a:prstClr></a:innerShdw></a:effectLst>"#,
+            ),
+            (
+                "insideTop",
+                "tightTouching",
+                r#"<a:effectLst><a:innerShdw blurRad="63500" dist="101600" dir="16200000"><a:prstClr val="black"><a:alpha val="50000"/></a:prstClr></a:innerShdw><a:reflection blurRad="6350" stA="52000" endA="300" endPos="35000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "insideTopRight",
+                "none",
+                r#"<a:effectLst><a:innerShdw blurRad="63500" dist="101600" dir="18900000"><a:prstClr val="black"><a:alpha val="50000"/></a:prstClr></a:innerShdw></a:effectLst>"#,
+            ),
+            (
+                "insideLeft",
+                "tightTouching",
+                r#"<a:effectLst><a:innerShdw blurRad="63500" dist="101600" dir="10800000"><a:prstClr val="black"><a:alpha val="50000"/></a:prstClr></a:innerShdw><a:reflection blurRad="6350" stA="52000" endA="300" endPos="35000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "insideBottomRight",
+                "none",
+                r#"<a:effectLst><a:innerShdw blurRad="63500" dist="101600" dir="2700000"><a:prstClr val="black"><a:alpha val="50000"/></a:prstClr></a:innerShdw></a:effectLst>"#,
+            ),
+            (
+                "insideCenter",
+                "tightTouching",
+                r#"<a:effectLst><a:innerShdw blurRad="114300"><a:prstClr val="black"/></a:innerShdw><a:reflection blurRad="6350" stA="52000" endA="300" endPos="35000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "insideRight",
+                "none",
+                r#"<a:effectLst><a:innerShdw blurRad="63500" dist="101600"><a:prstClr val="black"><a:alpha val="50000"/></a:prstClr></a:innerShdw></a:effectLst>"#,
+            ),
+            (
+                "insideBottomLeft",
+                "tightTouching",
+                r#"<a:effectLst><a:innerShdw blurRad="63500" dist="101600" dir="8100000"><a:prstClr val="black"><a:alpha val="50000"/></a:prstClr></a:innerShdw><a:reflection blurRad="6350" stA="52000" endA="300" endPos="35000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "insideBottom",
+                "none",
+                r#"<a:effectLst><a:innerShdw blurRad="63500" dist="101600" dir="5400000"><a:prstClr val="black"><a:alpha val="50000"/></a:prstClr></a:innerShdw></a:effectLst>"#,
+            ),
+            (
+                "perspectiveUpperLeft",
+                "tightTouching",
+                r#"<a:effectLst><a:outerShdw blurRad="76200" dir="13500000" sy="23000" kx="1200000" algn="br" rotWithShape="0"><a:prstClr val="black"><a:alpha val="20000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="52000" endA="300" endPos="35000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "perspectiveUpperRight",
+                "none",
+                r#"<a:effectLst><a:outerShdw blurRad="76200" dir="18900000" sy="23000" kx="-1200000" algn="bl" rotWithShape="0"><a:prstClr val="black"><a:alpha val="20000"/></a:prstClr></a:outerShdw></a:effectLst>"#,
+            ),
+            (
+                "perspectiveLowerLeft",
+                "tightTouching",
+                r#"<a:effectLst><a:outerShdw blurRad="76200" dist="12700" dir="8100000" sy="-23000" kx="800400" algn="br" rotWithShape="0"><a:prstClr val="black"><a:alpha val="20000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="52000" endA="300" endPos="35000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "perspectiveLowerRight",
+                "none",
+                r#"<a:effectLst><a:outerShdw blurRad="76200" dist="12700" dir="2700000" sy="-23000" kx="-800400" algn="bl" rotWithShape="0"><a:prstClr val="black"><a:alpha val="20000"/></a:prstClr></a:outerShdw></a:effectLst>"#,
+            ),
+            (
+                "perspectiveBelow",
+                "half4pt",
+                r#"<a:effectLst><a:outerShdw blurRad="152400" dist="317500" dir="5400000" sx="90000" sy="-19000" rotWithShape="0"><a:prstClr val="black"><a:alpha val="15000"/></a:prstClr></a:outerShdw><a:reflection blurRad="6350" stA="50000" endA="300" endPos="55500" dist="50800" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+        ];
+        for (shadow, reflection, xml) in cases {
+            let look = PictureLook { shadow: Shadow::preset(shadow), reflection: Reflection::preset(reflection), ..Default::default() };
+            assert!(look.shadow.is_some() && (reflection == "none" || look.reflection.is_some()), "{shadow} {reflection}");
+            assert_eq!(look_xml(&look, &theme), xml, "{shadow} {reflection}");
+        }
+    }
+
+    /// Picture Styles are written exactly as the phone app writes each (from its own saved
+    /// workbooks): the outline's adjust values, then the fill behind, frame, effects and 3-D.
+    #[test]
+    fn picture_styles_written_as_the_phone_app_writes_them() {
+        let theme = Theme::default();
+        let cases: &[(&str, &str, &str)] = &[
+            (
+                "simpleFrameWhite",
+                r#"<a:avLst/>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"><a:shade val="85000"/></a:srgbClr></a:solidFill><a:ln w="88900" cap="sq"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="55000" dist="18000" dir="5400000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="40000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7200000"/></a:lightRig></a:scene3d><a:sp3d><a:bevelT w="25400" h="19050"/><a:contourClr><a:srgbClr val="FFFFFF"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "beveledMatteWhite",
+                r#"<a:avLst/>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"><a:shade val="85000"/></a:srgbClr></a:solidFill><a:ln w="190500" cap="rnd"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln><a:effectLst><a:outerShdw blurRad="50000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="41000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7800000"/></a:lightRig></a:scene3d><a:sp3d contourW="6350"><a:bevelT w="50800" h="16510"/><a:contourClr><a:srgbClr val="C0C0C0"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "thickWhiteMatteBevel",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="355600" cap="rnd"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln><a:effectLst><a:outerShdw blurRad="50000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="41000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7800000"/></a:lightRig></a:scene3d><a:sp3d contourW="6350"><a:bevelT w="50800" h="16510"/><a:contourClr><a:srgbClr val="C0C0C0"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "simpleFrameBlack",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="38100" cap="sq"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:prstDash val="solid"/><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="2700000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="43000"/></a:srgbClr></a:outerShdw></a:effectLst>"#,
+            ),
+            (
+                "moderateFrameBlack",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="127000" cap="sq"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="57150" dist="50800" dir="2700000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="40000"/></a:srgbClr></a:outerShdw></a:effectLst>"#,
+            ),
+            (
+                "thickMatteBlack",
+                r#"<a:avLst/>"#,
+                r#"<a:solidFill><a:srgbClr val="000000"><a:shade val="95000"/></a:srgbClr></a:solidFill><a:ln w="444500" cap="sq"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="254000" dist="190500" dir="2700000" sy="90000" algn="bl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="40000"/></a:srgbClr></a:outerShdw></a:effectLst>"#,
+            ),
+            (
+                "compoundFrameBlack",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="88900" cap="sq" cmpd="thickThin"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:prstDash val="solid"/><a:miter lim="800000"/></a:ln><a:effectLst><a:innerShdw blurRad="76200"><a:srgbClr val="000000"/></a:innerShdw></a:effectLst>"#,
+            ),
+            (
+                "doubleFrameBlack",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="228600" cap="sq" cmpd="thickThin"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:prstDash val="solid"/><a:miter lim="800000"/></a:ln><a:effectLst><a:innerShdw blurRad="76200"><a:srgbClr val="000000"/></a:innerShdw></a:effectLst>"#,
+            ),
+            (
+                "thickDoubleFrameBlack",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="444500" cap="sq" cmpd="thickThin"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:prstDash val="solid"/><a:miter lim="800000"/></a:ln><a:effectLst><a:innerShdw blurRad="76200"><a:srgbClr val="000000"/></a:innerShdw></a:effectLst>"#,
+            ),
+            ("softEdgeRectangle", r#"<a:avLst/>"#, r#"<a:ln><a:noFill/></a:ln><a:effectLst><a:softEdge rad="112500"/></a:effectLst>"#),
+            (
+                "moderateFrameWhite",
+                r#"<a:avLst/>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"><a:shade val="85000"/></a:srgbClr></a:solidFill><a:ln w="190500" cap="sq"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="55000" dist="18000" dir="5400000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="40000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7200000"/></a:lightRig></a:scene3d><a:sp3d><a:bevelT w="25400" h="19050"/><a:contourClr><a:srgbClr val="FFFFFF"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "metalFrame",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="190500" cap="sq"><a:solidFill><a:srgbClr val="C8C6BD"/></a:solidFill><a:prstDash val="solid"/><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="254000" algn="bl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="43000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="perspectiveFront" fov="5400000"/><a:lightRig rig="threePt" dir="t"><a:rot lat="0" lon="0" rev="2100000"/></a:lightRig></a:scene3d><a:sp3d extrusionH="25400"><a:bevelT w="304800" h="152400" prst="hardEdge"/><a:extrusionClr><a:srgbClr val="000000"/></a:extrusionClr></a:sp3d>"#,
+            ),
+            (
+                "centerShadowRectangle",
+                r#"<a:avLst/>"#,
+                r#"<a:ln><a:noFill/></a:ln><a:effectLst><a:outerShdw blurRad="190500" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="70000"/></a:srgbClr></a:outerShdw></a:effectLst>"#,
+            ),
+            (
+                "dropShadowRectangle",
+                r#"<a:avLst/>"#,
+                r#"<a:ln><a:noFill/></a:ln><a:effectLst><a:outerShdw blurRad="292100" dist="139700" dir="2700000" algn="tl" rotWithShape="0"><a:srgbClr val="333333"><a:alpha val="65000"/></a:srgbClr></a:outerShdw></a:effectLst>"#,
+            ),
+            (
+                "perspectiveShadowLeft",
+                r#"<a:avLst/>"#,
+                r#"<a:ln><a:noFill/></a:ln><a:effectLst><a:outerShdw blurRad="76200" dist="95250" dir="10500000" sx="97000" sy="23000" kx="900000" algn="br" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="20000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7800000"/></a:lightRig></a:scene3d><a:sp3d contourW="6350"><a:contourClr><a:srgbClr val="C0C0C0"/></a:contourClr></a:sp3d>"#,
+            ),
+            ("softEdgeOval", r#"<a:avLst/>"#, r#"<a:ln><a:noFill/></a:ln><a:effectLst><a:softEdge rad="112500"/></a:effectLst>"#),
+            (
+                "metalOval",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="190500" cap="rnd"><a:solidFill><a:srgbClr val="C8C6BD"/></a:solidFill><a:prstDash val="solid"/></a:ln><a:effectLst><a:outerShdw blurRad="127000" algn="bl" rotWithShape="0"><a:srgbClr val="000000"/></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="perspectiveFront" fov="5400000"/><a:lightRig rig="threePt" dir="t"><a:rot lat="0" lon="0" rev="19200000"/></a:lightRig></a:scene3d><a:sp3d extrusionH="25400"><a:bevelT w="304800" h="152400" prst="hardEdge"/><a:extrusionClr><a:srgbClr val="000000"/></a:extrusionClr></a:sp3d>"#,
+            ),
+            (
+                "beveledOvalBlack",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="63500" cap="rnd"><a:solidFill><a:srgbClr val="333333"/></a:solidFill></a:ln><a:effectLst><a:outerShdw blurRad="381000" dist="292100" dir="5400000" sx="-80000" sy="-18000" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="22000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="contrasting" dir="t"><a:rot lat="0" lon="0" rev="3000000"/></a:lightRig></a:scene3d><a:sp3d contourW="7620"><a:bevelT w="95250" h="31750"/><a:contourClr><a:srgbClr val="333333"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "reflectedRoundedRectangle",
+                r#"<a:avLst><a:gd name="adj" fmla="val 8594"/></a:avLst>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"><a:shade val="85000"/></a:srgbClr></a:solidFill><a:ln><a:noFill/></a:ln><a:effectLst><a:reflection blurRad="12700" stA="38000" endPos="28000" dist="5000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst>"#,
+            ),
+            (
+                "reflectedBevelWhite",
+                r#"<a:avLst><a:gd name="adj" fmla="val 4167"/></a:avLst>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="76200" cap="sq"><a:solidFill><a:srgbClr val="EAEAEA"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:reflection blurRad="12700" stA="33000" endPos="28000" dist="5000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="threePt" dir="t"><a:rot lat="0" lon="0" rev="2700000"/></a:lightRig></a:scene3d><a:sp3d contourW="6350"><a:bevelT h="38100"/><a:contourClr><a:srgbClr val="C0C0C0"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "reflectedBevelBlack",
+                r#"<a:avLst><a:gd name="adj" fmla="val 4167"/></a:avLst>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:ln w="76200" cap="sq"><a:solidFill><a:srgbClr val="292929"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:reflection blurRad="12700" stA="28000" endPos="28000" dist="5000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="threePt" dir="t"><a:rot lat="0" lon="0" rev="2700000"/></a:lightRig></a:scene3d><a:sp3d><a:bevelT h="38100"/><a:contourClr><a:srgbClr val="C0C0C0"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "roundedWhiteRectangleGlow",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="88900" cap="sq"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="254000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="43000"/></a:srgbClr></a:outerShdw></a:effectLst>"#,
+            ),
+            (
+                "roundedDiagonalCornerWhite",
+                r#"<a:avLst><a:gd name="adj1" fmla="val 16667"/><a:gd name="adj2" fmla="val 0"/></a:avLst>"#,
+                r#"<a:ln w="88900" cap="sq"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="254000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="43000"/></a:srgbClr></a:outerShdw></a:effectLst>"#,
+            ),
+            (
+                "snipDiagonalCornerWhite",
+                r#"<a:avLst/>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"><a:shade val="85000"/></a:srgbClr></a:solidFill><a:ln w="88900" cap="sq"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="88900" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="45000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7200000"/></a:lightRig></a:scene3d><a:sp3d><a:bevelT w="25400" h="19050"/><a:contourClr><a:srgbClr val="FFFFFF"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "rotatedWhite",
+                r#"<a:avLst/>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"><a:shade val="85000"/></a:srgbClr></a:solidFill><a:ln w="190500" cap="sq"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="65000" dist="50800" dir="12900000" kx="195000" ky="145000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="30000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"><a:rot lat="0" lon="0" rev="360000"/></a:camera><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7200000"/></a:lightRig></a:scene3d><a:sp3d contourW="12700"><a:bevelT w="25400" h="19050"/><a:contourClr><a:srgbClr val="969696"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "relaxedPerspectiveWhite",
+                r#"<a:avLst/>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"><a:shade val="85000"/></a:srgbClr></a:solidFill><a:ln w="101600" cap="sq"><a:solidFill><a:srgbClr val="FDFDFD"/></a:solidFill><a:miter lim="800000"/></a:ln><a:effectLst><a:outerShdw blurRad="57150" dist="37500" dir="7560000" sy="98000" kx="110000" ky="200000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="20000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="perspectiveRelaxed"><a:rot lat="18960000" lon="0" rev="0"/></a:camera><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7200000"/></a:lightRig></a:scene3d><a:sp3d prstMaterial="matte"><a:bevelT w="22860" h="12700"/><a:contourClr><a:srgbClr val="FFFFFF"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "perspectiveShadowWhite",
+                r#"<a:avLst/>"#,
+                r#"<a:ln w="127000" cap="rnd"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln><a:effectLst><a:outerShdw blurRad="76200" dist="95250" dir="10500000" sx="97000" sy="23000" kx="900000" algn="br" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="20000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7800000"/></a:lightRig></a:scene3d><a:sp3d contourW="6350"><a:bevelT w="50800" h="16510"/><a:contourClr><a:srgbClr val="C0C0C0"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "bevelRectangle",
+                r#"<a:avLst><a:gd name="adj" fmla="val 16667"/></a:avLst>"#,
+                r#"<a:ln><a:noFill/></a:ln><a:effectLst><a:outerShdw blurRad="76200" dist="38100" dir="7800000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="40000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="contrasting" dir="t"><a:rot lat="0" lon="0" rev="4200000"/></a:lightRig></a:scene3d><a:sp3d prstMaterial="plastic"><a:bevelT w="381000" h="114300" prst="relaxedInset"/><a:contourClr><a:srgbClr val="969696"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "bevelPerspective",
+                r#"<a:avLst><a:gd name="adj" fmla="val 16667"/></a:avLst>"#,
+                r#"<a:ln><a:noFill/></a:ln><a:effectLst><a:outerShdw blurRad="152400" dist="12000" dir="900000" sy="98000" kx="110000" ky="200000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="30000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="perspectiveRelaxed"><a:rot lat="19800000" lon="1200000" rev="20820000"/></a:camera><a:lightRig rig="threePt" dir="t"/></a:scene3d><a:sp3d contourW="6350" prstMaterial="matte"><a:bevelT w="101600" h="101600"/><a:contourClr><a:srgbClr val="969696"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "metalRoundedRectangle",
+                r#"<a:avLst><a:gd name="adj" fmla="val 11111"/></a:avLst>"#,
+                r#"<a:ln w="190500" cap="rnd"><a:solidFill><a:srgbClr val="C8C6BD"/></a:solidFill><a:prstDash val="solid"/></a:ln><a:effectLst><a:outerShdw blurRad="101600" dist="50800" dir="7200000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="45000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="perspectiveFront" fov="5400000"/><a:lightRig rig="threePt" dir="t"><a:rot lat="0" lon="0" rev="19200000"/></a:lightRig></a:scene3d><a:sp3d extrusionH="25400"><a:bevelT w="304800" h="152400" prst="hardEdge"/><a:extrusionClr><a:srgbClr val="FFFFFF"/></a:extrusionClr></a:sp3d>"#,
+            ),
+            (
+                "reflectedPerspectiveRight",
+                r#"<a:avLst/>"#,
+                r#"<a:ln><a:noFill/></a:ln><a:effectLst><a:reflection blurRad="12700" stA="30000" endPos="30000" dist="5000" dir="5400000" sy="-100000" algn="bl" rotWithShape="0"/></a:effectLst><a:scene3d><a:camera prst="perspectiveContrastingLeftFacing"><a:rot lat="300000" lon="19800000" rev="0"/></a:camera><a:lightRig rig="threePt" dir="t"><a:rot lat="0" lon="0" rev="2700000"/></a:lightRig></a:scene3d><a:sp3d><a:bevelT w="63500" h="50800"/></a:sp3d>"#,
+            ),
+            (
+                "perspectiveRectangleBevel",
+                r#"<a:avLst/>"#,
+                r#"<a:ln><a:noFill/></a:ln><a:effectLst><a:outerShdw blurRad="152400" dist="12000" dir="900000" sy="98000" kx="110000" ky="200000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="30000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="perspectiveRelaxed"><a:rot lat="19800000" lon="1200000" rev="20820000"/></a:camera><a:lightRig rig="threePt" dir="t"/></a:scene3d><a:sp3d contourW="6350" prstMaterial="matte"><a:bevelT w="101600" h="101600"/><a:contourClr><a:srgbClr val="969696"/></a:contourClr></a:sp3d>"#,
+            ),
+            (
+                "bevelPerspectiveLeftWhite",
+                r#"<a:avLst/>"#,
+                r#"<a:solidFill><a:srgbClr val="FFFFFF"><a:shade val="85000"/></a:srgbClr></a:solidFill><a:ln w="190500" cap="rnd"><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:ln><a:effectLst><a:outerShdw blurRad="36195" dist="12700" dir="11400000" algn="tl" rotWithShape="0"><a:srgbClr val="000000"><a:alpha val="33000"/></a:srgbClr></a:outerShdw></a:effectLst><a:scene3d><a:camera prst="perspectiveContrastingLeftFacing"><a:rot lat="540000" lon="2100000" rev="0"/></a:camera><a:lightRig rig="soft" dir="t"/></a:scene3d><a:sp3d contourW="12700" prstMaterial="matte"><a:bevelT w="63500" h="50800"/><a:contourClr><a:srgbClr val="C0C0C0"/></a:contourClr></a:sp3d>"#,
+            ),
+        ];
+        assert_eq!(cases.len(), crate::picture_styles::PICTURE_STYLES.len());
+        for (id, av, xml) in cases {
+            let look = crate::picture_styles::picture_style(id).unwrap_or_else(|| panic!("{id}"));
+            assert_eq!(av_lst(&look.adjust), *av, "{id}");
+            assert_eq!(look_xml(&look, &theme), *xml, "{id}");
+        }
+        // only a camera that doesn't tilt turns the picture flat
+        let turn = |id: &str| crate::picture_styles::picture_style(id).map(|l| l.camera_turn());
+        assert_eq!(turn("rotatedWhite"), Some(6.0));
+        assert_eq!(turn("bevelPerspective"), Some(0.0));
+        assert_eq!(turn("simpleFrameWhite"), Some(0.0));
+        assert!(crate::picture_styles::picture_style("sparkly").is_none());
     }
 }

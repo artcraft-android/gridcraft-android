@@ -98,6 +98,8 @@ internal val PANEL_TITLES = mapOf(
     "tabColor" to "Tab Color",
     "pictureStyles" to "Styles",
     "pictureEffects" to "Picture Effects",
+    "pictureShadow" to "Shadow",
+    "pictureReflection" to "Reflection",
     "penColors" to "More Colors",
     "pen" to "Pen",
     "addPen" to "Add Pen",
@@ -739,18 +741,14 @@ private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
                 }
             }
         }
-        "pictureStyles" -> Scrolling {
-            for ((label, preset) in listOf(
-                "None" to "none", "White Frame" to "whiteFrame", "Black Frame" to "blackFrame", "Shadow" to "shadow",
-                "Rounded" to "rounded", "Rounded with Shadow" to "roundedShadow", "Oval" to "oval",
-            )) ChoiceRow(label, false, onClick = { vm.stylePicture(org.json.JSONObject().put("preset", preset)) })
-        }
+        "pictureStyles" -> PictureStyleGallery(vm)
+        // as the phone app's: Shadow and Reflection, each a gallery
         "pictureEffects" -> Scrolling {
-            val on = vm.selectedObject?.shadow == true
-            SectionBand("Shadow")
-            ChoiceRow("No Shadow", !on, onClick = { vm.stylePicture(org.json.JSONObject().put("shadow", false)) })
-            ChoiceRow("Drop Shadow", on, onClick = { vm.stylePicture(org.json.JSONObject().put("shadow", true)) })
+            PaletteRow("Shadow", LucideIcons.Image.glyph(), onClick = { vm.pushPanel("pictureShadow") }, chevron = true)
+            PaletteRow("Reflection", LucideIcons.FlipVertical2.glyph(), onClick = { vm.pushPanel("pictureReflection") }, chevron = true)
         }
+        "pictureShadow" -> EffectGallery(vm, reflection = false)
+        "pictureReflection" -> EffectGallery(vm, reflection = true)
         "pictureReset" -> Scrolling {
             ChoiceRow("Reset Picture", false, onClick = { vm.resetPicture() })
             ChoiceRow("Reset Size", false, onClick = { vm.resetPictureSize() })

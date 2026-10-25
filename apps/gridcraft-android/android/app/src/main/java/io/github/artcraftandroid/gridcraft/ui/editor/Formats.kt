@@ -34,11 +34,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -898,6 +900,150 @@ internal fun ShapesPanel(vm: AppViewModel, change: Boolean = false) {
                 }
             }
         }
+    }
+}
+
+/** Picture Effects' Shadow gallery: its bands of presets (the name shown, what `picture.style` takes). */
+private val SHADOW_BANDS = listOf(
+    "No Shadow" to listOf("None" to "none"),
+    "Outer" to listOf(
+        "Offset: Bottom Right" to "offsetBottomRight", "Offset: Bottom" to "offsetBottom", "Offset: Bottom Left" to "offsetBottomLeft",
+        "Offset: Right" to "offsetRight", "Offset: Center" to "offsetCenter", "Offset: Left" to "offsetLeft",
+        "Offset: Top Right" to "offsetTopRight", "Offset: Top" to "offsetTop", "Offset: Top Left" to "offsetTopLeft",
+    ),
+    "Inner" to listOf(
+        "Inside: Top Left" to "insideTopLeft", "Inside: Top" to "insideTop", "Inside: Top Right" to "insideTopRight",
+        "Inside: Left" to "insideLeft", "Inside: Center" to "insideCenter", "Inside: Right" to "insideRight",
+        "Inside: Bottom Left" to "insideBottomLeft", "Inside: Bottom" to "insideBottom", "Inside: Bottom Right" to "insideBottomRight",
+    ),
+    "Perspective" to listOf(
+        "Perspective: Upper Left" to "perspectiveUpperLeft", "Perspective: Upper Right" to "perspectiveUpperRight", "Perspective: Below" to "perspectiveBelow",
+        "Perspective: Lower Left" to "perspectiveLowerLeft", "Perspective: Lower Right" to "perspectiveLowerRight",
+    ),
+)
+
+/** Picture Effects' Reflection gallery. */
+private val REFLECTION_BANDS = listOf(
+    "No Reflection" to listOf("None" to "none"),
+    "Reflection Variations" to listOf(
+        "Tight Reflection: Touching" to "tightTouching", "Half Reflection: Touching" to "halfTouching", "Full Reflection: Touching" to "fullTouching",
+        "Tight Reflection: 4 point offset" to "tight4pt", "Half Reflection: 4 point offset" to "half4pt", "Full Reflection: 4 point offset" to "full4pt",
+        "Tight Reflection: 8 point offset" to "tight8pt", "Half Reflection: 8 point offset" to "half8pt", "Full Reflection: 8 point offset" to "full8pt",
+    ),
+)
+
+/**
+ * Picture Effects' Shadow or Reflection gallery, as the phone app's: its bands, three tiles to a
+ * row, each preset shown on a small picture of our own; a tap applies it.
+ */
+@Composable
+internal fun EffectGallery(vm: AppViewModel, reflection: Boolean) {
+    Scrolling {
+        for ((band, tiles) in if (reflection) REFLECTION_BANDS else SHADOW_BANDS) {
+            SectionBand(band)
+            Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+                for (row in tiles.chunked(3)) {
+                    Row(Modifier.fillMaxWidth().height(57.dp)) {
+                        for ((label, id) in row) {
+                            Box(
+                                Modifier.weight(1f).fillMaxHeight().clickable { vm.pictureEffect(reflection, id) }.semantics { contentDescription = label },
+                                contentAlignment = Alignment.Center,
+                            ) { EffectTile(vm, reflection, id) }
+                        }
+                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** A preset drawn on our sample picture: a sky, a sun and a hill. */
+@Composable
+private fun EffectTile(vm: AppViewModel, reflection: Boolean, id: String) {
+    var shadow by remember(id) { mutableStateOf<io.github.artcraftandroid.gridcraft.core.ObjectShadow?>(null) }
+    var mirror by remember(id) { mutableStateOf<io.github.artcraftandroid.gridcraft.core.ObjectReflection?>(null) }
+    LaunchedEffect(id) {
+        if (id == "none") return@LaunchedEffect
+        if (reflection) mirror = vm.reflectionPreset(id) else shadow = vm.shadowPreset(id)
+    }
+    Canvas(Modifier.size(width = 44.dp, height = 44.dp)) {
+        val w = 26.dp.toPx()
+        val h = 20.dp.toPx()
+        val left = (size.width - w) / 2
+        val top = if (reflection) 4.dp.toPx() else (size.height - h) / 2
+        // the effects a little larger than the sample picture would have them, so they show
+        val ptPx = 1.1f * density
+        val outline = androidx.compose.ui.graphics.Path().apply { addRect(androidx.compose.ui.geometry.Rect(left, top, left + w, top + h)) }
+        val sample: DrawScope.() -> Unit = { samplePicture(left, top, w, h) }
+        val sh = shadow?.let(::tileShadow)
+        mirror?.let { drawReflection(it, outline, left, top, w, h, ptPx, sample) }
+        sh?.takeIf { !it.inner }?.let { drawOuterShadow(it, outline, left, top, w, h, Offset(it.dx * ptPx, it.dy * ptPx), ptPx) }
+        clipPath(outline) {
+            sample()
+            sh?.takeIf { it.inner }?.let { drawInnerShadow(it, outline, left, top, w, h, Offset(it.dx * ptPx, it.dy * ptPx), ptPx) }
+        }
+    }
+}
+
+/** Our sample picture for gallery tiles, in the box: a sky, a sun and a hill. */
+private fun DrawScope.samplePicture(left: Float, top: Float, w: Float, h: Float) {
+    drawRect(Brush.verticalGradient(listOf(Color(0xFF6FA8DC), Color(0xFFCFE2F3)), startY = top, endY = top + h), Offset(left, top), Size(w, h))
+    drawCircle(Color(0xFFF6C744), h * 0.18f, Offset(left + w * 0.72f, top + h * 0.3f))
+    drawOval(Color(0xFF6AA84F), Offset(left - w * 0.2f, top + h * 0.62f), Size(w * 1.4f, h * 0.8f))
+}
+
+/**
+ * A shadow as a gallery tile draws it: a black shadow cast on the dark gallery doesn't show, so
+ * there it is drawn light, as the phone app's tiles draw it (one inside falls on the picture and
+ * stays dark).
+ */
+private fun tileShadow(sh: io.github.artcraftandroid.gridcraft.core.ObjectShadow): io.github.artcraftandroid.gridcraft.core.ObjectShadow {
+    if (!GridColors.dark || sh.inner) return sh
+    val alpha = ((sh.color ushr 24) * 1.6f).toInt().coerceAtMost(255)
+    return sh.copy(color = (alpha shl 24) or 0x00E0E0E0)
+}
+
+/**
+ * Picture Styles' gallery, as the phone app's: three tiles to a row, each style drawn on our
+ * sample picture as the sheet would show it; a tap applies it.
+ */
+@Composable
+internal fun PictureStyleGallery(vm: AppViewModel) {
+    var styles by remember { mutableStateOf<List<io.github.artcraftandroid.gridcraft.core.ShapeTile>>(emptyList()) }
+    LaunchedEffect(Unit) { styles = vm.pictureStyles() }
+    Scrolling {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
+            for (row in styles.chunked(3)) {
+                Row(Modifier.fillMaxWidth().height(50.dp)) {
+                    for (t in row) {
+                        Box(
+                            Modifier.weight(1f).fillMaxHeight().clickable { vm.pictureStyle(t.kind) }.semantics { contentDescription = t.label },
+                            contentAlignment = Alignment.Center,
+                        ) { PictureStyleTile(vm, t.kind) }
+                    }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+/** A style on our sample picture: a 160×120 picture drawn tile-sized, its frame and effects to scale. */
+@Composable
+private fun PictureStyleTile(vm: AppViewModel, id: String) {
+    var tile by remember(id) { mutableStateOf<io.github.artcraftandroid.gridcraft.core.SheetObject?>(null) }
+    LaunchedEffect(id) { tile = vm.pictureStyleTile(id) }
+    Canvas(Modifier.size(width = 60.dp, height = 48.dp)) {
+        val o = tile ?: return@Canvas
+        val w = 36.dp.toPx()
+        val h = w * 0.75f
+        val left = (size.width - w) / 2
+        val top = (size.height - h) / 2 - (if (o.reflection != null) 5.dp.toPx() else 0f)
+        // a point at the tile's scale: the picture stands for 160 sheet pixels (120 points)
+        val ptPx = w / (o.width.toFloat() * 72f / 96f)
+        // (the phone app's style tiles keep their shadows dark, unlike the Shadow gallery's)
+        drawPictureObject(o, left, top, w, h, ptPx, 0f) { samplePicture(left, top, w, h) }
     }
 }
 

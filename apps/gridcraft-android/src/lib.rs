@@ -445,10 +445,19 @@ pub struct SheetObject {
     /// A picture's part shown: left, top, width, height as fractions of the whole (0, 0, 1, 1
     /// when it isn't cropped).
     pub crop: Vec<f32>,
-    /// A picture's frame width in points (its colour is `line`) and its drop shadow; its outline
-    /// is `shape`: `roundedRectangle`, `ellipse` or empty.
+    /// A picture's frame width in points (its colour is `line`), its shadow and its reflection;
+    /// its outline is `shape`: `roundedRectangle`, `ellipse`, `preset` (cut to `pieces`) or empty.
     pub line_width: f32,
-    pub shadow: bool,
+    pub shadow: Option<ObjectShadow>,
+    pub reflection: Option<ObjectReflection>,
+    /// A picture's frame lines across its width, from the outside in, as (start, end) fraction
+    /// pairs (empty: one line), and whether its corners are mitred (else rounded).
+    pub line_parts: Vec<f32>,
+    pub line_miter: bool,
+    /// A picture's soft edges in points (0: none), and the turn its 3-D camera gives it, drawn
+    /// flat, in degrees.
+    pub soft_edge: f32,
+    pub view_turn: f32,
     /// Degrees clockwise about its centre, and mirrored left-right / top-bottom.
     pub rotation: f32,
     pub flip_h: bool,
@@ -477,6 +486,39 @@ pub struct SheetObject {
     pub text_size: f32,
 }
 
+/// A picture's shadow, in points and the picture's own frame: its silhouette scaled
+/// (`scale_x`, `scale_y` percent; negative turns it over) and leaned (`skew_x`, `skew_y` degrees)
+/// about the point (`align_x`, `align_y`) of its box (fractions from the top left), then moved
+/// (`dx`, `dy`) and blurred `blur`; inside the picture instead when `inner`. `turns`: whether the
+/// move turns with the picture.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ObjectShadow {
+    pub inner: bool,
+    /// ARGB, its opacity in the alpha.
+    pub color: i32,
+    pub blur: f32,
+    pub dx: f32,
+    pub dy: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub skew_x: f32,
+    pub skew_y: f32,
+    pub align_x: f32,
+    pub align_y: f32,
+    pub turns: bool,
+}
+
+/// A picture's reflection: turned over below it `distance` points down, fading from `start` to
+/// `end` opacity over `end_pos` of its height, blurred `blur` points.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ObjectReflection {
+    pub blur: f32,
+    pub start: f32,
+    pub end: f32,
+    pub end_pos: f32,
+    pub distance: f32,
+}
+
 /// One painted piece of a shape: its path as commands (0 move x y, 1 line x y, 2 curve x1 y1 x2
 /// y2 x y, 3 close), filled even-odd in `paint` (`fill`, `darken`, `darkenLess`, `lighten`,
 /// `lightenLess`, `ink` (the outline's colour) or `none`), and outlined when `stroke`.
@@ -499,6 +541,105 @@ pub struct ShapeBand {
 pub struct ShapeTile {
     pub label: String,
     pub kind: String,
+}
+
+/// A picture as the bridge passes it, in its place (`x`, `y`, `width`, `height`) on the sheet.
+fn image_object(
+    im: &gridcraft_engine::model::Image,
+    index: u32,
+    (x, y, width, height): (f64, f64, f64, f64),
+    decorative: bool,
+    theme: &gridcraft_engine::model::Theme,
+) -> SheetObject {
+    SheetObject {
+        kind: "image".into(),
+        index,
+        id: im.id,
+        x,
+        y,
+        width,
+        height,
+        shape: match &im.look.shape {
+            gridcraft_engine::model::PictureShape::Rectangle => String::new(),
+            // corners of its own (a Picture Style's): drawn from `pieces`
+            gridcraft_engine::model::PictureShape::RoundedRectangle if im.look.adj().is_some() => "preset".into(),
+            gridcraft_engine::model::PictureShape::RoundedRectangle => "roundedRectangle".into(),
+            gridcraft_engine::model::PictureShape::Oval => "ellipse".into(),
+            gridcraft_engine::model::PictureShape::Preset(_) => "preset".into(),
+        },
+        fill: None,
+        line: im.look.border.and_then(|(c, _)| c.resolve(theme)).map(argb),
+        text: im.alt.clone(),
+        alt: im.alt.clone(),
+        crop: {
+            let (l, t, w, h) = im.crop.shown();
+            vec![l, t, w, h]
+        },
+        line_width: im.look.border.map_or(0.0, |b| b.1),
+        shadow: im.look.shadow.map(|sh| object_shadow(sh, theme)),
+        reflection: im.look.reflection.map(object_reflection),
+        line_parts: match im.look.frame.compound {
+            gridcraft_engine::model::Compound::Single => vec![],
+            c => c.lines().iter().flat_map(|(a, b)| [*a, *b]).collect(),
+        },
+        // a frame that says no join is drawn mitred, as the phone app draws it
+        line_miter: !matches!(im.look.frame.join, Some(gridcraft_engine::model::LineJoin::Round | gridcraft_engine::model::LineJoin::Bevel)),
+        soft_edge: im.look.soft_edge.filter(|r| r.is_finite()).map_or(0.0, |r| r.clamp(0.0, 200.0)),
+        view_turn: im.look.camera_turn(),
+        rotation: im.turn.rotation,
+        flip_h: im.turn.flip_h,
+        flip_v: im.turn.flip_v,
+        pieces: match &im.look.shape {
+            // cut to a gallery shape: that shape's filled pieces, at the picture's size
+            gridcraft_engine::model::PictureShape::Preset(name) => {
+                shape_pieces(&gridcraft_chart::shapes::cut_pieces(name, im.look.adj(), width as f32, height as f32), 1.0, 0.0, 0.0)
+            }
+            gridcraft_engine::model::PictureShape::RoundedRectangle if im.look.adj().is_some() => {
+                shape_pieces(&gridcraft_chart::shapes::cut_pieces("roundRect", im.look.adj(), width as f32, height as f32), 1.0, 0.0, 0.0)
+            }
+            _ => vec![],
+        },
+        text_color: None,
+        text_align: String::new(),
+        text_anchor: String::new(),
+        preset: im.look.shape.preset().to_string(),
+        gradient_colors: vec![],
+        gradient_stops: vec![],
+        gradient_angle: 0.0,
+        decorative,
+        text_bold: false,
+        text_italic: false,
+        text_underline: false,
+        text_size: 0.0,
+    }
+}
+
+/// A picture's shadow as the bridge passes it.
+fn object_shadow(sh: gridcraft_engine::model::Shadow, theme: &gridcraft_engine::model::Theme) -> ObjectShadow {
+    let sh = sh.sane();
+    let (dx, dy) = sh.offset();
+    let (align_x, align_y) = sh.align.at();
+    let rgb = sh.color.resolve(theme).unwrap_or([0, 0, 0]);
+    ObjectShadow {
+        inner: sh.inner,
+        color: with_alpha(argb(rgb), sh.opacity),
+        blur: sh.blur,
+        dx,
+        dy,
+        scale_x: sh.scale_x,
+        scale_y: sh.scale_y,
+        skew_x: sh.skew_x,
+        skew_y: sh.skew_y,
+        align_x,
+        align_y,
+        turns: sh.turns,
+    }
+}
+
+/// A picture's reflection as the bridge passes it.
+fn object_reflection(r: gridcraft_engine::model::Reflection) -> ObjectReflection {
+    let r = r.sane();
+    ObjectReflection { blur: r.blur, start: r.start, end: r.end, end_pos: r.end_pos, distance: r.distance }
 }
 
 /// `pieces` as the bridge passes them.
@@ -1128,7 +1269,12 @@ impl MobileSession {
                 alt: sp.format.alt.clone(),
                 crop: vec![0.0, 0.0, 1.0, 1.0],
                 line_width: 0.0,
-                shadow: false,
+                shadow: None,
+                reflection: None,
+                line_parts: vec![],
+                line_miter: false,
+                soft_edge: 0.0,
+                view_turn: 0.0,
                 rotation: sp.format.turn.rotation,
                 flip_h: sp.format.turn.flip_h,
                 flip_v: sp.format.turn.flip_v,
@@ -1177,54 +1323,7 @@ impl MobileSession {
             });
         }
         for (i, im) in sh.images.iter().enumerate() {
-            let (x, y, width, height) = place(&im.anchor);
-            out.push(SheetObject {
-                kind: "image".into(),
-                index: index(i),
-                id: im.id,
-                x,
-                y,
-                width,
-                height,
-                shape: match &im.look.shape {
-                    gridcraft_engine::model::PictureShape::Rectangle => String::new(),
-                    gridcraft_engine::model::PictureShape::RoundedRectangle => "roundedRectangle".into(),
-                    gridcraft_engine::model::PictureShape::Oval => "ellipse".into(),
-                    gridcraft_engine::model::PictureShape::Preset(_) => "preset".into(),
-                },
-                fill: None,
-                line: im.look.border.and_then(|(c, _)| c.resolve(&wb.theme)).map(argb),
-                text: im.alt.clone(),
-                alt: im.alt.clone(),
-                crop: {
-                    let (l, t, w, h) = im.crop.shown();
-                    vec![l, t, w, h]
-                },
-                line_width: im.look.border.map_or(0.0, |b| b.1),
-                shadow: im.look.shadow,
-                rotation: im.turn.rotation,
-                flip_h: im.turn.flip_h,
-                flip_v: im.turn.flip_v,
-                pieces: match &im.look.shape {
-                    // cut to a gallery shape: that shape's filled pieces, at the picture's size
-                    gridcraft_engine::model::PictureShape::Preset(name) => {
-                        shape_pieces(&gridcraft_chart::shapes::cut_pieces(name, width as f32, height as f32), 1.0, 0.0, 0.0)
-                    }
-                    _ => vec![],
-                },
-                text_color: None,
-                text_align: String::new(),
-                text_anchor: String::new(),
-                preset: im.look.shape.preset().to_string(),
-                gradient_colors: vec![],
-                gradient_stops: vec![],
-                gradient_angle: 0.0,
-                decorative: sh.decorative.contains(&im.id),
-                text_bold: false,
-                text_italic: false,
-                text_underline: false,
-                text_size: 0.0,
-            });
+            out.push(image_object(im, index(i), place(&im.anchor), sh.decorative.contains(&im.id), &wb.theme));
         }
         for (i, ch) in sh.charts.iter().enumerate() {
             let (x, y, width, height) = place(&ch.anchor);
@@ -1243,7 +1342,12 @@ impl MobileSession {
                 alt: ch.alt.clone(),
                 crop: vec![0.0, 0.0, 1.0, 1.0],
                 line_width: 0.0,
-                shadow: false,
+                shadow: None,
+                reflection: None,
+                line_parts: vec![],
+                line_miter: false,
+                soft_edge: 0.0,
+                view_turn: 0.0,
                 rotation: 0.0,
                 flip_h: false,
                 flip_v: false,
@@ -1330,6 +1434,40 @@ impl MobileSession {
         let size = |v: f32| if v.is_finite() { v.clamp(1.0, 4096.0) } else { 1.0 };
         let data = gridcraft_chart::resolve(&d.wb, si, chart);
         gridcraft_chart::render(chart, &data, size(width), size(height), &gridcraft_chart::ApproxMeasure).into_iter().take(20_000).map(prim).collect()
+    }
+
+    /// Picture Styles' gallery: each style's name shown and what `picture.style` takes as `style`.
+    pub fn picture_styles(&self) -> Vec<ShapeTile> {
+        gridcraft_engine::picture_styles::PICTURE_STYLES.iter().map(|(label, id)| ShapeTile { label: (*label).into(), kind: (*id).into() }).collect()
+    }
+
+    /// Picture style `id` on a picture `width`×`height`, as the sheet would show it: for its
+    /// gallery tile.
+    pub fn picture_style_tile(&self, id: String, width: f64, height: f64) -> Option<SheetObject> {
+        let look = gridcraft_engine::picture_styles::picture_style(&id)?;
+        let size = |v: f64| if v.is_finite() { v.clamp(1.0, 4096.0) } else { 1.0 };
+        let im = gridcraft_engine::model::Image {
+            id: 0,
+            anchor: Default::default(),
+            data: vec![],
+            mime: String::new(),
+            alt: String::new(),
+            turn: Default::default(),
+            crop: Default::default(),
+            look,
+        };
+        Some(image_object(&im, 0, (0.0, 0.0, size(width), size(height)), false, &gridcraft_engine::model::Theme::default()))
+    }
+
+    /// Picture Effects' shadow `name` (`offsetBottomRight`, `insideTop`, `perspectiveBelow`…) as
+    /// the screen draws it, for its gallery tile.
+    pub fn shadow_preset(&self, name: String) -> Option<ObjectShadow> {
+        gridcraft_engine::model::Shadow::preset(&name).map(|sh| object_shadow(sh, &gridcraft_engine::model::Theme::default()))
+    }
+
+    /// Picture Effects' reflection `name` (`tightTouching`, `half4pt`…), for its gallery tile.
+    pub fn reflection_preset(&self, name: String) -> Option<ObjectReflection> {
+        gridcraft_engine::model::Reflection::preset(&name).map(object_reflection)
     }
 
     /// The Shapes gallery: its bands and their shapes.

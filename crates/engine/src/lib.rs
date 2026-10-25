@@ -36,6 +36,8 @@ pub use gridcraft_core as core;
 pub use gridcraft_formula as formula;
 pub use gridcraft_model as model;
 pub use gridcraft_numfmt as numfmt;
+/// Picture Styles' gallery and its styles.
+pub use gridcraft_xlsx::picture_styles;
 pub use selection::Selection;
 
 #[derive(Debug, thiserror::Error)]

@@ -335,7 +335,19 @@ fn sample() -> Workbook {
         look: gridcraft_model::PictureLook {
             shape: gridcraft_model::PictureShape::Preset("heart".into()),
             border: Some((Color::Rgb(0x203040), 3.0)),
-            shadow: true,
+            shadow: gridcraft_model::Shadow::preset("perspectiveBelow"),
+            reflection: gridcraft_model::Reflection::preset("half4pt"),
+            // a Picture Style's frame, soft edges and the 3-D it keeps without drawing
+            frame: gridcraft_model::FrameStyle {
+                cap: Some(gridcraft_model::LineCap::Square),
+                compound: gridcraft_model::Compound::ThickThin,
+                solid: true,
+                join: Some(gridcraft_model::LineJoin::Miter(800_000)),
+            },
+            soft_edge: Some(9.0),
+            backdrop_xml: r#"<a:solidFill><a:srgbClr val="FFFFFF"><a:shade val="85000"/></a:srgbClr></a:solidFill>"#.into(),
+            three_d_xml: r#"<a:scene3d><a:camera prst="orthographicFront"/><a:lightRig rig="twoPt" dir="t"><a:rot lat="0" lon="0" rev="7200000"/></a:lightRig></a:scene3d><a:sp3d><a:bevelT w="25400" h="19050"/></a:sp3d>"#.into(),
+            ..Default::default()
         },
     });
     s.shapes.push(Shape {

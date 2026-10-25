@@ -635,19 +635,438 @@ pub struct Image {
     pub look: PictureLook,
 }
 
-/// How a picture is framed: the outline it is cut to, a frame around it, a drop shadow.
+/// How a picture is framed: the outline it is cut to, a frame around it, its shadow and its
+/// reflection (Picture Effects).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PictureLook {
     pub shape: PictureShape,
     /// The frame's colour and width in points.
     pub border: Option<(Color, f32)>,
-    pub shadow: bool,
+    /// Its shadow, cast outside it or falling inside it. Older documents say only `true` here:
+    /// the bottom-right drop shadow.
+    #[serde(deserialize_with = "shadow_or_flag")]
+    pub shadow: Option<Shadow>,
+    pub reflection: Option<Reflection>,
+    /// How the frame is drawn and written beyond its colour and width (`a:ln`'s cap, lines, dash
+    /// and join), as Picture Styles set it.
+    pub frame: FrameStyle,
+    /// No frame, said outright (`a:ln` with `a:noFill`), as some Picture Styles say it.
+    pub no_frame: bool,
+    /// Soft edges: the picture fades out over this many points inside its outline
+    /// (`a:softEdge`).
+    pub soft_edge: Option<f32>,
+    /// What it keeps but doesn't draw, as DrawingML written back as it came: a fill behind the
+    /// picture (`a:solidFill`… in its spPr) and its 3-D settings (`a:scene3d`, `a:sp3d`).
+    pub backdrop_xml: String,
+    pub three_d_xml: String,
+    /// The outline's adjust values (`a:avLst`'s `a:gd name fmla="val N"`), as Picture Styles set
+    /// a rounded rectangle's corners.
+    pub adjust: Vec<(String, i64)>,
 }
 
 impl PictureLook {
     pub fn is_none(&self) -> bool {
         *self == PictureLook::default()
+    }
+
+    /// How far its 3-D camera turns it in its own plane, in degrees clockwise (`a:camera`'s
+    /// `a:rot rev` with no tilt, `lat` and `lon` 0), which GridCraft draws flat: "Rotated, White"
+    /// tilts the picture this way. A camera that also tilts is drawn unturned.
+    pub fn camera_turn(&self) -> f32 {
+        let Some(cam) = self.three_d_xml.find("<a:camera") else { return 0.0 };
+        let rest = &self.three_d_xml[cam..];
+        let end = rest.find("</a:camera>").or_else(|| rest.find("/>")).unwrap_or(rest.len());
+        let cam = &rest[..end];
+        let attr = |name: &str| -> Option<f64> {
+            let at = cam.find(&format!(" {name}=\""))? + name.len() + 3;
+            cam.get(at..)?.chars().take_while(|c| c.is_ascii_digit() || *c == '-').collect::<String>().parse::<f64>().ok().filter(|v| v.is_finite())
+        };
+        if attr("lat").unwrap_or(0.0) != 0.0 || attr("lon").unwrap_or(0.0) != 0.0 {
+            return 0.0;
+        }
+        attr("rev").map_or(0.0, |v| (v / 60_000.0).rem_euclid(360.0) as f32)
+    }
+
+    /// Its `adj` adjust value as a fraction (a rounded rectangle's corner, of its shorter side).
+    pub fn adj(&self) -> Option<f32> {
+        self.adjust.iter().find(|(n, _)| n == "adj").map(|(_, v)| (*v as f32 / 100_000.0).clamp(0.0, 0.5))
+    }
+}
+
+/// A shadow as documents written before shadows had their own settings keep it: `true` is the
+/// bottom-right drop shadow.
+fn shadow_or_flag<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Shadow>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Either {
+        Flag(bool),
+        Shadow(Option<Shadow>),
+    }
+    Ok(match Either::deserialize(d)? {
+        Either::Flag(on) => on.then(Shadow::drop),
+        Either::Shadow(s) => s,
+    })
+}
+
+/// The lines a frame is drawn as (DrawingML `a:ln cmpd`): one, or two or three side by side
+/// sharing its width.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Compound {
+    #[default]
+    Single,
+    Double,
+    ThickThin,
+    ThinThick,
+    Triple,
+}
+
+impl Compound {
+    /// Its DrawingML name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Compound::Single => "sng",
+            Compound::Double => "dbl",
+            Compound::ThickThin => "thickThin",
+            Compound::ThinThick => "thinThick",
+            Compound::Triple => "tri",
+        }
+    }
+
+    /// From its DrawingML name (one line for anything else).
+    pub fn from_name(n: &str) -> Compound {
+        match n {
+            "dbl" => Compound::Double,
+            "thickThin" => Compound::ThickThin,
+            "thinThick" => Compound::ThinThick,
+            "tri" => Compound::Triple,
+            _ => Compound::Single,
+        }
+    }
+
+    /// The lines across the frame's width, from its outside in: where each starts and ends, as
+    /// fractions of the width.
+    pub fn lines(self) -> &'static [(f32, f32)] {
+        match self {
+            Compound::Single => &[(0.0, 1.0)],
+            Compound::Double => &[(0.0, 0.34), (0.66, 1.0)],
+            Compound::ThickThin => &[(0.0, 0.55), (0.75, 1.0)],
+            Compound::ThinThick => &[(0.0, 0.25), (0.45, 1.0)],
+            Compound::Triple => &[(0.0, 0.2), (0.35, 0.65), (0.8, 1.0)],
+        }
+    }
+}
+
+/// How a frame's ends are drawn (`a:ln cap`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LineCap {
+    Square,
+    Round,
+    Flat,
+}
+
+/// How a frame's corners are drawn (`a:miter lim`, `a:round`, `a:bevel`); a miter keeps its
+/// limit, in thousandths of a percent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LineJoin {
+    Round,
+    Bevel,
+    Miter(u32),
+}
+
+/// A frame's style beyond its colour and width; the default says nothing more.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FrameStyle {
+    pub cap: Option<LineCap>,
+    pub compound: Compound,
+    /// Its dash said outright as solid (`a:prstDash val="solid"`).
+    pub solid: bool,
+    pub join: Option<LineJoin>,
+}
+
+/// A corner, side or the centre of a box: what a shadow or reflection is scaled about
+/// (DrawingML `algn`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BoxAlign {
+    TopLeft,
+    Top,
+    TopRight,
+    Left,
+    Center,
+    Right,
+    BottomLeft,
+    #[default]
+    Bottom,
+    BottomRight,
+}
+
+impl BoxAlign {
+    /// Its DrawingML name.
+    pub fn name(self) -> &'static str {
+        match self {
+            BoxAlign::TopLeft => "tl",
+            BoxAlign::Top => "t",
+            BoxAlign::TopRight => "tr",
+            BoxAlign::Left => "l",
+            BoxAlign::Center => "ctr",
+            BoxAlign::Right => "r",
+            BoxAlign::BottomLeft => "bl",
+            BoxAlign::Bottom => "b",
+            BoxAlign::BottomRight => "br",
+        }
+    }
+
+    /// From its DrawingML name (the bottom edge for anything else).
+    pub fn from_name(n: &str) -> BoxAlign {
+        match n {
+            "tl" => BoxAlign::TopLeft,
+            "t" => BoxAlign::Top,
+            "tr" => BoxAlign::TopRight,
+            "l" => BoxAlign::Left,
+            "ctr" => BoxAlign::Center,
+            "r" => BoxAlign::Right,
+            "bl" => BoxAlign::BottomLeft,
+            "br" => BoxAlign::BottomRight,
+            _ => BoxAlign::Bottom,
+        }
+    }
+
+    /// Where it lies in a box, as fractions of its width and height from the top left.
+    pub fn at(self) -> (f32, f32) {
+        match self {
+            BoxAlign::TopLeft => (0.0, 0.0),
+            BoxAlign::Top => (0.5, 0.0),
+            BoxAlign::TopRight => (1.0, 0.0),
+            BoxAlign::Left => (0.0, 0.5),
+            BoxAlign::Center => (0.5, 0.5),
+            BoxAlign::Right => (1.0, 0.5),
+            BoxAlign::BottomLeft => (0.0, 1.0),
+            BoxAlign::Bottom => (0.5, 1.0),
+            BoxAlign::BottomRight => (1.0, 1.0),
+        }
+    }
+}
+
+/// A shadow (DrawingML `a:outerShdw`, or `a:innerShdw` when [`Shadow::inner`]): the picture's
+/// silhouette, blurred `blur` points, moved `distance` points in `direction` (degrees clockwise
+/// from the right); an inner one darkens the edges inside it that `direction` points to. An
+/// outer one may be scaled (`scale_x`, `scale_y` percent, negative turning it over) and leaned
+/// (`skew_x`, `skew_y` degrees) about `align` first: a perspective shadow.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Shadow {
+    pub inner: bool,
+    pub color: Color,
+    /// 0 (clear) to 1.
+    pub opacity: f32,
+    pub blur: f32,
+    pub distance: f32,
+    pub direction: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub skew_x: f32,
+    pub skew_y: f32,
+    pub align: BoxAlign,
+    /// Whether it turns with the picture (`rotWithShape`).
+    pub turns: bool,
+    /// Its black said by name (`a:prstClr`), as Picture Effects write it; Picture Styles write
+    /// it as RGB.
+    pub named: bool,
+}
+
+impl Default for Shadow {
+    fn default() -> Shadow {
+        Shadow {
+            inner: false,
+            color: Color::Rgb(0),
+            opacity: 1.0,
+            blur: 0.0,
+            distance: 0.0,
+            direction: 0.0,
+            scale_x: 100.0,
+            scale_y: 100.0,
+            skew_x: 0.0,
+            skew_y: 0.0,
+            align: BoxAlign::Bottom,
+            turns: true,
+            named: false,
+        }
+    }
+}
+
+/// `v` when finite, kept between `lo` and `hi`; `d` otherwise.
+fn finite(v: f32, lo: f32, hi: f32, d: f32) -> f32 {
+    if v.is_finite() { v.clamp(lo, hi) } else { d }
+}
+
+/// An angle in degrees as 0 up to (not including) 360.
+fn turn(v: f32) -> f32 {
+    let a = finite(v, -1e6, 1e6, 0.0).rem_euclid(360.0);
+    if a < 360.0 { a } else { 0.0 }
+}
+
+impl Shadow {
+    /// The bottom-right drop shadow ("Offset: Bottom Right").
+    pub fn drop() -> Shadow {
+        Shadow { opacity: 0.4, blur: 4.0, distance: 3.0, direction: 45.0, align: BoxAlign::TopLeft, turns: false, named: true, ..Shadow::default() }
+    }
+
+    /// One of Picture Effects' shadows by name, as the phone app makes it: `offsetBottomRight`…
+    /// `offsetTopLeft` and `offsetCenter` (Outer), `insideTopLeft`… `insideCenter` (Inner),
+    /// `perspectiveUpperLeft`, `perspectiveUpperRight`, `perspectiveBelow`, `perspectiveLowerLeft`,
+    /// `perspectiveLowerRight`.
+    pub fn preset(name: &str) -> Option<Shadow> {
+        // the outer ones: a 3 pt drop at 40%, scaled about the side away from it
+        let outer = |direction: f32, align: BoxAlign| Shadow { direction, align, ..Shadow::drop() };
+        // the inner ones: 8 pt toward the edge they darken, at 50%
+        let inner = |direction: f32| Shadow { inner: true, opacity: 0.5, blur: 5.0, distance: 8.0, direction, named: true, ..Shadow::default() };
+        let perspective = |opacity: f32, blur: f32, distance: f32, direction: f32, scale_x: f32, scale_y: f32, skew_x: f32, align: BoxAlign| Shadow {
+            opacity,
+            blur,
+            distance,
+            direction,
+            scale_x,
+            scale_y,
+            skew_x,
+            align,
+            turns: false,
+            named: true,
+            ..Shadow::default()
+        };
+        Some(match name {
+            "offsetBottomRight" => outer(45.0, BoxAlign::TopLeft),
+            "offsetBottom" => outer(90.0, BoxAlign::Top),
+            "offsetBottomLeft" => outer(135.0, BoxAlign::TopRight),
+            "offsetRight" => outer(0.0, BoxAlign::Left),
+            "offsetCenter" => {
+                Shadow { blur: 5.0, distance: 0.0, direction: 0.0, scale_x: 102.0, scale_y: 102.0, align: BoxAlign::Center, ..Shadow::drop() }
+            }
+            "offsetLeft" => outer(180.0, BoxAlign::Right),
+            "offsetTopRight" => outer(315.0, BoxAlign::BottomLeft),
+            "offsetTop" => outer(270.0, BoxAlign::Bottom),
+            "offsetTopLeft" => outer(225.0, BoxAlign::BottomRight),
+            "insideTopLeft" => inner(225.0),
+            "insideTop" => inner(270.0),
+            "insideTopRight" => inner(315.0),
+            "insideLeft" => inner(180.0),
+            // all round the inside, solid black blurred 9 pt
+            "insideCenter" => Shadow { opacity: 1.0, distance: 0.0, blur: 9.0, ..inner(0.0) },
+            "insideRight" => inner(0.0),
+            "insideBottomLeft" => inner(135.0),
+            "insideBottom" => inner(90.0),
+            "insideBottomRight" => inner(45.0),
+            // flattened behind it, leaning back left or right; under it; turned down in front of
+            // it, leaning
+            "perspectiveUpperLeft" => perspective(0.2, 6.0, 0.0, 225.0, 100.0, 23.0, 20.0, BoxAlign::BottomRight),
+            "perspectiveUpperRight" => perspective(0.2, 6.0, 0.0, 315.0, 100.0, 23.0, -20.0, BoxAlign::BottomLeft),
+            "perspectiveBelow" => perspective(0.15, 12.0, 25.0, 90.0, 90.0, -19.0, 0.0, BoxAlign::Bottom),
+            "perspectiveLowerLeft" => perspective(0.2, 6.0, 1.0, 135.0, 100.0, -23.0, 13.34, BoxAlign::BottomRight),
+            "perspectiveLowerRight" => perspective(0.2, 6.0, 1.0, 45.0, 100.0, -23.0, -13.34, BoxAlign::BottomLeft),
+            _ => return None,
+        })
+    }
+
+    /// Finite and in range.
+    pub fn sane(self) -> Shadow {
+        Shadow {
+            opacity: finite(self.opacity, 0.0, 1.0, 1.0),
+            blur: finite(self.blur, 0.0, 200.0, 0.0),
+            distance: finite(self.distance, 0.0, 400.0, 0.0),
+            direction: turn(self.direction),
+            scale_x: finite(self.scale_x, -1000.0, 1000.0, 100.0),
+            scale_y: finite(self.scale_y, -1000.0, 1000.0, 100.0),
+            skew_x: finite(self.skew_x, -89.0, 89.0, 0.0),
+            skew_y: finite(self.skew_y, -89.0, 89.0, 0.0),
+            ..self
+        }
+    }
+
+    /// How far it moves, in points (right, down).
+    pub fn offset(&self) -> (f32, f32) {
+        let s = self.sane();
+        let a = s.direction.to_radians();
+        (s.distance * a.cos(), s.distance * a.sin())
+    }
+
+    /// Where point (`x`, `y`) of the box (`bx`, `by`, `bw`, `bh`) lands in the shadow, before
+    /// its offset: scaled and leaned about its align point.
+    pub fn project(&self, x: f32, y: f32, bx: f32, by: f32, bw: f32, bh: f32) -> (f32, f32) {
+        let s = self.sane();
+        let (fx, fy) = s.align.at();
+        let (ax, ay) = (bx + bw * fx, by + bh * fy);
+        let (dx, dy) = ((x - ax) * s.scale_x / 100.0, (y - ay) * s.scale_y / 100.0);
+        let (tx, ty) = (s.skew_x.to_radians().tan(), s.skew_y.to_radians().tan());
+        (ax + dx + dy * tx, ay + dy + dx * ty)
+    }
+}
+
+/// A reflection (DrawingML `a:reflection`): the picture turned over below itself `distance`
+/// points away, fading from `start` to `end` opacity over `end_pos` of its height, blurred
+/// `blur` points.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Reflection {
+    pub blur: f32,
+    pub start: f32,
+    pub end: f32,
+    /// How far down it fades out, 0 to 1 of the picture's height.
+    pub end_pos: f32,
+    pub distance: f32,
+    pub direction: f32,
+    pub scale_y: f32,
+    pub align: BoxAlign,
+    pub turns: bool,
+}
+
+impl Default for Reflection {
+    fn default() -> Reflection {
+        Reflection {
+            blur: 0.0,
+            start: 1.0,
+            end: 0.0,
+            end_pos: 1.0,
+            distance: 0.0,
+            direction: 0.0,
+            scale_y: 100.0,
+            align: BoxAlign::Bottom,
+            turns: true,
+        }
+    }
+}
+
+impl Reflection {
+    /// One of Picture Effects' reflections by name, as the phone app makes it: `tight`, `half`
+    /// or `full` (how far down it fades) and `Touching`, `4pt` or `8pt` (how far below it lies).
+    pub fn preset(name: &str) -> Option<Reflection> {
+        // (start and end opacity, how far down it fades, how far below it lies)
+        let (start, end, end_pos, distance) = match name {
+            "tightTouching" => (0.52, 0.003, 0.35, 0.0),
+            "halfTouching" => (0.5, 0.003, 0.55, 0.0),
+            "fullTouching" => (0.5, 0.003, 0.9, 0.0),
+            "tight4pt" => (0.5, 0.003, 0.385, 4.0),
+            "half4pt" => (0.5, 0.003, 0.555, 4.0),
+            "full4pt" => (0.5, 0.003, 0.9, 4.0),
+            "tight8pt" => (0.5, 0.00275, 0.4, 8.0),
+            "half8pt" => (0.5, 0.003, 0.555, 8.0),
+            "full8pt" => (0.5, 0.00295, 0.92, 8.0),
+            _ => return None,
+        };
+        Some(Reflection { blur: 0.5, start, end, end_pos, distance, direction: 90.0, scale_y: -100.0, align: BoxAlign::BottomLeft, turns: false })
+    }
+
+    /// Finite and in range.
+    pub fn sane(self) -> Reflection {
+        Reflection {
+            blur: finite(self.blur, 0.0, 200.0, 0.0),
+            start: finite(self.start, 0.0, 1.0, 1.0),
+            end: finite(self.end, 0.0, 1.0, 0.0),
+            end_pos: finite(self.end_pos, 0.0, 1.0, 1.0),
+            distance: finite(self.distance, 0.0, 400.0, 0.0),
+            direction: turn(self.direction),
+            scale_y: finite(self.scale_y, -1000.0, 1000.0, 100.0),
+            ..self
+        }
     }
 }
 

@@ -580,6 +580,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         command("picture.style", params.put("id", o.id.toLong()).toString())
     }
 
+    /**
+     * Picture Effects' Shadow or Reflection gallery: [preset] (or `none`) on the selected
+     * picture; the gallery closes on a pick, back to Picture Effects, as the phone app's.
+     */
+    fun pictureEffect(reflection: Boolean, preset: String) {
+        if (panels.lastOrNull() in setOf("pictureShadow", "pictureReflection")) popPanel()
+        stylePicture(org.json.JSONObject().put(if (reflection) "reflection" else "shadow", preset))
+    }
+
+    /** Picture Styles' gallery: a style on the selected picture; the gallery closes on a pick. */
+    fun pictureStyle(id: String) {
+        if (panels.lastOrNull() == "pictureStyles") popPanel()
+        stylePicture(org.json.JSONObject().put("style", id))
+    }
+
+    /** Picture Styles' gallery, and a style drawn on a sample picture for its tile. */
+    suspend fun pictureStyles() = engine?.view { pictureStyles() }.orEmpty()
+    suspend fun pictureStyleTile(id: String) = engine?.view { pictureStyleTile(id, 160.0, 120.0) }
+
+    /** A shadow or reflection preset's settings, for its gallery tile. */
+    suspend fun shadowPreset(name: String) = engine?.view { shadowPreset(name) }
+    suspend fun reflectionPreset(name: String) = engine?.view { reflectionPreset(name) }
+
     /** Crop: fractions cut from the selected picture's sides. */
     fun cropPicture(left: Double, top: Double, right: Double, bottom: Double) {
         val o = selectedObject ?: return
