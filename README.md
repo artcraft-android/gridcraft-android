@@ -60,6 +60,9 @@
   line, pie (and pie of pie, bar of pie, doughnut), bar, area, scatter and bubble, each with its
   3-D forms; treemap, sunburst, histogram and Pareto, box and whisker, waterfall, funnel;
   surface and contour, radar.
+- The Chart tab as the phone app's: each family's own Layout and Style galleries drawn in your
+  chart's type, Elements (axes, titles, labels, data table, error bars, gridlines, legend, lines,
+  trendlines) and 17 colour palettes; a selected chart marks its data on the sheet.
 - The full shapes gallery (lines and connectors, rectangles, basic shapes, block arrows,
   equation shapes, flowchart, stars and banners, callouts), with Change Shape, Shape Styles,
   fill, outline and size.
@@ -73,7 +76,6 @@
 ## Planned features
 
 - Sheet View and the online features (sharing, co-authoring, data from picture, maps).
-- More of the chart tools on the Chart tab.
 
 ## Building Instructions
 *One Gradle command builds the whole app: it compiles the Rust engine with [cargo-ndk](https://github.com/bbqsrc/cargo-ndk), generates the Kotlin bindings and fetches the open fonts (Carlito, Caladea, Liberation) from pinned sources.*

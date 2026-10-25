@@ -1139,6 +1139,7 @@ fn all_elements() -> gridcraft_model::ChartElements {
         last_point_labels: false,
         label_text: gridcraft_model::LabelText::of(true, true, true, true),
         style: 213,
+        hole_size: Some(30),
     }
 }
 
@@ -1457,4 +1458,35 @@ fn pie_labels_say_the_category_and_its_share_on_two_lines() {
     c.elements.label_text = gridcraft_model::LabelText::of(true, true, false, false);
     let t = render(&c, &sample(ChartKind::Pie), 640.0, 400.0, &ApproxMeasure);
     assert!(texts(&t).contains(&"Q4, $31,000"), "{:?}", texts(&t));
+}
+
+#[test]
+fn a_short_value_axis_takes_fewer_wider_steps() {
+    use crate::axis::nice_scale_within;
+    let s = nice_scale_within(0.0, 5.0, true, 2.0);
+    assert_eq!((s.step, s.max), (5.0, 10.0));
+    let s = nice_scale_within(0.0, 5.0, true, 3.0);
+    assert_eq!((s.step, s.max), (2.0, 6.0));
+    let s = nice_scale_within(0.0, 4.4, true, 5.0);
+    assert_eq!((s.step, s.max), (1.0, 5.0));
+    // as the reference scales charts of these sizes (in its units: pixels)
+    let small = |w: f32, h: f32| {
+        let mut c = chart(ChartKind::ColumnClustered);
+        c.data_labels = false;
+        c.x_title = None;
+        c.y_title = None;
+        let d = ChartData {
+            palette: vec![],
+            style: 0,
+            theme: vec![],
+            categories: vec!["C1".into(), "C2".into()],
+            series: vec![
+                series("S1", &[4.0, 3.0], [20, 96, 130, 255], ChartKind::ColumnClustered),
+                series("S2", &[2.0, 5.0], [200, 80, 40, 255], ChartKind::ColumnClustered),
+            ],
+        };
+        texts(&render(&c, &d, w, h, &ApproxMeasure)).iter().map(|t| t.to_string()).collect::<Vec<_>>()
+    };
+    let t = small(300.0, 170.0);
+    assert!(t.contains(&"$6".to_string()) && t.contains(&"$2".to_string()) && !t.contains(&"$1".to_string()), "{t:?}");
 }

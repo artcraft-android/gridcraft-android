@@ -470,32 +470,45 @@ fn trendline_param(p: &Json) -> Result<Trendline> {
     Ok(t)
 }
 
-/// How many layouts the Layout gallery offers a chart of this kind: the reference's sets for line
-/// charts (12), pie charts (7) and column and other charts with axes (11).
-pub fn quick_layouts(kind: ChartKind) -> u32 {
-    if pie_like(kind) {
-        7
-    } else if line_like(kind) {
-        12
-    } else {
-        11
+/// The chart families the Layout gallery has a set of layouts for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Family {
+    Column,
+    Bar,
+    Area,
+    Scatter,
+    Line,
+    Pie,
+}
+
+fn family(kind: ChartKind) -> Family {
+    match kind {
+        ChartKind::BarClustered | ChartKind::BarStacked | ChartKind::BarStacked100 => Family::Bar,
+        ChartKind::Area | ChartKind::AreaStacked | ChartKind::AreaStacked100 => Family::Area,
+        ChartKind::Scatter | ChartKind::ScatterLines | ChartKind::ScatterLinesNoMarkers => Family::Scatter,
+        ChartKind::Line
+        | ChartKind::LineMarkers
+        | ChartKind::LineStacked
+        | ChartKind::LineStackedMarkers
+        | ChartKind::LineStacked100
+        | ChartKind::LineStacked100Markers => Family::Line,
+        ChartKind::Pie | ChartKind::PieOfPie | ChartKind::BarOfPie | ChartKind::Doughnut => Family::Pie,
+        _ => Family::Column,
     }
 }
 
-fn line_like(kind: ChartKind) -> bool {
-    matches!(
-        kind,
-        ChartKind::Line
-            | ChartKind::LineMarkers
-            | ChartKind::LineStacked
-            | ChartKind::LineStackedMarkers
-            | ChartKind::LineStacked100
-            | ChartKind::LineStacked100Markers
-    )
-}
-
-fn pie_like(kind: ChartKind) -> bool {
-    matches!(kind, ChartKind::Pie | ChartKind::PieOfPie | ChartKind::BarOfPie | ChartKind::Doughnut)
+/// How many layouts the Layout gallery offers a chart of this kind: the reference's sets for
+/// column and other charts with axes (11), bar charts (10), area charts (8), scatter charts (11),
+/// line charts (12) and pie charts (7).
+pub fn quick_layouts(kind: ChartKind) -> u32 {
+    match family(kind) {
+        Family::Column => 11,
+        Family::Bar => 10,
+        Family::Area => 8,
+        Family::Scatter => 11,
+        Family::Line => 12,
+        Family::Pie => 7,
+    }
 }
 
 fn quick_layout(s: &mut Session, p: &Json) -> Result<Json> {
@@ -505,12 +518,20 @@ fn quick_layout(s: &mut Session, p: &Json) -> Result<Json> {
         if !(1..=count).contains(&n) {
             return Err(bad("chart.quickLayout", format!("this chart's layouts are numbered 1 to {count}")));
         }
-        if pie_like(c.kind) {
-            pie_layout(c, n);
-        } else if line_like(c.kind) {
-            line_layout(c, n);
-        } else {
-            column_layout(c, n);
+        match family(c.kind) {
+            Family::Pie => pie_layout(c, n),
+            Family::Line => line_layout(c, n),
+            // a bar chart's are the column ones without the gapless one, its data table without
+            // a value axis title
+            Family::Bar => {
+                column_layout(c, if n >= 8 { n + 1 } else { n });
+                if n == 5 {
+                    c.y_title = None;
+                }
+            }
+            Family::Area => area_layout(c, n),
+            Family::Scatter => scatter_layout(c, n),
+            Family::Column => column_layout(c, n),
         }
         Ok(())
     })
@@ -558,6 +579,79 @@ fn column_layout(c: &mut Chart, n: u32) {
     e.label_text = if n == 6 { LabelText::of(true, false, true, false) } else { LabelText::default() };
     e.gap_width = (gap != 150).then_some(gap);
     e.overlap = (overlap != 0).then_some(overlap);
+}
+
+/// The reference's eight area layouts.
+fn area_layout(c: &mut Chart, n: u32) {
+    // (title, legend, value labels, value gridlines, axis titles (category, value))
+    let (title, legend, labels, grid, titles) = match n {
+        2 => (true, LegendPos::Top, false, true, (false, false)),
+        3 => (true, LegendPos::Bottom, false, true, (false, false)),
+        4 => (false, LegendPos::Bottom, true, false, (false, false)),
+        5 => (true, LegendPos::None, false, true, (false, false)),
+        6 => (true, LegendPos::Right, false, true, (true, true)),
+        7 => (true, LegendPos::Right, false, true, (false, false)),
+        8 => (false, LegendPos::Right, false, true, (false, false)),
+        _ => (true, LegendPos::Right, false, true, (false, true)),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels;
+    c.gridlines = grid;
+    let keep = |t: &Option<String>, on: bool| on.then(|| t.clone().unwrap_or_else(|| "Axis Title".into()));
+    c.x_title = keep(&c.x_title, titles.0);
+    c.y_title = keep(&c.y_title, titles.1);
+    let e = &mut c.elements;
+    e.label_pos = LabelPos::Auto;
+    (e.hide_cat_axis, e.hide_val_axis) = (false, false);
+    e.cat_gridlines = false;
+    e.minor_cat_gridlines = false;
+    e.minor_val_gridlines = n == 6;
+    e.data_table = n == 5;
+    e.data_table_no_keys = false;
+    e.drop_lines = n == 7;
+    e.last_point_labels = false;
+    e.label_text = LabelText::default();
+}
+
+/// The reference's eleven scatter layouts. The X axis is the chart's category axis here.
+fn scatter_layout(c: &mut Chart, n: u32) {
+    // (title, legend, labels (X and Y) where, X gridlines (major, minor), Y gridlines (major,
+    // minor), axis titles (X, Y), Y axis hidden)
+    let (title, legend, labels, x_grid, y_grid, titles, y_hidden) = match n {
+        2 => (true, LegendPos::Top, Some(LabelPos::Auto), (false, false), (false, false), (false, false), true),
+        3 => (false, LegendPos::Right, None, (true, true), (true, true), (true, true), false),
+        4 => (false, LegendPos::Bottom, None, (false, false), (false, false), (false, false), false),
+        5 | 6 => (true, LegendPos::Right, Some(LabelPos::Right), (false, false), (true, false), (true, true), false),
+        7 => (true, LegendPos::Right, Some(LabelPos::Right), (true, false), (true, false), (false, false), false),
+        8 => (true, LegendPos::Bottom, None, (true, false), (true, false), (false, false), false),
+        9 => (true, LegendPos::Right, None, (false, false), (true, true), (true, true), false),
+        10 => (false, LegendPos::Right, None, (true, true), (true, true), (true, true), false),
+        11 => (false, LegendPos::Right, None, (false, false), (true, false), (false, false), false),
+        _ => (true, LegendPos::Right, None, (false, false), (true, false), (true, true), false),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels.is_some();
+    c.gridlines = y_grid.0;
+    let keep = |t: &Option<String>, on: bool| on.then(|| t.clone().unwrap_or_else(|| "Axis Title".into()));
+    c.x_title = keep(&c.x_title, titles.0);
+    c.y_title = keep(&c.y_title, titles.1);
+    // a trendline on each series in two of them, one with its equation and R squared
+    for se in &mut c.series {
+        se.trendlines.clear();
+        if n == 3 || n == 9 {
+            se.trendlines.push(Trendline { display_equation: n == 9, display_r_squared: n == 9, ..Trendline::default() });
+        }
+    }
+    let e = &mut c.elements;
+    e.label_pos = labels.unwrap_or_default();
+    e.label_text = if labels.is_some() { LabelText::of(true, true, false, false) } else { LabelText::default() };
+    e.last_point_labels = n == 6;
+    (e.hide_cat_axis, e.hide_val_axis) = (false, y_hidden);
+    (e.cat_gridlines, e.minor_cat_gridlines) = x_grid;
+    e.minor_val_gridlines = y_grid.1;
+    e.data_table = false;
 }
 
 /// The reference's twelve line layouts.
@@ -644,6 +738,12 @@ fn chart_style(s: &mut Session, p: &Json) -> Result<Json> {
             c.data_labels = true;
             c.elements.label_pos = at;
             c.elements.last_point_labels = false;
+        }
+        if st.hole > 0 {
+            c.elements.hole_size = Some(st.hole);
+        }
+        if st.title_on && c.title.as_deref() == Some("") {
+            c.title = Some("Chart Title".into());
         }
         if let Some(say) = st.labels_say {
             c.elements.label_text = say;

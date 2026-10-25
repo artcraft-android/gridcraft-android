@@ -1032,14 +1032,20 @@ impl MobileSession {
         };
         let title = if title.is_empty() { "Chart Title".to_string() } else { title };
         let made = s.run("range.setValues", json!({ "range": "A1", "values": values })).is_ok()
-            && s.run("insert.chart", json!({ "range": range, "type": kind, "title": title })).is_ok()
-            && s.run(command, params).is_ok();
-        let Some(d) = s.active().filter(|_| made) else { return vec![] };
+            && s.run("insert.chart", json!({ "range": range, "type": kind, "title": title })).is_ok();
+        // the sample takes the chart's own type, colours and style before the layout or style goes on
+        let Some(d) = s.active_mut().filter(|_| made) else { return vec![] };
         let psi = d.wb.active_sheet;
-        let Some(mut chart) = d.wb.sheet(psi).and_then(|sh| sh.charts.first()).cloned() else { return vec![] };
-        chart.kind = own.kind;
-        chart.depth = own.depth;
-        chart.elements.palette = own.elements.palette;
+        let Some(sample) = Arc::make_mut(&mut d.wb).sheet_mut(psi).and_then(|sh| sh.charts.first_mut()) else { return vec![] };
+        sample.kind = own.kind;
+        sample.depth = own.depth;
+        sample.elements.palette = own.elements.palette;
+        sample.elements.style = own.elements.style;
+        if s.run(command, params).is_err() {
+            return vec![];
+        }
+        let Some(d) = s.active() else { return vec![] };
+        let Some(chart) = d.wb.sheet(psi).and_then(|sh| sh.charts.first()).cloned() else { return vec![] };
         let size = |v: f32| if v.is_finite() { v.clamp(1.0, 4096.0) } else { 1.0 };
         let data = gridcraft_chart::resolve(&d.wb, psi, &chart);
         gridcraft_chart::render(&chart, &data, size(width), size(height), &gridcraft_chart::ApproxMeasure)

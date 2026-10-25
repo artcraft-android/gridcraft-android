@@ -490,10 +490,11 @@ fn the_layout_gallery_previews_each_layout_and_the_info_follows() {
     m.execute("selection.set".into(), json!({ "range": "A1:A4" }).to_string()).unwrap();
     m.execute("insert.chart".into(), json!({ "type": "bar" }).to_string()).unwrap();
     let id = m.objects().iter().find(|o| o.kind == "chart").expect("a chart").id;
-    let previews: Vec<_> = (1..=11).map(|n| m.chart_layout_preview(id, n, 380.0, 234.6)).collect();
+    // a bar chart's ten
+    let previews: Vec<_> = (1..=10).map(|n| m.chart_layout_preview(id, n, 380.0, 234.6)).collect();
     assert!(previews.iter().all(|p| !p.is_empty()));
     assert_ne!(previews[0], previews[1], "layouts 1 and 2 differ");
-    assert!(m.chart_layout_preview(id, 12, 380.0, 234.6).is_empty());
+    assert!(m.chart_layout_preview(id, 11, 380.0, 234.6).is_empty());
     assert!(m.chart_layout_preview(id + 1000, 1, 380.0, 234.6).is_empty());
     m.execute("chart.quickLayout".into(), json!({ "chart": id, "layout": 2 }).to_string()).unwrap();
     let info = m.chart_info(id).expect("its info");
@@ -501,7 +502,7 @@ fn the_layout_gallery_previews_each_layout_and_the_info_follows() {
     m.execute("chart.quickLayout".into(), json!({ "chart": id, "layout": 7 }).to_string()).unwrap();
     let info = m.chart_info(id).expect("its info");
     assert!(info.val_axis && info.minor_val_gridlines && info.cat_axis_title && info.val_axis_title && info.data_table_keys);
-    assert_eq!(info.layouts, 11);
+    assert_eq!(info.layouts, 10);
     // a pie has seven, previewed over its own sample
     m.execute("chart.changeType".into(), json!({ "chart": id, "type": "pie" }).to_string()).unwrap();
     assert_eq!(m.chart_info(id).expect("its info").layouts, 7);

@@ -331,6 +331,13 @@ pub fn read_chart(root: &El) -> Option<Chart> {
         // the colour and style parts beside the chart part say which (see the drawing reader)
         palette: 0,
         style: 0,
+        hole_size: groups
+            .iter()
+            .find(|(g, _)| g.name == "doughnutChart")
+            .and_then(|(g, _)| g.child_val("holeSize"))
+            .and_then(|v| v.parse::<u8>().ok())
+            .filter(|v| *v != 50)
+            .map(|v| v.clamp(10, 90)),
         hide_cat_axis: x_ax.is_some_and(|a| bool_val(a, "delete")),
         hide_val_axis: y_ax.is_some_and(|a| bool_val(a, "delete")),
         cat_gridlines: x_ax.is_some_and(|a| a.child("majorGridlines").is_some()),
@@ -352,7 +359,11 @@ pub fn read_chart(root: &El) -> Option<Chart> {
         id: 0,
         kind,
         anchor: Default::default(),
-        title: chart.child("title").and_then(rich_title),
+        // a title without text of its own shows the one series' name, else "Chart Title"
+        title: chart
+            .child("title")
+            .and_then(rich_title)
+            .or_else(|| (chart.child("title").is_some() && series.len() > 1).then(|| "Chart Title".to_string())),
         series,
         legend,
         data_labels,
@@ -674,7 +685,7 @@ fn series_xml(
     }
     let color = s.color.as_ref().and_then(|c: &Color| srgb(c, &wb.theme)).or(auto);
     let line_like = matches!(g, G::Line { .. } | G::Radar { filled: false, .. } | G::Scatter { lines: true, .. });
-    let styled = look.filter(|_| matches!(g, G::Bar { .. } | G::Bar3D { .. }));
+    let styled = look.filter(|_| matches!(g, G::Bar { .. } | G::Bar3D { .. } | G::Area { .. }));
     match (&color, line_like) {
         (Some(c), false) if styled.is_some() => {
             if let Some(st) = styled {
@@ -688,6 +699,11 @@ fn series_xml(
                 let _ = write!(x, "<c:spPr><a:ln w=\"28575\" cap=\"rnd\"><a:solidFill>{c}</a:solidFill><a:round/></a:ln></c:spPr>");
             }
         },
+        (Some(c), false) if matches!(g, G::Scatter { lines: false, .. }) && look.is_some_and(|st| st.marker.is_some()) => {
+            if let Some(mk) = look.and_then(|st| st.marker) {
+                let _ = write!(x, "<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr>{}", crate::chart_look::marker(&mk, c));
+            }
+        }
         (Some(c), false) if matches!(g, G::Scatter { lines: false, .. }) => {
             let _ = write!(
                 x,
@@ -941,7 +957,10 @@ fn group_xml(g: G, series: &[(usize, &Series)], ch: &Chart, axes: (u32, u32), wb
             if bar { "bar" } else { "pie" }
         ),
         G::Doughnut => {
-            format!("<c:doughnutChart><c:varyColors val=\"1\"/>{sers}{dl}<c:firstSliceAng val=\"0\"/><c:holeSize val=\"50\"/></c:doughnutChart>")
+            format!(
+                "<c:doughnutChart><c:varyColors val=\"1\"/>{sers}{dl}<c:firstSliceAng val=\"0\"/><c:holeSize val=\"{}\"/></c:doughnutChart>",
+                el.hole_size.unwrap_or(50).clamp(10, 90)
+            )
         }
         G::Area { grouping } => format!("<c:areaChart><c:grouping val=\"{grouping}\"/><c:varyColors val=\"0\"/>{sers}{dl}{drop}{ax}</c:areaChart>"),
         G::Scatter { .. } => format!("<c:scatterChart><c:scatterStyle val=\"lineMarker\"/><c:varyColors val=\"0\"/>{sers}{dl}{ax}</c:scatterChart>"),

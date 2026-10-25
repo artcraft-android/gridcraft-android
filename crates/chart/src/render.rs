@@ -6,7 +6,7 @@ use std::f32::consts::{PI, TAU};
 use gridcraft_model::chart_style::{self, ChartStyle, Effect, Paint, Pattern, Shade};
 use gridcraft_model::{Chart, ChartKind, Depth, ErrorAmount, LabelPos, LabelText, LegendPos, LineDash, Theme, TrendlineKind};
 
-use crate::axis::{Fmt, Scale, clean, fixed_scale, nice_scale};
+use crate::axis::{Fmt, Scale, clean, fixed_scale, nice_scale, nice_scale_within};
 use crate::resolve::{MAX_POINTS, MAX_SERIES, MAX_TRENDLINES, series_color};
 use crate::trend::{auto_name, fit_trendline, moving_average};
 use crate::{ChartData, HAlign, Measure, Prim, Rgba, SeriesData, VAlign};
@@ -40,6 +40,9 @@ const MAX_TABLE_CATS: usize = 60;
 /// Most categories that get lines of their own across the plot.
 const MAX_GRID_CATS: usize = 2000;
 const MAX_TABLE_SERIES: usize = 20;
+/// The least room between an upright value axis's gridlines, fitted to the steps the reference
+/// picks on charts of three sizes (a short axis takes fewer, wider steps).
+const MIN_GRID_GAP: f32 = 30.0;
 
 #[derive(Clone, Copy, Debug)]
 struct Bx {
@@ -184,6 +187,15 @@ impl Ctx<'_> {
                     }
                 }
             }
+            Paint::Leftward(stops) => {
+                let stops: Vec<(f32, Rgba)> = stops.iter().map(|(at, c)| (*at as f32 / 100_000.0, self.shade(c, series))).collect();
+                let n = ((b.w / 2.0) as usize).clamp(1, 48);
+                for k in 0..n {
+                    let (t0, t1) = (k as f32 / n as f32, (k + 1) as f32 / n as f32);
+                    // from the right edge leftwards
+                    self.rect(b.right() - b.w * t1, b.y, b.w * (t1 - t0) + 0.5, b.h, gradient_at(&stops, (t0 + t1) / 2.0), None);
+                }
+            }
             Paint::Pattern { preset, fg, bg } => {
                 let (fg, bg) = (self.shade(fg, series), self.shade(bg, series));
                 self.rect(b.x, b.y, b.w, b.h, bg, None);
@@ -193,6 +205,13 @@ impl Ctx<'_> {
                         while y < b.bottom() && y < b.y + 4000.0 {
                             self.hline(b.x, b.right(), y, fg, 0.8);
                             y += 2.0;
+                        }
+                    }
+                    Pattern::NarrowVertical => {
+                        let mut x = b.x + 1.0;
+                        while x < b.right() && x < b.x + 4000.0 {
+                            self.vline(x, b.y, b.bottom(), fg, 0.8);
+                            x += 2.0;
                         }
                     }
                     Pattern::LightUpwardDiagonal => {
@@ -224,6 +243,28 @@ impl Ctx<'_> {
             }
         }
     }
+    /// A style's markers on `pts` for a series coloured `color`, glowing in a glowing style;
+    /// false when the style has none (or there is no style).
+    fn styled_markers(&mut self, pts: impl Iterator<Item = [f32; 2]>, color: Rgba) -> bool {
+        let Some(st) = self.style else { return false };
+        let Some(mk) = st.marker else { return false };
+        let fill = self.shade(&mk.fill, color);
+        let edge = mk.edge.map(|l| (self.shade(&l.color, color), l.width));
+        let glow = (st.effect == Effect::Glow).then(|| self.shade(&chart_style::GLOW, color));
+        let r = f32::from(mk.size) * 0.5;
+        for p in pts.take(MAX_MARKERS) {
+            if let Some(g) = glow {
+                self.out.push(Prim::Circle { cx: p[0], cy: p[1], r: r + 2.5, fill: Some(g), stroke: None });
+            }
+            if mk.diamond {
+                let pts = vec![[p[0], p[1] - r], [p[0] + r, p[1]], [p[0], p[1] + r], [p[0] - r, p[1]]];
+                self.out.push(Prim::Polygon { pts, fill, stroke: edge });
+            } else {
+                self.out.push(Prim::Circle { cx: p[0], cy: p[1], r, fill: Some(fill), stroke: edge });
+            }
+        }
+        true
+    }
     /// A pie slice coloured `color`: its fill and edge, plain or in the chart's style.
     fn slice(&self, color: Rgba) -> (Rgba, Option<(Rgba, f32)>) {
         let Some(st) = self.style else { return (color, Some((WHITE, 1.5))) };
@@ -232,6 +273,10 @@ impl Ctx<'_> {
             Paint::Solid(c) => self.shade(c, color),
             // a wedge takes a pattern's or gradient's colours mixed
             Paint::Gradient { stops, .. } => {
+                let stops: Vec<(f32, Rgba)> = stops.iter().map(|(at, c)| (*at as f32 / 100_000.0, self.shade(c, color))).collect();
+                gradient_at(&stops, 0.35)
+            }
+            Paint::Leftward(stops) => {
                 let stops: Vec<(f32, Rgba)> = stops.iter().map(|(at, c)| (*at as f32 / 100_000.0, self.shade(c, color))).collect();
                 gradient_at(&stops, 0.35)
             }
@@ -548,7 +593,7 @@ fn draw_kind(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
         Pie => pie(ctx, chart, data, area, 0.0, false),
         PieOfPie => of_pie(ctx, chart, data, area, false),
         BarOfPie => of_pie(ctx, chart, data, area, true),
-        Doughnut => pie(ctx, chart, data, area, 0.5, false),
+        Doughnut => pie(ctx, chart, data, area, f32::from(chart.elements.hole_size.unwrap_or(50).clamp(10, 90)) / 100.0, false),
         Sunburst => pie(ctx, chart, data, area, 0.2, true),
         Treemap => treemap(ctx, chart, data, area),
         Funnel => funnel(ctx, chart, data, area),
@@ -1342,7 +1387,13 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
         spans.push(row);
     }
 
-    // Axis scales.
+    // Axis scales: an upright value axis takes as many steps as it has room for.
+    let room = if horizontal {
+        8.0
+    } else {
+        let table = if chart.elements.data_table { LABEL_SIZE * 1.6 * (data.series.len() + 1) as f32 } else { 0.0 };
+        f64::from((area.h - LABEL_SIZE * 1.4 * 1.5 - 4.0 - table) / MIN_GRID_GAP)
+    };
     let mut axes: Vec<(Scale, Fmt)> = Vec::new();
     for axis in [false, true] {
         let members: Vec<usize> = (0..data.series.len()).filter(|i| sec.get(*i).copied().unwrap_or(false) == axis).collect();
@@ -1360,7 +1411,7 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
             (fixed_scale(if lo < -1e-9 { -1.0 } else { 0.0 }, if hi > 1e-9 || lo >= -1e-9 { 1.0 } else { 0.0 }, 0.2), Fmt::new("0%"))
         } else {
             let code = members.first().and_then(|i| data.series.get(*i)).map(|s| s.number_format.as_str()).unwrap_or("General");
-            (nice_scale(lo, hi, force_zero), Fmt::new(code))
+            (nice_scale_within(lo, hi, force_zero, room.floor()), Fmt::new(code))
         };
         axes.push((scale, fmt));
         if !axis && sec.iter().all(|s| !s) {
@@ -1522,7 +1573,9 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
                     let mut poly = top;
                     poly.extend(base.into_iter().rev());
                     if poly.len() >= 3 {
-                        ctx.out.push(Prim::Polygon { pts: poly, fill: s.color, stroke: None });
+                        // a style fills an area as it fills a pie slice
+                        let (fill, stroke) = if ctx.style.is_some() { ctx.slice(s.color) } else { (s.color, None) };
+                        ctx.out.push(Prim::Polygon { pts: poly, fill, stroke });
                     }
                 }
                 1 => {
@@ -1572,19 +1625,10 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
                         draw_runs(ctx, &pts, WHITE, width / 3.0, s.smooth.then_some(plot));
                     }
                     let k = kinds.get(i).copied().unwrap_or(ChartKind::Line);
-                    if let Some(mk) = ctx.style.and_then(|st| st.marker).filter(|_| cw >= 3.0) {
-                        let fill = ctx.shade(&mk.fill, s.color);
-                        let edge = mk.edge.then_some((s.color, 0.75));
-                        let r = f32::from(mk.size) * 0.5;
-                        for p in pts.iter().flatten().take(MAX_MARKERS) {
-                            if mk.diamond {
-                                let pts = vec![[p[0], p[1] - r], [p[0] + r, p[1]], [p[0], p[1] + r], [p[0] - r, p[1]]];
-                                ctx.out.push(Prim::Polygon { pts, fill, stroke: edge });
-                            } else {
-                                ctx.out.push(Prim::Circle { cx: p[0], cy: p[1], r, fill: Some(fill), stroke: edge });
-                            }
-                        }
-                    } else if matches!(k, ChartKind::LineMarkers | ChartKind::LineStackedMarkers | ChartKind::LineStacked100Markers) && cw >= 3.0 {
+                    // a style's markers, or the plain ones on a line-with-markers chart
+                    let styled = cw >= 3.0 && ctx.styled_markers(pts.iter().flatten().copied(), s.color);
+                    if !styled && matches!(k, ChartKind::LineMarkers | ChartKind::LineStackedMarkers | ChartKind::LineStacked100Markers) && cw >= 3.0
+                    {
                         draw_markers(ctx, pts.iter().flatten().copied(), 3.5, s.color);
                     }
                     if labels_on {
@@ -2002,7 +2046,7 @@ fn scatter(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
     }
     let Some((ylo, yhi)) = value_range(all.iter().flatten().flatten().map(|p| p.1)) else { return };
     let xs = nice_scale(xlo, xhi, false);
-    let ys = nice_scale(ylo, yhi, false);
+    let ys = nice_scale_within(ylo, yhi, false, f64::from((area.h - LABEL_SIZE * 1.4 * 1.5 - 4.0) / MIN_GRID_GAP).floor());
     let fx = Fmt::new("General");
     let fy = Fmt::new(data.series.first().map(|s| s.number_format.as_str()).unwrap_or("General"));
     let plot = frame(ctx, area, CatAxis::Numeric(xs, &fx), &ValAxis { scale: ys, fmt: &fy }, None, false, Grid::of(chart));
@@ -2057,7 +2101,7 @@ fn scatter(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
                 draw_runs(ctx, &px, s.color, 2.0, s.smooth.then_some(plot));
             }
             let markers = s.kind != ChartKind::ScatterLinesNoMarkers && chart.kind != ChartKind::ScatterLinesNoMarkers;
-            if markers && (!lines || px.len() <= 500) {
+            if markers && (!lines || px.len() <= 500) && !ctx.styled_markers(px.iter().flatten().copied(), s.color) {
                 draw_markers(ctx, px.iter().flatten().copied(), 3.5, s.color);
             }
         }
@@ -2072,9 +2116,15 @@ fn scatter(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
             }
         }
         if chart.data_labels && pts.len() <= MAX_LABELS {
-            for (p, raw) in px.iter().zip(pts) {
-                if let (Some(p), Some((_, y))) = (p, raw) {
-                    point_label(ctx, chart.elements.label_pos, *p, &fy.format(*y, None), s.color);
+            let last = pts.len().saturating_sub(1);
+            for (j, (p, raw)) in px.iter().zip(pts).enumerate() {
+                if chart.elements.last_point_labels && j != last {
+                    continue;
+                }
+                if let (Some(p), Some((x, y))) = (p, raw) {
+                    // the X value is the point's category
+                    let t = label_text(chart.elements.label_text, &s.name, &fx.format(*x, None), &fy.format(*y, None), None, ", ");
+                    point_label(ctx, chart.elements.label_pos, *p, &t, s.color);
                 }
             }
         }

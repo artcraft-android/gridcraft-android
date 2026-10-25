@@ -30,6 +30,8 @@ pub enum Paint {
         stops: &'static [(u32, Shade)],
         from: Option<(i32, i32)>,
     },
+    /// Colour stops from the right edge to the left (`a:lin` 180°): a bar's gradient.
+    Leftward(&'static [(u32, Shade)]),
     /// Two colours in a pattern (`a:pattFill prst`): thin horizontal or diagonal lines.
     Pattern {
         preset: Pattern,
@@ -42,6 +44,8 @@ pub enum Paint {
 pub enum Pattern {
     /// `narHorz`
     NarrowHorizontal,
+    /// `narVert`
+    NarrowVertical,
     /// `ltDnDiag`
     LightDownwardDiagonal,
     /// `ltUpDiag`
@@ -54,6 +58,7 @@ impl Pattern {
     pub fn preset(self) -> &'static str {
         match self {
             Pattern::NarrowHorizontal => "narHorz",
+            Pattern::NarrowVertical => "narVert",
             Pattern::LightDownwardDiagonal => "ltDnDiag",
             Pattern::LightUpwardDiagonal => "ltUpDiag",
             Pattern::DarkDownwardDiagonal => "dkDnDiag",
@@ -79,13 +84,13 @@ pub struct Stroke {
 }
 
 /// Markers a style puts on a line's points: round or diamond, `size` points across, filled
-/// `fill`, edged in the series' colour when `edge`.
+/// `fill`, with an edge (none: unedged).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Marker {
     pub diamond: bool,
     pub size: u8,
     pub fill: Shade,
-    pub edge: bool,
+    pub edge: Option<Stroke>,
 }
 
 /// What a style puts round a series' columns.
@@ -130,6 +135,9 @@ pub struct ChartStyle {
     pub line: Stroke,
     pub line_double: bool,
     pub marker: Option<Marker>,
+    /// Picking it brings in the chart's title; sets a doughnut's hole (percent; 0 leaves it).
+    pub title_on: bool,
+    pub hole: u8,
     /// What picking it sets: the legend's side, the value axis shown, the value axis's major and
     /// minor gridlines and the category gridlines, data labels turned on at a place (`None`
     /// leaves them as they are), and the columns' gap width and overlap.
@@ -202,6 +210,8 @@ const LIGHT: ChartStyle = ChartStyle {
     axis_line: Some(Stroke { color: grey(15), width: 0.75 }),
     label_turn: false,
     label_box: None,
+    title_on: false,
+    hole: 0,
     line: Stroke { color: series(&[]), width: 2.25 },
     line_double: false,
     marker: None,
@@ -405,9 +415,12 @@ const fn line_style(id: u16, look: ChartStyle, width: f32) -> ChartStyle {
     }
 }
 
-const fn round(size: u8, fill: Shade, edge: bool) -> Option<Marker> {
+const fn round(size: u8, fill: Shade, edge: Option<Stroke>) -> Option<Marker> {
     Some(Marker { diamond: false, size, fill, edge })
 }
+
+/// The thin edge in the series' own colour most markers have.
+const SERIES_EDGE: Option<Stroke> = Some(Stroke { color: series(&[]), width: 0.75 });
 
 /// Gridlines a little see-through: the light grey at this opacity (thousandths of a percent).
 const fn faint(alpha: u32) -> Shade {
@@ -421,7 +434,7 @@ const fn faint(alpha: u32) -> Shade {
 /// order, with lines of their own widths and markers.
 pub const LINE_STYLES: [ChartStyle; 13] = [
     line_style(227, LIGHT, 2.25),
-    ChartStyle { marker: round(17, series(&[]), false), labels_at: Some(LabelPos::Center), value_axis: false, ..line_style(228, STYLES[3], 2.5) },
+    ChartStyle { marker: round(17, series(&[]), None), labels_at: Some(LabelPos::Center), value_axis: false, ..line_style(228, STYLES[3], 2.5) },
     ChartStyle {
         title: Type { size: 14.0, bold: false, caps: false, spacing: 20, color: grey(50) },
         plot: Paint::Gradient { stops: &[(0, WHITE), (100_000, theme(LT1, &[ColorMod::LumMod(95000)]))], from: None },
@@ -436,7 +449,7 @@ pub const LINE_STYLES: [ChartStyle; 13] = [
     ChartStyle {
         title: ty(14.0, false, theme(DK1, &[])),
         line: Stroke { color: series(&[ColorMod::Shade(95000), ColorMod::SatMod(105000)]), width: 1.5 },
-        marker: round(17, WHITE, false),
+        marker: round(17, WHITE, None),
         labels: ty(9.0, true, series(&[])),
         labels_at: Some(LabelPos::Center),
         category_size: 10.0,
@@ -456,13 +469,13 @@ pub const LINE_STYLES: [ChartStyle; 13] = [
         ..line_style(237, LIGHT, 3.0)
     },
     ChartStyle {
-        marker: Some(Marker { diamond: true, size: 6, fill: series(&[]), edge: true }),
+        marker: Some(Marker { diamond: true, size: 6, fill: series(&[]), edge: SERIES_EDGE }),
         legend: LegendPos::Top,
         category_lines: true,
         value_lines: false,
         ..line_style(239, STYLES[1], 1.75)
     },
-    ChartStyle { marker: round(5, series(&[]), true), ..line_style(332, LIGHT, 2.25) },
+    ChartStyle { marker: round(5, series(&[]), SERIES_EDGE), ..line_style(332, LIGHT, 2.25) },
     line_style(342, STYLES[13], 2.75),
 ];
 
@@ -553,20 +566,202 @@ pub const PIE_STYLES: [ChartStyle; 12] = [
     ChartStyle { title: ty(16.0, true, grey(65)), ..pie_style(344, LIGHT, None, LegendPos::Bottom, Some((NAME_AND_SHARE, LabelPos::InsideEnd))) },
 ];
 
+/// A bar style: a look of the column page's (the value axis kept), its spacing and switches.
+const fn bar_style(id: u16, look: ChartStyle, gap: u16, overlap: i8) -> ChartStyle {
+    ChartStyle { id, gap, overlap, value_axis: true, label_turn: false, labels_at: None, title_on: false, ..look }
+}
+
+/// The Style page for bar charts, Style 1 to Style 12: the column looks with the bars' own
+/// stripes and gradients running across, and their own spacing.
+pub const BAR_STYLES: [ChartStyle; 12] = [
+    bar_style(216, LIGHT, 182, 0),
+    ChartStyle {
+        series: Paint::Pattern { preset: Pattern::NarrowVertical, fg: series(&[]), bg: series(&[ColorMod::LumMod(20000), ColorMod::LumOff(80000)]) },
+        ..bar_style(217, STYLES[2], 227, -48)
+    },
+    ChartStyle { labels_at: Some(LabelPos::InsideEnd), ..bar_style(218, STYLES[3], 65, 0) },
+    bar_style(219, STYLES[4], 100, 0),
+    bar_style(220, STYLES[5], 100, 0),
+    bar_style(221, STYLES[6], 247, 0),
+    ChartStyle { title_on: true, ..bar_style(222, STYLES[7], 115, -20) },
+    ChartStyle {
+        series: Paint::Leftward(&[
+            (0, series(&[])),
+            (51000, series(&[ColorMod::Alpha(75000)])),
+            (75000, series(&[ColorMod::LumMod(60000), ColorMod::LumOff(40000)])),
+            (100_000, series(&[ColorMod::LumMod(20000), ColorMod::LumOff(80000), ColorMod::Alpha(15000)])),
+        ]),
+        grid: grey(25),
+        ..bar_style(223, STYLES[8], 326, -58)
+    },
+    ChartStyle { axis_line: Some(Stroke { color: grey(15), width: 0.75 }), ..bar_style(224, STYLES[9], 227, -48) },
+    bar_style(225, STYLES[10], 269, 0),
+    bar_style(339, STYLES[11], 182, -50),
+    bar_style(341, STYLES[13], 115, -20),
+];
+
+/// An area style: a look of the column page's and its switches.
+const fn area_style(id: u16, look: ChartStyle, legend: LegendPos) -> ChartStyle {
+    ChartStyle { id, legend, value_axis: true, label_turn: false, labels_at: None, title_on: false, category_lines: false, ..look }
+}
+
+/// The Style page for area charts, Style 1 to Style 10: the column looks on areas, some
+/// see-through or shaded across, with an inner shadow.
+pub const AREA_STYLES: [ChartStyle; 10] = [
+    area_style(276, LIGHT, LegendPos::Bottom),
+    ChartStyle {
+        title: ty(18.0, true, theme(LT1, &[ColorMod::LumMod(85000)])),
+        area_line: Some(theme(LT1, &[ColorMod::LumMod(75000)])),
+        series: Paint::Leftward(&[(0, series(&[])), (100_000, series(&[ColorMod::LumMod(75000)]))]),
+        effect: Effect::InnerShadow,
+        drop_lines: true,
+        ..area_style(277, STYLES[11], LegendPos::Top)
+    },
+    ChartStyle {
+        series: Paint::Pattern {
+            preset: Pattern::LightUpwardDiagonal,
+            fg: series(&[]),
+            bg: series(&[ColorMod::LumMod(20000), ColorMod::LumOff(80000)]),
+        },
+        value_lines: true,
+        ..area_style(278, STYLES[2], LegendPos::Top)
+    },
+    ChartStyle {
+        series: Paint::Solid(series(&[ColorMod::Alpha(85000)])),
+        series_line: None,
+        effect: Effect::InnerShadow,
+        title_on: true,
+        ..area_style(279, STYLES[3], LegendPos::Bottom)
+    },
+    area_style(280, STYLES[4], LegendPos::Bottom),
+    area_style(281, STYLES[5], LegendPos::Bottom),
+    ChartStyle { category_lines: true, ..area_style(282, STYLES[6], LegendPos::Bottom) },
+    area_style(283, STYLES[7], LegendPos::Bottom),
+    ChartStyle {
+        series: Paint::Solid(series(&[ColorMod::Alpha(74000)])),
+        effect: Effect::InnerShadow,
+        labels: ty(10.0, true, series(&[ColorMod::LumMod(50000)])),
+        labels_at: Some(LabelPos::Auto),
+        grid: grey(15),
+        ..area_style(284, STYLES[8], LegendPos::Bottom)
+    },
+    area_style(346, STYLES[13], LegendPos::Bottom),
+];
+
+/// A scatter style: a look of the column page's, its markers, its legend; gridlines both ways.
+const fn scatter_style(id: u16, look: ChartStyle, marker: Option<Marker>, legend: LegendPos) -> ChartStyle {
+    ChartStyle {
+        id,
+        marker,
+        legend,
+        value_axis: true,
+        value_lines: true,
+        category_lines: true,
+        minor_lines: false,
+        minor_category_lines: false,
+        label_turn: false,
+        labels_at: None,
+        title_on: false,
+        effect: Effect::None,
+        ..look
+    }
+}
+
+/// The Style page for scatter charts, Style 1 to Style 12: mostly markers of their own.
+pub const SCATTER_STYLES: [ChartStyle; 12] = [
+    scatter_style(240, LIGHT, round(5, series(&[]), SERIES_EDGE), LegendPos::Bottom),
+    scatter_style(
+        241,
+        ChartStyle { category_caps: None, category_size: 9.0, ..STYLES[1] },
+        Some(Marker { diamond: true, size: 6, fill: series(&[]), edge: SERIES_EDGE }),
+        LegendPos::Top,
+    ),
+    scatter_style(242, STYLES[5], round(5, series(&[]), SERIES_EDGE), LegendPos::Bottom),
+    ChartStyle {
+        minor_lines: true,
+        minor_category_lines: true,
+        ..scatter_style(
+            243,
+            STYLES[10],
+            round(
+                6,
+                theme(LT1, &[ColorMod::Alpha(0)]),
+                Some(Stroke { color: series(&[ColorMod::LumMod(75000), ColorMod::Alpha(70000)]), width: 2.75 }),
+            ),
+            LegendPos::Top,
+        )
+    },
+    ChartStyle {
+        area: Paint::Gradient { stops: &[(43000, WHITE), (100_000, theme(LT1, &[ColorMod::LumMod(95000)]))], from: None },
+        title: Type { size: 16.0, bold: false, caps: false, spacing: 70, color: grey(50) },
+        ..scatter_style(244, LIGHT, round(4, series(&[]), SERIES_EDGE), LegendPos::Top)
+    },
+    ChartStyle {
+        effect: Effect::Glow,
+        ..scatter_style(245, STYLES[11], round(3, series(&[ColorMod::LumMod(60000), ColorMod::LumOff(40000)]), None), LegendPos::Top)
+    },
+    scatter_style(246, STYLES[4], round(5, series(&[]), Some(Stroke { color: series(&[ColorMod::Shade(95000)]), width: 0.75 })), LegendPos::Bottom),
+    ChartStyle {
+        area: Paint::Solid(theme(ACCENT1, &[])),
+        area_line: Some(theme(ACCENT1, &[])),
+        title: Type { size: 15.0, bold: true, caps: true, spacing: 100, color: WHITE },
+        text: WHITE,
+        ..scatter_style(247, LIGHT, round(6, series(&[]), Some(Stroke { color: WHITE, width: 1.75 })), LegendPos::Top)
+    },
+    scatter_style(248, STYLES[7], round(6, series(&[]), SERIES_EDGE), LegendPos::Bottom),
+    ChartStyle {
+        title_on: true,
+        ..scatter_style(249, STYLES[12], round(6, WHITE, Some(Stroke { color: series(&[ColorMod::Alpha(60000)]), width: 3.0 })), LegendPos::Bottom)
+    },
+    scatter_style(
+        250,
+        ChartStyle { plot: Paint::None, ..STYLES[6] },
+        Some(Marker { diamond: true, size: 6, fill: WHITE, edge: Some(Stroke { color: series(&[]), width: 1.25 }) }),
+        LegendPos::Bottom,
+    ),
+    scatter_style(343, STYLES[13], round(6, series(&[]), SERIES_EDGE), LegendPos::Bottom),
+];
+
+/// The Style page for doughnut charts, Style 1 to Style 10: the pie styles but two, each with
+/// its hole.
+pub const DOUGHNUT_STYLES: [ChartStyle; 10] = [
+    ChartStyle { hole: 75, ..PIE_STYLES[0] },
+    ChartStyle { hole: 70, ..PIE_STYLES[1] },
+    ChartStyle { hole: 50, ..PIE_STYLES[2] },
+    ChartStyle { hole: 75, ..PIE_STYLES[3] },
+    ChartStyle { hole: 75, ..PIE_STYLES[4] },
+    ChartStyle { hole: 70, ..PIE_STYLES[5] },
+    ChartStyle { hole: 75, ..PIE_STYLES[6] },
+    ChartStyle { hole: 50, ..PIE_STYLES[7] },
+    ChartStyle { hole: 50, ..PIE_STYLES[9] },
+    ChartStyle { hole: 70, ..PIE_STYLES[10] },
+];
+
 /// The Style page for a chart of this kind: line and pie charts' own, the column page's for the
 /// rest.
 pub fn styles_for(kind: crate::features::ChartKind) -> &'static [ChartStyle] {
     use crate::features::ChartKind as K;
     match kind {
         K::Line | K::LineMarkers | K::LineStacked | K::LineStackedMarkers | K::LineStacked100 | K::LineStacked100Markers => &LINE_STYLES,
-        K::Pie | K::PieOfPie | K::BarOfPie | K::Doughnut => &PIE_STYLES,
+        K::Doughnut => &DOUGHNUT_STYLES,
+        K::Pie | K::PieOfPie | K::BarOfPie => &PIE_STYLES,
+        K::BarClustered | K::BarStacked | K::BarStacked100 => &BAR_STYLES,
+        K::Area | K::AreaStacked | K::AreaStacked100 => &AREA_STYLES,
+        K::Scatter | K::ScatterLines | K::ScatterLinesNoMarkers => &SCATTER_STYLES,
         _ => &STYLES,
     }
 }
 
 /// The style with this id (`cs:chartStyle id`); `None` for one not on a Style page.
 pub fn by_id(id: u16) -> Option<&'static ChartStyle> {
-    STYLES.iter().chain(LINE_STYLES.iter()).chain(PIE_STYLES.iter()).find(|s| s.id == id)
+    STYLES
+        .iter()
+        .chain(LINE_STYLES.iter())
+        .chain(PIE_STYLES.iter())
+        .chain(BAR_STYLES.iter())
+        .chain(AREA_STYLES.iter())
+        .chain(SCATTER_STYLES.iter())
+        .find(|s| s.id == id)
 }
 
 /// The colour of `shade` for a series coloured `series` (or none), in `theme`'s colours: red,
@@ -593,7 +788,18 @@ mod tests {
         assert_eq!((LINE_STYLES.len(), PIE_STYLES.len()), (13, 12));
         assert_eq!(by_id(342).map(|s| s.line.width), Some(2.75));
         assert_eq!(by_id(260).map(|s| s.legend), Some(LegendPos::None));
-        assert_eq!(styles_for(crate::features::ChartKind::Doughnut).len(), 12);
+        use crate::features::ChartKind as K;
+        let count = |k| styles_for(k).len();
+        assert_eq!((count(K::BarStacked), count(K::Area), count(K::Scatter)), (12, 10, 12));
+        // every id is on one page only
+        let mut ids: Vec<u16> = [&STYLES[..], &LINE_STYLES[..], &PIE_STYLES[..], &BAR_STYLES[..], &AREA_STYLES[..], &SCATTER_STYLES[..]]
+            .iter()
+            .flat_map(|p| p.iter().map(|s| s.id))
+            .collect();
+        let n = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), n);
         assert_eq!(by_id(213).map(|s| s.effect), Some(Effect::Glow));
     }
 

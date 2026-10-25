@@ -45,12 +45,19 @@ pub(crate) fn clean(v: f64) -> f64 {
     if v.is_finite() { v.clamp(-MAX_ABS, MAX_ABS) } else { 0.0 }
 }
 
-/// Picks a "nice" scale (steps of 1, 2 or 5 × 10ⁿ, 4–9 gridlines) covering `lo..=hi`.
+/// Picks a "nice" scale (steps of 1, 2 or 5 × 10ⁿ, at most 8 steps) covering `lo..=hi`.
 ///
 /// `force_zero` always includes 0 (columns, bars, areas). Otherwise 0 is still included when the
 /// data sits reasonably close to it (min below 5/6 of max), like common spreadsheet behaviour.
 /// A little headroom is added past the data so the extreme value doesn't touch the frame.
 pub fn nice_scale(lo: f64, hi: f64, force_zero: bool) -> Scale {
+    nice_scale_within(lo, hi, force_zero, 8.0)
+}
+
+/// [`nice_scale`] with at most `room` steps (1 to 8): a short axis takes fewer, wider steps,
+/// as the reference picks the finest step that leaves its gridlines far enough apart.
+pub fn nice_scale_within(lo: f64, hi: f64, force_zero: bool, room: f64) -> Scale {
+    let room = if room.is_finite() { room.clamp(1.0, 8.0) } else { 8.0 };
     let (mut lo, mut hi) = (clean(lo), clean(hi));
     if lo > hi {
         std::mem::swap(&mut lo, &mut hi);
@@ -76,7 +83,7 @@ pub fn nice_scale(lo: f64, hi: f64, force_zero: bool) -> Scale {
     if !range.is_finite() || range <= 0.0 {
         return Scale { min: 0.0, max: 1.0, step: 0.2 };
     }
-    let e = (range / 8.0).log10().floor();
+    let e = (range / room).log10().floor();
     let mut chosen = None;
     'outer: for k in [e - 1.0, e, e + 1.0, e + 2.0] {
         let p = 10f64.powf(k);
@@ -86,7 +93,7 @@ pub fn nice_scale(lo: f64, hi: f64, force_zero: bool) -> Scale {
                 continue;
             }
             let intervals = (hi / s - 1e-9).ceil() - (lo / s + 1e-9).floor();
-            if intervals <= 8.0 {
+            if intervals <= room {
                 chosen = Some(s);
                 break 'outer;
             }

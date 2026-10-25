@@ -56,6 +56,14 @@ fn fill(paint: &Paint, series: &str) -> String {
             s.push_str("</a:gradFill>");
             s
         }
+        Paint::Leftward(stops) => {
+            let mut s = String::from("<a:gradFill rotWithShape=\"1\"><a:gsLst>");
+            for (at, c) in *stops {
+                let _ = write!(s, "<a:gs pos=\"{at}\">{}</a:gs>", color(c, series));
+            }
+            s.push_str("</a:gsLst><a:lin ang=\"10800000\" scaled=\"0\"/></a:gradFill>");
+            s
+        }
         Paint::Pattern { preset, fg, bg } => format!(
             "<a:pattFill prst=\"{}\"><a:fgClr>{}</a:fgClr><a:bgClr>{}</a:bgClr></a:pattFill>",
             preset.preset(),
@@ -145,7 +153,7 @@ pub(crate) fn line_series(st: &ChartStyle, series: &str) -> String {
 
 /// A style's markers on a line, the series' colour `series`.
 pub(crate) fn marker(mk: &Marker, series: &str) -> String {
-    let edge = if mk.edge { format!("<a:ln w=\"9525\"><a:solidFill>{series}</a:solidFill></a:ln>") } else { "<a:ln><a:noFill/></a:ln>".into() };
+    let edge = line(mk.edge.as_ref(), series);
     format!(
         "<c:marker><c:symbol val=\"{}\"/><c:size val=\"{}\"/><c:spPr><a:solidFill>{}</a:solidFill>{edge}</c:spPr></c:marker>",
         if mk.diamond { "diamond" } else { "circle" },

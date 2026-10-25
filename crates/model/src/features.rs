@@ -647,6 +647,9 @@ pub struct ChartElements {
     /// The Style page's style (`cs:chartStyle id`, see [`crate::chart_style`]); 0 for the plain look.
     #[serde(default)]
     pub style: u16,
+    /// A doughnut's hole, percent of its size (`c:holeSize`, 10 to 90; 50 when unset).
+    #[serde(default)]
+    pub hole_size: Option<u8>,
 }
 
 /// What a data label says (`c:showVal`, `showCatName`, `showSerName`, `showPercent`): the

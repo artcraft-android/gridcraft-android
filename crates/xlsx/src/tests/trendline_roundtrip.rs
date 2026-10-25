@@ -211,6 +211,7 @@ fn chart_elements_round_trip() {
         last_point_labels: false,
         label_text: gridcraft_model::LabelText::of(true, true, false, false),
         style: 0,
+        hole_size: None,
     };
     let back = round_trip(c.clone());
     assert_eq!(back.elements, c.elements);
