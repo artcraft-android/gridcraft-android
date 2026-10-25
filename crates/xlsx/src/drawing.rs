@@ -269,6 +269,16 @@ pub fn read_drawing(cx: &mut Ctx<'_>, part: &str, sheet: &mut Sheet) -> Result<(
                             match if chartex { crate::chartex::read_chartex(&cx_xml) } else { crate::chart::read_chart(&cx_xml) } {
                                 Some(mut ch) => {
                                     ch.id = cx.next_object_id();
+                                    // the Color page's palette, from the colour part beside the chart's
+                                    if !chartex
+                                        && let Some(colors) = cx.pkg.rels(&target)?.into_iter().find(|r| r.kind == "chartColorStyle")
+                                        && let Some(c) = cx.optional_xml(&colors.target)?
+                                        && let Some(id) = c.attr_u32("id").and_then(|v| u16::try_from(v).ok())
+                                        && gridcraft_model::chart_palette::series_color(id, 0, 1).is_some()
+                                        && id != gridcraft_model::chart_palette::AUTOMATIC
+                                    {
+                                        ch.elements.palette = id;
+                                    }
                                     ch.anchor = anchor;
                                     ch.alt = obj.path(&["nvGraphicFramePr", "cNvPr"]).and_then(|c| c.attr("descr")).unwrap_or("").to_string();
                                     if is_decorative(obj.path(&["nvGraphicFramePr", "cNvPr"])) {

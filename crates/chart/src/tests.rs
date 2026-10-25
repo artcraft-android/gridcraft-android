@@ -1086,6 +1086,7 @@ fn all_elements() -> gridcraft_model::ChartElements {
         drop_lines: true,
         high_low_lines: true,
         data_table: true,
+        palette: 0,
     }
 }
 

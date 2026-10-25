@@ -115,7 +115,7 @@ fun PaletteSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
 }
 
 /** A page's title: its name, or a function's own for its help page. */
-private fun panelTitle(panel: String): String = PANEL_TITLES[panel] ?: panel.removePrefix(FN_HELP).removePrefix(CHART_FAMILY)
+private fun panelTitle(panel: String): String = PANEL_TITLES[panel] ?: panel.removePrefix(FN_HELP).removePrefix(CHART_FAMILY).removePrefix(CHART_TYPE_FAMILY)
 
 /** How far another tab's commands come up from, and how far the last tab's go up (pixels). */
 private const val TAB_IN_PX = 200

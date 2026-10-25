@@ -305,10 +305,18 @@ fn a_tables_options_and_the_style_gallery() {
     assert!(t.header_row && t.banded_rows && !t.totals_row);
     m.execute("table.totalRow".into(), json!({ "on": true }).to_string()).unwrap();
     assert!(m.table_info().unwrap().totals_row);
+    // no style first, then the 60 styles, each a sample five cells square
     let styles = m.table_styles();
-    assert_eq!(styles.len(), 60);
+    assert_eq!(styles.len(), 61);
+    assert!(styles[0].name.is_empty() && styles[0].cells.iter().all(|c| c.fill.is_none()));
     let medium2 = styles.iter().find(|s| s.name == "TableStyleMedium2").unwrap();
-    assert_ne!(medium2.header, medium2.plain, "a medium style's header is filled");
+    assert_eq!(medium2.cells.len(), 25);
+    assert_ne!(medium2.cells[2].fill, medium2.cells[12].fill, "a medium style's header is filled");
+    // the active cell in the total row: its column and function
+    m.select(3, 0, false).unwrap();
+    let t = m.table_info().unwrap();
+    assert_eq!((t.total_column.as_deref(), t.total_function.as_str()), (Some("Name"), ""));
+    assert_eq!(t.range, CellRange { first_row: 0, first_col: 0, last_row: 3, last_col: 0 });
 }
 
 /// Cards View: a table's rows as cards, with its column names; hidden rows left out; nothing
@@ -358,6 +366,16 @@ fn the_aggregate_bar_sums_a_selection() {
     m.select_range(CellRange { first_row: 0, first_col: 0, last_row: 2, last_col: 0 }).unwrap();
     let st = m.selection_stats().unwrap();
     assert_eq!((st.count, st.numeric, st.sum.as_str(), st.average.as_str()), (3, 2, "30", "15"));
+    assert_eq!((st.max.as_str(), st.min.as_str()), ("20", "10"));
+    // a General average to four decimals, as the phone app's chips show it
+    m.select(2, 0, false).unwrap();
+    m.commit("2".into(), "none".into()).unwrap();
+    m.select(0, 0, false).unwrap();
+    m.commit("1".into(), "none".into()).unwrap();
+    m.select(1, 0, false).unwrap();
+    m.commit("2".into(), "none".into()).unwrap();
+    m.select_range(CellRange { first_row: 0, first_col: 0, last_row: 2, last_col: 0 }).unwrap();
+    assert_eq!(m.selection_stats().unwrap().average, "1.6667");
 }
 
 #[test]

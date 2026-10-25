@@ -48,6 +48,15 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("table.lastColumn", "Last Column", ["Table", "Table Style Options"], None, "{table?, on?}", has_doc, |s, p| table_flag(s, p, "lastCol")),
         cmd!("table.style", "Table Styles", ["Table", "Table Styles"], None, "{table?, style}", has_doc, table_style),
         cmd!("table.rename", "Table Name", ["Table", "Properties"], None, "{table?, name}", has_doc, table_rename),
+        cmd!(
+            "table.altText",
+            "Alt Text",
+            ["Table"],
+            None,
+            "{table?, text} (what a screen reader says for the table; \"\" for none)",
+            has_doc,
+            table_alt_text
+        ),
         cmd!("table.convertToRange", "Convert to Range", ["Table", "Tools"], None, "{table?}", has_doc, table_convert),
         cmd!("table.delete", "Delete Table", [], None, "{table?} (the table and everything in its cells)", has_doc, table_delete),
         cmd!(
@@ -370,6 +379,7 @@ fn insert_table(s: &mut Session, p: &Json) -> Result<Json> {
             filter: vec![],
             table_type: None,
             connection_id: None,
+            alt_text: String::new(),
         });
         cx.structural = true;
         Ok(json!({"table": name, "range": r.a1()}))
@@ -394,6 +404,9 @@ fn find_table(s: &Session, p: &Json) -> Result<(usize, usize)> {
 fn table_flag(s: &mut Session, p: &Json, which: &str) -> Result<Json> {
     let (si, ti) = find_table(s, p)?;
     let on = bool_param(p, "on");
+    if which == "header" {
+        return table_header_row(s, si, ti, on);
+    }
     edit(s, |cx| {
         let sh = cx.sheet_mut(si)?;
         let Some(t) = sh.tables.get_mut(ti) else { return Ok(Json::Null) };
@@ -432,14 +445,63 @@ fn table_flag(s: &mut Session, p: &Json, which: &str) -> Result<Json> {
             "bandedCols" => t.banded_cols = on.unwrap_or(!t.banded_cols),
             "firstCol" => t.first_col = on.unwrap_or(!t.first_col),
             "lastCol" => t.last_col = on.unwrap_or(!t.last_col),
-            "header" => {
-                t.filter_button = on.unwrap_or(!t.filter_button);
-                if !t.filter_button {
-                    t.filter.clear();
-                }
-            }
             _ => {}
         }
+        Ok(Json::Null)
+    })
+}
+
+/// Header Row: off, the header row goes (its cells emptied, the table starting a row lower); on,
+/// it takes the row above, cells across the table pushed down when that row isn't free.
+fn table_header_row(s: &mut Session, si: usize, ti: usize, on: Option<bool>) -> Result<Json> {
+    edit(s, |cx| {
+        let sh = cx.sheet_mut(si)?;
+        let Some(t) = sh.tables.get(ti).cloned() else { return Ok(Json::Null) };
+        let v = on.unwrap_or(!t.header_row);
+        if v == t.header_row {
+            return Ok(Json::Null);
+        }
+        let (c0, c1) = (t.range.start.col, t.range.end.col);
+        if !v {
+            if t.range.height() <= 1 + t.totals_row as u32 {
+                return Err(EngineError::Other("A table needs a row besides its header.".into()));
+            }
+            let row = t.range.start.row;
+            for c in c0..=c1 {
+                sh.remove_cell(CellRef::new(row, c));
+            }
+            if let Some(t) = sh.tables.get_mut(ti) {
+                t.header_row = false;
+                t.range.start.row += 1;
+                t.filter.clear();
+            }
+        } else {
+            let empty = |sh: &Sheet, r: u32| (c0..=c1).all(|c| sh.cell(CellRef::new(r, c)).is_none_or(|x| x.formula.is_none() && x.value.is_empty()));
+            let above = t.range.start.row.checked_sub(1).filter(|r| {
+                empty(sh, *r) && !sh.tables.iter().any(|o| o.range.intersects(&RangeRef::new(CellRef::new(*r, c0), CellRef::new(*r, c1))))
+            });
+            let row = match above {
+                Some(r) => r,
+                None => {
+                    if t.range.end.row + 1 >= MAX_ROWS {
+                        return Err(EngineError::Other("There's no room for the header row.".into()));
+                    }
+                    sh.cells.shift_rows_in_cols(c0, c1, t.range.start.row, 1);
+                    if let Some(t) = sh.tables.get_mut(ti) {
+                        t.range.end.row += 1;
+                    }
+                    t.range.start.row
+                }
+            };
+            for (i, col) in t.columns.iter().enumerate() {
+                sh.set_value(CellRef::new(row, c0 + i as u32), gridcraft_core::Value::text(col.name.as_str()));
+            }
+            if let Some(t) = sh.tables.get_mut(ti) {
+                t.header_row = true;
+                t.range.start.row = row;
+            }
+        }
+        cx.structural = true;
         Ok(Json::Null)
     })
 }
@@ -511,6 +573,17 @@ fn valid_table_name(name: &str) -> bool {
         && name.starts_with(|c: char| c.is_alphabetic() || c == '_' || c == '\\')
         && CellRef::parse(name).is_none()
         && name.chars().enumerate().all(|(i, c)| c.is_alphanumeric() || c == '_' || c == '.' || (i == 0 && c == '\\'))
+}
+
+fn table_alt_text(s: &mut Session, p: &Json) -> Result<Json> {
+    let (si, ti) = find_table(s, p)?;
+    let text: String = str_param(p, "text").unwrap_or("").chars().take(4000).collect();
+    edit(s, |cx| {
+        if let Some(t) = cx.sheet_mut(si)?.tables.get_mut(ti) {
+            t.alt_text = text;
+        }
+        Ok(Json::Null)
+    })
 }
 
 fn table_rename(s: &mut Session, p: &Json) -> Result<Json> {

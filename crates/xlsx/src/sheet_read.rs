@@ -866,6 +866,13 @@ pub fn read_table(cx: &mut Ctx<'_>, x: &El) -> Option<Table> {
         filter: x.child("autoFilter").and_then(|e| read_autofilter(cx, e)).map(|af| af.criteria).unwrap_or_default(),
         table_type: xml_table.then(|| "xml".to_string()),
         connection_id: x.attr_u32("connectionId").filter(|_| xml_table),
+        alt_text: x
+            .child("extLst")
+            .into_iter()
+            .flat_map(|l| l.kids("ext"))
+            .find_map(|e| e.child("table").and_then(|t| t.attr("altText")))
+            .unwrap_or("")
+            .to_string(),
     })
 }
 

@@ -73,7 +73,6 @@ internal val PANEL_TITLES = mapOf(
     "timeFormats" to "Time",
     "currencyFormats" to "Currency",
     "share" to "Share",
-    "tableInsert" to "Insert",
     "chartStyle" to "Style",
     "shapeFill" to "Fill",
     "shapeSize" to "Size",
@@ -84,17 +83,16 @@ internal val PANEL_TITLES = mapOf(
     "shapeOutline" to "Outline",
     "shapeStyles" to "Shape Styles",
     "changeShape" to "Change Shape",
-    "tableDelete" to "Delete",
-    "tableOptions" to "Style Options",
     "tableStyles" to "Table Styles",
+    "tableAltText" to "Alt Text",
     "chartType" to "Type",
+    "chartTypeRecommended" to "Recommended",
     "chartLayout" to "Layout",
     "chartElements" to "Elements",
-    "chartColors" to "Colors",
+    "chartColors" to "Color",
     "arrange" to "Arrange",
     "pictures" to "Pictures",
     "recommendedCharts" to "Recommended",
-    "formatAsTable" to "Format as Table",
     "tabColor" to "Tab Color",
     "pictureStyles" to "Styles",
     "pictureEffects" to "Picture Effects",
@@ -187,7 +185,8 @@ private fun HomeTab(vm: AppViewModel) {
         PaletteRow("Cell Styles", LucideIcons.SwatchBook.glyph(), onClick = { vm.pushPanel("cellStyles") }, chevron = true)
         PaletteRow("Number Format", LucideIcons.Hash.glyph(), onClick = { vm.pushPanel("numberFormat") }, chevron = true)
         Band()
-        PaletteRow("Format as Table", LucideIcons.TableProperties.glyph(), onClick = { vm.pushPanel("formatAsTable") })
+        // a table at once in the default style, as the phone app makes it; its tab follows
+        PaletteRow("Format as Table", LucideIcons.TableProperties.glyph(), onClick = { vm.makeTable("home.formatAsTable") })
         // greyed until the active cell is in a table
         PaletteRow("Cards View", LucideIcons.GalleryVerticalEnd.glyph(), onClick = vm::openCards, enabled = vm.tableInfo != null)
         Band()
@@ -209,10 +208,7 @@ private fun HomeTab(vm: AppViewModel) {
 @Composable
 private fun InsertTab(vm: AppViewModel) {
     Scrolling {
-        PaletteRow("Table", LucideIcons.Table.glyph(), onClick = {
-            vm.collapsePalette()
-            vm.proposeTable()
-        })
+        PaletteRow("Table", LucideIcons.Table.glyph(), onClick = { vm.makeTable("insert.table") })
         PaletteRow("Pictures", LucideIcons.Image.glyph(), onClick = { vm.pushPanel("pictures") }, chevron = true)
         PaletteRow("Shapes", LucideIcons.Shapes.glyph(), onClick = { vm.pushPanel("shapes") }, chevron = true)
         PaletteRow("Text Box", LucideIcons.Type.glyph(), onClick = { vm.insertShape("textBox") })
@@ -404,6 +400,10 @@ internal fun PanelBody(vm: AppViewModel, panel: String) {
         ChartGalleryPanel(vm, panel.removePrefix(CHART_FAMILY))
         return
     }
+    if (panel.startsWith(CHART_TYPE_FAMILY)) {
+        ChartGalleryPanel(vm, panel.removePrefix(CHART_TYPE_FAMILY), change = true)
+        return
+    }
     if (panel.startsWith(FN_HELP)) {
         FunctionHelpPanel(vm, panel.removePrefix(FN_HELP))
         return
@@ -518,7 +518,6 @@ internal fun PanelBody(vm: AppViewModel, panel: String) {
             }
             ChartTiles(vm, vm.chartRecommendations.map { (label, type, sub) -> label to "$type|$sub" })
         }
-        "formatAsTable" -> TableStyleGallery(vm, current = null) { style -> vm.formatAsTable(style) }
         "textDirection" -> Scrolling {
             val order = f?.readingOrder?.toInt() ?: 0
             for ((i, label) in listOf("Context", "Left-to-Right", "Right-to-Left").withIndex()) {
@@ -634,14 +633,35 @@ internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
             ObjectRows(vm)
         }
         "Table" -> Scrolling {
-            PaletteRow("Insert", LucideIcons.Plus.glyph(), onClick = { vm.pushPanel("tableInsert") }, chevron = true)
-            PaletteRow("Delete", LucideIcons.Minus.glyph(), onClick = { vm.pushPanel("tableDelete") }, chevron = true)
+            // as the phone app's Table tab: rows and columns in and out of the table (no row above
+            // its header), the style options lit while on, then Convert to Range, Alt Text and the
+            // styles
+            val t = vm.tableInfo
+            fun insert(where: String) = vm.command("table.insert", json("where" to where))
+            PaletteRow("Insert Row Above", LucideIcons.BetweenHorizontalStart.glyph(), onClick = { insert("above") }, enabled = t?.inHeader != true)
+            PaletteRow("Insert Row Below", LucideIcons.BetweenHorizontalEnd.glyph(), onClick = { insert("below") })
+            PaletteRow("Insert Column Left", LucideIcons.BetweenVerticalStart.glyph(), onClick = { insert("left") })
+            PaletteRow("Insert Column Right", LucideIcons.BetweenVerticalEnd.glyph(), onClick = { insert("right") })
+            PaletteRow("Delete Rows", LucideIcons.ListX.glyph(), onClick = { vm.command("table.deleteRows") })
+            PaletteRow("Delete Columns", LucideIcons.Grid2x2X.glyph(), onClick = { vm.command("table.deleteColumns") })
+            PaletteRow("Delete Table", LucideIcons.Trash2.glyph(), onClick = { vm.command("table.delete") })
             Band()
-            PaletteRow("Style Options", null, onClick = { vm.pushPanel("tableOptions") }, chevron = true)
+            for ((label, glyph, option) in listOf(
+                Triple("Header Row", LucideIcons.PanelTop.glyph(), "table.headerRow" to (t?.headerRow == true)),
+                Triple("Total Row", LucideIcons.Sigma.glyph(), "table.totalRow" to (t?.totalsRow == true)),
+                Triple("First Column", LucideIcons.PanelLeft.glyph(), "table.firstColumn" to (t?.firstCol == true)),
+                Triple("Last Column", LucideIcons.PanelRight.glyph(), "table.lastColumn" to (t?.lastCol == true)),
+                Triple("Banded Rows", LucideIcons.Rows3.glyph(), "table.bandedRows" to (t?.bandedRows == true)),
+                Triple("Banded Columns", LucideIcons.Columns3.glyph(), "table.bandedColumns" to (t?.bandedCols == true)),
+            )) {
+                val (id, on) = option
+                PaletteRow(label, glyph, onClick = { vm.command(id, json("on" to !on)) }, pressed = on)
+            }
             Band()
             PaletteRow("Convert to Range", LucideIcons.Table.glyph(), onClick = { vm.command("table.convertToRange") })
+            PaletteRow("Alt Text", LucideIcons.ScanText.glyph(), onClick = { vm.pushPanel("tableAltText") }, chevron = true)
             Band()
-            PaletteRow("Table Styles", LucideIcons.Paintbrush.glyph(), onClick = { vm.pushPanel("tableStyles") }, chevron = true)
+            PaletteRow("Table Styles", LucideIcons.TableProperties.glyph(), onClick = { vm.pushPanel("tableStyles") }, chevron = true)
         }
         "Shape" -> Scrolling {
             // as the phone app's Shape tab: Fill and Outline put on the colour chosen last (the bar
@@ -664,7 +684,7 @@ internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
             )
             PaletteRow("Outline", Glyph.WithBar(LucideIcons.Pencil.glyph(), Color(vm.shapeOutlineChoice?.second ?: 0xFF4472C4.toInt())), onClick = vm::applyLastShapeOutline, onOpen = { vm.pushPanel("shapeOutline") })
             Band()
-            PaletteRow("Arrange", LucideIcons.Layers.glyph(), onClick = { vm.pushPanel("arrange") }, chevron = true)
+            PaletteRow("Arrange", LucideIcons.Layers.glyph(), onClick = { vm.pushPanel("arrange") }, chevron = true, enabled = vm.objects.size > 1)
             Band()
             PaletteRow("Size", LucideIcons.Image.glyph(), onClick = { vm.pushPanel("shapeSize") }, chevron = true)
         }
@@ -687,7 +707,7 @@ internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
             PaletteRow("Styles", LucideIcons.SwatchBook.glyph(), onClick = { vm.pushPanel("pictureStyles") }, chevron = true)
             PaletteRow("Picture Effects", LucideIcons.WandSparkles.glyph(), onClick = { vm.pushPanel("pictureEffects") }, chevron = true)
             Band()
-            PaletteRow("Arrange", LucideIcons.Layers.glyph(), onClick = { vm.pushPanel("arrange") }, chevron = true)
+            PaletteRow("Arrange", LucideIcons.Layers.glyph(), onClick = { vm.pushPanel("arrange") }, chevron = true, enabled = vm.objects.size > 1)
             Band()
             PaletteRow("Crop Picture", LucideIcons.Crop.glyph(), onClick = vm::toggleCrop, pressed = vm.cropping, onOpen = { vm.pushPanel("cropPicture") })
             Band()
@@ -703,10 +723,10 @@ internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
     return true
 }
 
-/** What every object's tab ends with: Arrange, then its Height and Width. */
+/** What every object's tab ends with: Arrange (greyed for the sheet's only object, as the phone app greys it), then its Height and Width. */
 @Composable
 private fun ObjectRows(vm: AppViewModel) {
-    PaletteRow("Arrange", LucideIcons.Layers.glyph(), onClick = { vm.pushPanel("arrange") }, chevron = true)
+    PaletteRow("Arrange", LucideIcons.Layers.glyph(), onClick = { vm.pushPanel("arrange") }, chevron = true, enabled = vm.objects.size > 1)
     Band()
     PaletteRow("Size", LucideIcons.Image.glyph(), onClick = { vm.pushPanel("shapeSize") }, chevron = true)
     PaletteRow("Alt Text", LucideIcons.ScanText.glyph(), onClick = { vm.pushPanel("altText") }, chevron = true)
@@ -767,56 +787,14 @@ private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
                 ChoiceRow("Flip Horizontal", vm.selectedObject?.flipH == true, onClick = { vm.rotateObject(0.0, "horizontal") })
             }
         }
-        "chartType" -> Scrolling {
-            for ((label, spec) in listOf(
-                "Clustered Column" to "column|", "Stacked Column" to "column|stacked", "100% Stacked Column" to "column|stacked100",
-                "Clustered Bar" to "bar|", "Stacked Bar" to "bar|stacked", "100% Stacked Bar" to "bar|stacked100",
-                "Line" to "line|", "Stacked Line" to "line|stacked", "100% Stacked Line" to "line|stacked100", "Line with Markers" to "line|markers",
-                "Stacked Line with Markers" to "line|stackedMarkers", "100% Stacked Line with Markers" to "line|stacked100Markers",
-                "Pie" to "pie|", "Pie of Pie" to "pie|pieOfPie", "Bar of Pie" to "pie|barOfPie", "Doughnut" to "doughnut|", "Area" to "area|", "Stacked Area" to "area|stacked", "100% Stacked Area" to "area|stacked100",
-                "Scatter" to "scatter|", "Scatter with Straight Lines and Markers" to "scatter|lines", "Scatter with Straight Lines" to "scatter|linesOnly",
-                "Bubble" to "bubble|", "Radar" to "radar|", "Radar with Markers" to "radar|markers", "Filled Radar" to "radar|filled",
-            )) {
-                ChoiceRow(label, false, onClick = {
-                    val (t, sub) = spec.split('|')
-                    val p = org.json.JSONObject().put("type", t)
-                    if (sub.isNotEmpty()) p.put("subtype", sub)
-                    vm.chartCommand("chart.changeType", p)
-                })
-            }
+        // as the phone app's Type: Recommended, then Insert › Chart's families
+        "chartType" -> ChartFamiliesPanel(vm, change = true)
+        "chartTypeRecommended" -> Scrolling {
+            LaunchedEffect(vm.chartInfo?.source) { vm.loadChartRecommendations(vm.chartInfo?.source.orEmpty()) }
+            ChartTiles(vm, vm.chartRecommendations.map { (label, type, sub) -> label to "$type|$sub" }, change = true)
         }
-        "tableInsert" -> Scrolling {
-            ChoiceRow("Insert Rows Above", false, onClick = { vm.tableInsert("above") })
-            ChoiceRow("Insert Rows Below", false, onClick = { vm.tableInsert("below") })
-            ChoiceRow("Insert Columns to the Left", false, onClick = { vm.tableInsert("left") })
-            ChoiceRow("Insert Columns to the Right", false, onClick = { vm.tableInsert("right") })
-        }
-        "tableDelete" -> Scrolling {
-            ChoiceRow("Delete Rows", false, onClick = { vm.tableInsert("deleteRows") })
-            ChoiceRow("Delete Columns", false, onClick = { vm.tableInsert("deleteColumns") })
-            ChoiceRow("Delete Table", false, onClick = { vm.command("table.delete") })
-        }
-        "tableOptions" -> Scrolling {
-            val t = vm.tableInfo
-            for ((label, pair) in listOf(
-                "Header Row" to ("table.headerRow" to (t?.headerRow == true)),
-                "Totals Row" to ("table.totalRow" to (t?.totalsRow == true)),
-                "First Column" to ("table.firstColumn" to (t?.firstCol == true)),
-                "Last Column" to ("table.lastColumn" to (t?.lastCol == true)),
-                "Banded Rows" to ("table.bandedRows" to (t?.bandedRows == true)),
-                "Banded Columns" to ("table.bandedColumns" to (t?.bandedCols == true)),
-            )) {
-                val (id, on) = pair
-                androidx.compose.foundation.layout.Row(
-                    Modifier.fillMaxWidth().height(48.dp).clickable { vm.command(id, json("on" to !on)) },
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                ) {
-                    androidx.compose.material3.Checkbox(on, onCheckedChange = { vm.command(id, json("on" to it)) }, colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = GridColors.Accent))
-                    Text(label, color = GridColors.OnSurface, fontSize = 16.sp)
-                }
-            }
-        }
-        "tableStyles" -> TableStyleGallery(vm, current = vm.tableInfo?.style) { style -> vm.command("table.style", json("style" to style)) }
+        "tableStyles" -> TableStylesPanel(vm)
+        "tableAltText" -> TableAltTextPanel(vm)
         "chartStyle" -> Scrolling {
             for (n in 1..8) ChoiceRow("Style $n", false, onClick = { vm.chartCommand("chart.set", org.json.JSONObject().put("style", n)) })
         }
@@ -895,11 +873,7 @@ private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
                 ChoiceRow("Up/Down Bars", ci?.upDownBars == true, onClick = { set("upDownBars", true) })
             }
         }
-        "chartColors" -> Scrolling {
-            for ((label, palette) in listOf("Colorful" to "colorful", "Monochromatic" to "monochrome") + (1..6).map { "Accent $it" to "accent$it" }) {
-                ChoiceRow(label, false, onClick = { vm.chartCommand("chart.changeColors", org.json.JSONObject().put("palette", palette)) })
-            }
-        }
+        "chartColors" -> ChartColorsPanel(vm)
         else -> return false
     }
     return true
@@ -915,37 +889,3 @@ private fun labelPositions(kind: String): List<Pair<String, String>> = when (kin
     else -> emptyList()
 }
 
-/** The table styles as small tables of their colours, three to a row; the current one marked. */
-@Composable
-private fun TableStyleGallery(vm: AppViewModel, current: String?, apply: (String) -> Unit) {
-    LaunchedEffect(Unit) { vm.loadTableStyles() }
-    androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
-        modifier = Modifier.fillMaxSize().padding(8.dp),
-    ) {
-        items(vm.tableStyles.size) { i ->
-            val st = vm.tableStyles[i]
-            androidx.compose.foundation.layout.Box(
-                Modifier.padding(6.dp).height(64.dp)
-                    .then(if (st.name == current) Modifier.border(2.dp, GridColors.Accent) else Modifier)
-                    .clickable { apply(st.name) }
-                    .padding(4.dp),
-            ) {
-                androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-                    val rows = 5
-                    val h = size.height / rows
-                    for (r in 0 until rows) {
-                        val c = when {
-                            r == 0 -> st.header
-                            r % 2 == 1 -> st.band
-                            else -> st.plain
-                        }
-                        drawRect(androidx.compose.ui.graphics.Color(c), androidx.compose.ui.geometry.Offset(0f, r * h), androidx.compose.ui.geometry.Size(size.width, h))
-                        drawLine(androidx.compose.ui.graphics.Color(st.line), androidx.compose.ui.geometry.Offset(0f, (r + 1) * h), androidx.compose.ui.geometry.Offset(size.width, (r + 1) * h), 1f)
-                    }
-                    drawRect(androidx.compose.ui.graphics.Color(st.headerText), androidx.compose.ui.geometry.Offset(size.width * 0.1f, h * 0.35f), androidx.compose.ui.geometry.Size(size.width * 0.35f, h * 0.3f))
-                }
-            }
-        }
-    }
-}

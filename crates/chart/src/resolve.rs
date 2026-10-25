@@ -2,7 +2,7 @@
 
 use gridcraft_calc::evaluate;
 use gridcraft_core::{CellRef, RangeRef, Value, number_to_text};
-use gridcraft_model::{Chart, ChartKind, Theme, Workbook, style::apply_tint};
+use gridcraft_model::{Chart, ChartKind, Theme, Workbook, chart_palette};
 use gridcraft_numfmt::{NumberFormat, format_value};
 
 use crate::{ChartData, Rgba, SeriesData, TrendlineData};
@@ -14,19 +14,21 @@ pub(crate) const MAX_SERIES: usize = 255;
 /// Cap on trendlines drawn per series.
 pub(crate) const MAX_TRENDLINES: usize = 16;
 
-/// Tints used for series beyond the six theme accents: lighter, darker, lighter still…
-const CYCLE_TINTS: [f64; 6] = [0.0, 0.4, -0.25, 0.6, -0.5, 0.2];
-/// `series_color` repeats after this many colours (six accents × the tints).
-pub(crate) const PALETTE_CYCLE: usize = 6 * CYCLE_TINTS.len();
+/// `series_color` repeats after this many colours (six accents, nine ways each).
+pub(crate) const PALETTE_CYCLE: usize = 6 * 9;
 
-/// Colour of the `i`-th series: theme accents 1–6, then tinted variations of them.
+/// Colour of the `i`-th series in the automatic palette: theme accents 1–6, then darker and
+/// lighter versions of them.
 pub fn series_color(theme: &Theme, i: usize) -> Rgba {
-    let accent = i % 6;
-    let cycle = (i / 6) % CYCLE_TINTS.len();
-    let base = theme.colors.get(4 + accent).copied().unwrap_or(0x156082);
-    let rgb = [(base >> 16) as u8, (base >> 8) as u8, base as u8];
-    let tint = CYCLE_TINTS.get(cycle).copied().unwrap_or(0.0);
-    let [r, g, b] = apply_tint(rgb, tint);
+    palette_color(theme, chart_palette::AUTOMATIC, i, 0)
+}
+
+/// Colour of series `i` of `n` in palette `id` (the automatic one for 0 or one not known).
+pub fn palette_color(theme: &Theme, id: u16, i: usize, n: usize) -> Rgba {
+    let (slot, mods) =
+        chart_palette::series_color(id, i, n).or_else(|| chart_palette::series_color(chart_palette::AUTOMATIC, i, n)).unwrap_or((4, vec![]));
+    let base = theme.colors.get(slot).copied().unwrap_or(0x156082);
+    let [r, g, b] = chart_palette::apply([(base >> 16) as u8, (base >> 8) as u8, base as u8], &mods);
     [r, g, b, 0xFF]
 }
 
@@ -200,8 +202,13 @@ pub fn resolve(wb: &Workbook, sheet: usize, chart: &Chart) -> ChartData {
     for (i, s) in chart.series.iter().take(MAX_SERIES).enumerate() {
         let values = nums(wb, sheet, &s.values);
         let name = s.name.as_deref().map(|n| series_name(wb, sheet, n)).filter(|n| !n.is_empty()).unwrap_or_else(|| format!("Series{}", i + 1));
-        let color =
-            s.color.as_ref().and_then(|c| c.resolve(&wb.theme)).map(|[r, g, b]| [r, g, b, 0xFF]).unwrap_or_else(|| series_color(&wb.theme, i));
+        let count = chart.series.len().min(MAX_SERIES);
+        let color = s
+            .color
+            .as_ref()
+            .and_then(|c| c.resolve(&wb.theme))
+            .map(|[r, g, b]| [r, g, b, 0xFF])
+            .unwrap_or_else(|| palette_color(&wb.theme, chart.elements.palette, i, count));
         let kind = effective_kind(chart.kind, s.kind, i);
         let x = match (
             &s.categories,
@@ -244,6 +251,7 @@ pub fn resolve(wb: &Workbook, sheet: usize, chart: &Chart) -> ChartData {
     }
     let n = series.iter().map(|s| s.values.len()).max().unwrap_or(0);
     let categories = categories.unwrap_or_else(|| (1..=n).map(|i| i.to_string()).collect());
-    let palette = default_palette(&wb.theme, n.min(PALETTE_CYCLE));
+    // charts coloured by point take the chart's palette across the points
+    let palette = (0..n.min(PALETTE_CYCLE)).map(|i| palette_color(&wb.theme, chart.elements.palette, i, n)).collect();
     ChartData { categories, series, palette }
 }

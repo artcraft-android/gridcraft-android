@@ -240,18 +240,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         collapsePalette()
     }
 
-    /** Format as Table: the block around the selection becomes a table in [style]. */
-    fun formatAsTable(style: String) = launchEngine { e ->
-        e.command { execute("home.formatAsTable", org.json.JSONObject().put("style", style).toString()) }
-        refresh(e)
-    }
-
     /** Recommended charts for the selection: their names, types and subtypes, best first. */
     var chartRecommendations by mutableStateOf(listOf<Triple<String, String, String>>())
         private set
 
-    fun loadChartRecommendations() = launchEngine { e ->
-        val a = runCatching { org.json.JSONArray(e.command { execute("insert.chartRecommendations", "{}") }) }.getOrNull() ?: org.json.JSONArray()
+    /** [range]: the data to recommend for ("" the selection's). */
+    fun loadChartRecommendations(range: String = "") = launchEngine { e ->
+        val p = if (range.isEmpty()) "{}" else org.json.JSONObject().put("range", range).toString()
+        val a = runCatching { org.json.JSONArray(e.command { execute("insert.chartRecommendations", p) }) }.getOrNull() ?: org.json.JSONArray()
         chartRecommendations = (0 until minOf(a.length(), 20)).map { i ->
             val o = a.getJSONObject(i)
             Triple(o.optString("label"), o.optString("type"), o.optString("subtype"))
@@ -846,28 +842,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Insert or delete whole rows or columns at the active cell (`above`, `below`, `left`, `right`). */
-    fun tableInsert(where: String) {
-        val sel = selection ?: return
-        val row = sel.activeRow.toLong() + 1
-        val col = io.github.artcraftandroid.gridcraft.ui.editor.columnLetters(sel.activeCol.toInt())
-        val next = io.github.artcraftandroid.gridcraft.ui.editor.columnLetters(sel.activeCol.toInt() + 1)
-        when (where) {
-            "above" -> command("home.insertRows", org.json.JSONObject().put("rows", "$row:$row").toString())
-            "below" -> command("home.insertRows", org.json.JSONObject().put("rows", "${row + 1}:${row + 1}").toString())
-            "left" -> command("home.insertColumns", org.json.JSONObject().put("cols", "$col:$col").toString())
-            "right" -> command("home.insertColumns", org.json.JSONObject().put("cols", "$next:$next").toString())
-            "deleteRows" -> command("home.deleteRows", org.json.JSONObject().put("rows", "$row:$row").toString())
-            "deleteColumns" -> command("home.deleteColumns", org.json.JSONObject().put("cols", "$col:$col").toString())
-        }
+    /** The chart Color page's palettes in the workbook's colours, loaded as the page opens. */
+    var chartPalettes by mutableStateOf(listOf<io.github.artcraftandroid.gridcraft.core.ChartPalette>())
+        private set
+
+    fun loadChartPalettes() = launchEngine { e ->
+        chartPalettes = e.view { chartPalettes() }
     }
 
-    /** The table styles with their colours, loaded the first time the gallery opens. */
+    /** The table styles as samples in the workbook's colours, loaded as the gallery opens. */
     var tableStyles by mutableStateOf(listOf<io.github.artcraftandroid.gridcraft.core.TableStylePreview>())
         private set
 
     fun loadTableStyles() = launchEngine { e ->
-        if (tableStyles.isEmpty()) tableStyles = e.view { tableStyles() }
+        tableStyles = e.view { tableStyles() }
     }
 
     /** The filter sheet: the column it filters (its header cell) and that column's values. */
@@ -981,21 +969,53 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putString("recentFunctions", recentFunctions.joinToString(",")).apply()
     }
 
-    /** Insert Table's prompt: the block it would cover and whether its first row holds headers. */
-    var tableProposal by mutableStateOf<Pair<String, Boolean>?>(null)
+    /**
+     * The prompt under a table just made: the command that made it, the block it was made over, and
+     * whether its box (the first row is headers) is ticked. It goes at the next tap or page.
+     */
+    var tablePrompt by mutableStateOf<Triple<String, String, Boolean>?>(null)
+        private set
 
-    /** Insert Table: the engine's block and header guess, for the prompt to confirm. */
-    fun proposeTable() = launchEngine { e ->
-        val out = e.command { execute("insert.table", "{\"preview\": true}") }
-        val o = org.json.JSONObject(out)
-        tableProposal = o.optString("range") to o.optBoolean("header", true)
-        dialog = "table"
+    /**
+     * Format as Table and Insert › Table ([id]), as the phone app makes them: a table over the
+     * selection's block at once, in the default style, its first row headers when it looks like
+     * them; then the whole table selected, its tab shown and the headers prompt under it.
+     */
+    fun makeTable(id: String) = launchEngine { e ->
+        val o = org.json.JSONObject(e.command { execute("insert.table", "{\"preview\": true}") })
+        val block = o.optString("range")
+        val header = o.optBoolean("header", true)
+        madeTable(e, id, block, header)
+        tablePrompt = Triple(id, block, header)
     }
 
-    fun insertTable(range: String, header: Boolean) {
-        dialog = null
-        tableProposal = null
-        command("insert.table", org.json.JSONObject().put("range", range).put("header", header).toString())
+    private suspend fun madeTable(e: Engine, id: String, block: String, header: Boolean) {
+        e.command { execute(id, org.json.JSONObject().put("range", block).put("header", header).toString()) }
+        refresh(e)
+        tableInfo?.range?.let { r ->
+            selection = e.command { selectRange(r) }
+            refresh(e)
+        }
+        if (paletteOpen) showTab("Table")
+    }
+
+    /** The prompt's box: the table made again over the same block, its first row headers or not. */
+    fun setTableHeaders(on: Boolean) = launchEngine { e ->
+        val (id, block, was) = tablePrompt ?: return@launchEngine
+        if (on == was) return@launchEngine
+        e.command { execute("edit.undo", "{}") }
+        madeTable(e, id, block, on)
+        tablePrompt = Triple(id, block, on)
+    }
+
+    /** The total row's function list is open over its cell. */
+    var totalMenu by mutableStateOf(false)
+
+    /** A total row's cell: its column totalled by [function] (`sum`, `average`…). */
+    fun setTotalFunction(function: String) {
+        totalMenu = false
+        val column = tableInfo?.totalColumn ?: return
+        command("table.totalFunction", org.json.JSONObject().put("column", column).put("function", function).toString())
     }
 
     /** Links the activity opens (http, https and mailto only). */
@@ -1406,6 +1426,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             refresh(e)
         }
         if (selectedObject != null) selectObject(null)
+        tablePrompt = null
+        totalMenu = false
         selection = e.command { select(row, col, extend) }
         format = e.command { cellFormat() }
         comment = e.command { comment() }
@@ -1420,6 +1442,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectRange(range: CellRange) = launchEngine { e ->
         if (editing) commitEdit("none")
+        tablePrompt = null
+        totalMenu = false
         selection = e.command { selectRange(range) }
         format = e.command { cellFormat() }
         stats = e.view { selectionStats() }
@@ -2227,6 +2251,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun collapsePalette() {
+        tablePrompt = null
         paletteOpen = false
         panels = emptyList()
         tabsOpen = false
@@ -2279,6 +2304,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun pushPanel(p: String) {
+        tablePrompt = null
         panels = panels + p
         tabsOpen = false
     }

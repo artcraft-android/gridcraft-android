@@ -76,7 +76,7 @@ const KINDS: [ChartKind; 8] = [
     ChartKind::Bubble,
 ];
 
-fn workbook() -> Workbook {
+pub(super) fn workbook() -> Workbook {
     let mut s = Sheet::new("Data");
     s.set_value(CellRef::new(0, 1), Value::Text("Sales".into()));
     for r in 1..=5u32 {
@@ -104,7 +104,7 @@ fn every_trendline_kind_round_trips_in_every_chart_group() {
     assert_eq!(chart_parts(&again), chart_parts(&bytes));
 }
 
-fn chart_parts(bytes: &[u8]) -> Vec<String> {
+pub(super) fn chart_parts(bytes: &[u8]) -> Vec<String> {
     let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())).unwrap();
     let mut names: Vec<String> =
         (0..z.len()).map(|i| z.name_for_index(i).unwrap().to_string()).filter(|n| n.starts_with("xl/charts/chart")).collect();
@@ -199,6 +199,7 @@ fn chart_elements_round_trip() {
         drop_lines: true,
         high_low_lines: true,
         data_table: true,
+        palette: 0,
     };
     let back = round_trip(c.clone());
     assert_eq!(back.elements, c.elements);

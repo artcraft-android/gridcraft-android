@@ -20,7 +20,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use gridcraft_engine::cf::{CfCache, CfLook};
 use gridcraft_engine::core::{CellRef, MAX_COLS, MAX_ROWS, RangeRef, Value};
 use gridcraft_engine::model::{
-    BorderLine, BorderStyle, Color, HAlign, PatternType, ShapeTextAlign, ShapeTextAnchor, Sheet, Style, Underline, VAlign, Visibility, Workbook,
+    BorderLine, BorderStyle, Color, HAlign, PatternType, ShapeTextAlign, ShapeTextAnchor, Sheet, Style, TotalsFn, Underline, VAlign, Visibility,
+    Workbook,
 };
 use gridcraft_engine::{EngineError, Selection, Session};
 use serde_json::{Value as Json, json};
@@ -711,7 +712,8 @@ pub struct FilterFill {
     pub chosen: bool,
 }
 
-/// The table the active cell is in: its name, style and style options.
+/// The table the active cell is in: its name, style and style options, where it is, and where the
+/// active cell is in it.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TableInfo {
     pub name: String,
@@ -722,6 +724,15 @@ pub struct TableInfo {
     pub banded_cols: bool,
     pub first_col: bool,
     pub last_col: bool,
+    pub range: CellRange,
+    /// The active cell is in the header row.
+    pub in_header: bool,
+    /// The column the active cell totals, when it is in the total row, and its function there
+    /// (`sum`, `average`… as `table.totalFunction` takes them; "" for none or a label).
+    pub total_column: Option<String>,
+    pub total_function: String,
+    /// What a screen reader says for the table ("" for none).
+    pub alt_text: String,
 }
 
 /// The table the active cell is in, as Cards View shows it: its name, its column names, and its
@@ -749,16 +760,24 @@ pub struct TableCard {
 const MAX_CARDS: usize = 5_000;
 const MAX_CARD_FIELDS: u32 = 100;
 
-/// A table style for the gallery: its name and the colours of its header, a banded row, a plain
-/// row and its lines.
+/// A table style as its gallery tile shows it: a sample table five cells square (the header, three
+/// data rows and the total row, with the first and last columns and banded rows on), cell by cell
+/// and row by row. The first tile, named "", is no style at all.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct TableStylePreview {
     pub name: String,
-    pub header: i32,
-    pub header_text: i32,
-    pub band: i32,
-    pub plain: i32,
-    pub line: i32,
+    pub cells: Vec<TileCell>,
+}
+
+/// One cell of a table style's sample: its fill, the colour of its text, and its lines.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct TileCell {
+    pub fill: Option<i32>,
+    pub text: i32,
+    pub left: Option<Edge>,
+    pub top: Option<Edge>,
+    pub right: Option<Edge>,
+    pub bottom: Option<Edge>,
 }
 
 /// The aggregate bar for a selection of more than one cell: how many cells hold something, and
@@ -768,8 +787,10 @@ pub struct SelectionStats {
     pub count: u64,
     pub numeric: u64,
     pub sum: String,
-    /// Empty when no cell holds a number.
+    /// Empty when no cell holds a number, as are the largest and smallest.
     pub average: String,
+    pub max: String,
+    pub min: String,
 }
 
 /// The active cell's data validation, as the grid offers it: the list to pick from (a list rule
@@ -896,6 +917,20 @@ pub struct ChartInfo {
     /// `none`, `drop` or `highLow`.
     pub lines: String,
     pub data_table: bool,
+    /// The Color page's palette (`cs:colorStyle id`, 10 the automatic one).
+    pub palette: u16,
+    /// The range the chart was made from ("" when not known), for recommending other types.
+    pub source: String,
+}
+
+/// A palette of the chart Color page: what `chart.changeColors` takes, the name a screen reader
+/// says, and the six colours its strip shows (ARGB, in the workbook's theme).
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct ChartPalette {
+    pub id: u16,
+    pub param: String,
+    pub name: String,
+    pub colors: Vec<i32>,
 }
 
 /// A cell under a point.
@@ -1436,6 +1471,25 @@ impl MobileSession {
         gridcraft_chart::render(chart, &data, size(width), size(height), &gridcraft_chart::ApproxMeasure).into_iter().take(20_000).map(prim).collect()
     }
 
+    /// The chart Color page's palettes, Colorful then Monochromatic, each as six series take it.
+    pub fn chart_palettes(&self) -> Vec<ChartPalette> {
+        let theme = self.snapshot().map(|(wb, _, _)| wb.theme.clone()).unwrap_or_default();
+        gridcraft_engine::model::chart_palette::PALETTES
+            .iter()
+            .map(|(id, name)| ChartPalette {
+                id: *id,
+                param: if *id <= 13 { format!("colorful{}", id - 9) } else { format!("monochromatic{}", id - 13) },
+                name: (*name).into(),
+                colors: (0..6)
+                    .map(|i| {
+                        let [r, g, b, _] = gridcraft_chart::palette_color(&theme, *id, i, 6);
+                        argb([r, g, b])
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
+
     /// Picture Styles' gallery: each style's name shown and what `picture.style` takes as `style`.
     pub fn picture_styles(&self) -> Vec<ShapeTile> {
         gridcraft_engine::picture_styles::PICTURE_STYLES.iter().map(|(label, id)| ShapeTile { label: (*label).into(), kind: (*id).into() }).collect()
@@ -1569,7 +1623,20 @@ impl MobileSession {
     pub fn table_info(&self) -> Option<TableInfo> {
         let s = self.lock();
         let d = s.active()?;
-        let t = d.wb.active()?.table_at(d.selection.active)?;
+        let c = d.selection.active;
+        let t = d.wb.active()?.table_at(c)?;
+        let total = (t.totals_row && c.row == t.range.end.row).then(|| t.columns.get((c.col - t.range.start.col) as usize)).flatten();
+        let total_function = match total.map(|col| col.totals) {
+            Some(TotalsFn::Average) => "average",
+            Some(TotalsFn::Count) => "count",
+            Some(TotalsFn::CountNums) => "countNums",
+            Some(TotalsFn::Max) => "max",
+            Some(TotalsFn::Min) => "min",
+            Some(TotalsFn::Sum) => "sum",
+            Some(TotalsFn::StdDev) => "stdDev",
+            Some(TotalsFn::Var) => "var",
+            _ => "",
+        };
         Some(TableInfo {
             name: t.name.clone(),
             style: t.style.clone(),
@@ -1579,6 +1646,11 @@ impl MobileSession {
             banded_cols: t.banded_cols,
             first_col: t.first_col,
             last_col: t.last_col,
+            range: t.range.into(),
+            in_header: t.header_row && c.row == t.range.start.row,
+            total_column: total.map(|col| col.name.clone()),
+            total_function: total_function.into(),
+            alt_text: t.alt_text.clone(),
         })
     }
 
@@ -1620,48 +1692,26 @@ impl MobileSession {
         Some(TableCards { name: t.name.clone(), fields, first_col: first, cards, more })
     }
 
-    /// The table styles, light to dark, with their colours in the workbook's theme.
+    /// The table styles, no style first and then light to dark, as samples in the workbook's theme.
     pub fn table_styles(&self) -> Vec<TableStylePreview> {
         let theme = self.snapshot().map(|(wb, _, _)| wb.theme.clone()).unwrap_or_default();
         let mut wb = Workbook::new();
         wb.theme = theme;
-        let range = RangeRef::new(CellRef::new(0, 0), CellRef::new(4, 2));
-        let white = argb([255, 255, 255]);
-        gridcraft_engine::tables::gallery()
-            .into_iter()
+        std::iter::once(String::new())
+            .chain(gridcraft_engine::tables::gallery())
             .map(|name| {
-                let t = gridcraft_engine::model::Table {
-                    id: 0,
-                    name: String::new(),
-                    range,
-                    header_row: true,
-                    totals_row: false,
-                    columns: vec![],
-                    style: name.clone(),
-                    banded_rows: true,
-                    banded_cols: false,
-                    first_col: false,
-                    last_col: false,
-                    filter_button: false,
-                    filter: vec![],
-                    table_type: None,
-                    connection_id: None,
-                };
-                let look = |row: u32| gridcraft_engine::tables::table_cell_style(&wb, 0, &t, CellRef::new(row, 1));
-                let fill = |st: &Style| if st.fill.pattern == PatternType::None { None } else { st.fill.fg.resolve(&wb.theme).map(argb) };
-                let (h, b1, b2) = (look(0), look(1), look(2));
-                let line = [h.borders.bottom, b1.borders.bottom, h.borders.top]
+                let cells = gridcraft_engine::tables::sample(&wb, &name)
                     .into_iter()
-                    .find(|l| !l.is_none())
-                    .map_or(argb([0xBF, 0xBF, 0xBF]), |l| color_or(l.color, &wb, [0, 0, 0]));
-                TableStylePreview {
-                    header: fill(&h).unwrap_or(white),
-                    header_text: color_or(h.font.color, &wb, [0, 0, 0]),
-                    band: fill(&b1).unwrap_or(white),
-                    plain: fill(&b2).unwrap_or(white),
-                    line,
-                    name,
-                }
+                    .map(|st| TileCell {
+                        fill: if st.fill.pattern == PatternType::None { None } else { st.fill.fg.resolve(&wb.theme).map(argb) },
+                        text: color_or(st.font.color, &wb, [0, 0, 0]),
+                        left: edge(st.borders.left, &wb),
+                        top: edge(st.borders.top, &wb),
+                        right: edge(st.borders.right, &wb),
+                        bottom: edge(st.borders.bottom, &wb),
+                    })
+                    .collect();
+                TableStylePreview { name, cells }
             })
             .collect()
     }
@@ -1679,12 +1729,20 @@ impl MobileSession {
         let sh = wb.active()?;
         let st = gridcraft_engine::display::stats(sh, &sel.ranges);
         let code = wb.styles.get(sh.style_id(sel.active)).num_fmt.clone();
-        let shown = |n: f64| gridcraft_engine::display::format(&Value::Number(n), code.as_str(), &wb).text;
+        // in the active cell's format; a General one rounded to four decimals, as the phone app's
+        // chips show 403/12 as 33.5833
+        let general = code.as_str().is_empty() || code.as_str().eq_ignore_ascii_case("General");
+        let shown = |n: f64| {
+            let n = if general && n.is_finite() && n.abs() < 1e15 { (n * 10_000.0).round() / 10_000.0 } else { n };
+            gridcraft_engine::display::format(&Value::Number(n), code.as_str(), &wb).text
+        };
         Some(SelectionStats {
             count: st.count,
             numeric: st.numeric,
             sum: if st.numeric > 0 { shown(st.sum) } else { String::new() },
             average: st.average.map(shown).unwrap_or_default(),
+            max: if st.numeric > 0 { shown(st.max) } else { String::new() },
+            min: if st.numeric > 0 { shown(st.min) } else { String::new() },
         })
     }
 
@@ -1910,6 +1968,8 @@ impl MobileSession {
             }
             .into(),
             data_table: ch.elements.data_table,
+            palette: if ch.elements.palette == 0 { gridcraft_engine::model::chart_palette::AUTOMATIC } else { ch.elements.palette },
+            source: ch.source.clone().unwrap_or_default(),
         })
     }
 

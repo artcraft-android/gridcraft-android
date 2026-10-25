@@ -331,15 +331,17 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                             else -> {
                                 val r = rowAt(p.y) ?: return@detectTapGestures
                                 val c = colAt(p.x) ?: return@detectTapGestures
-                                // the drop-down beside a cell with a validation list opens the list
-                                if (vm.validation?.items?.isNotEmpty() == true) {
+                                // the drop-down beside a cell with a validation list opens the list; beside
+                                // a total row's cell, its functions
+                                val totals = vm.tableInfo?.totalColumn != null
+                                if (vm.validation?.items?.isNotEmpty() == true || totals) {
                                     val sel = vm.selection
                                     val ar = sel?.activeRow
                                     val right = sel?.let { colEdge(it.activeCol, true) }
                                     val top = ar?.let { rowEdge(it, false) }
                                     val bottom = ar?.let { rowEdge(it, true) }
                                     if (right != null && top != null && bottom != null && p.x in right..(right + 26f * density) && p.y in top..bottom) {
-                                        vm.pickingList = true
+                                        if (totals) vm.totalMenu = !vm.totalMenu else vm.pickingList = true
                                         return@detectTapGestures
                                     }
                                 }
@@ -704,8 +706,8 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
                 drawFormulaRefs(refs, c, ::fixedX, ::fixedY, density)
             }
         }
-        // the drop-down beside the active cell when it has a validation list
-        if (vm.validation?.items?.isNotEmpty() == true && !vm.editing) {
+        // the drop-down beside the active cell when it has a validation list or is in a total row
+        if ((vm.validation?.items?.isNotEmpty() == true || vm.tableInfo?.totalColumn != null) && !vm.editing) {
             val sel = vm.selection
             val right = sel?.let { colEdge(it.activeCol, true) }
             val top = sel?.let { rowEdge(it.activeRow, false) }
@@ -865,6 +867,28 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
         val mid = (tl.x.coerceIn(rowHeaderW, size.width) + br.x.coerceIn(rowHeaderW, size.width)) / 2
         val x = (mid - menuSize.width / 2).coerceIn(0f, (size.width - menuSize.width).coerceAtLeast(0f))
         CellMenu(vm, Modifier.onSizeChanged { menuSize = it }.offset { androidx.compose.ui.unit.IntOffset(x.toInt(), y.coerceAtLeast(0f).toInt()) })
+    }
+    // a total row's functions, from its drop-down: beside the cell, as the phone app lists them
+    if (vm.totalMenu && vm.tableInfo?.totalColumn != null && !vm.editing) {
+        val sel = vm.selection
+        val right = sel?.let { colEdge(it.activeCol, true) }
+        val top = sel?.let { rowEdge(it.activeRow, false) }
+        val bottom = sel?.let { rowEdge(it.activeRow, true) }
+        if (right != null && top != null && bottom != null) {
+            var menuSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+            val x = right.coerceIn(0f, (size.width - menuSize.width).coerceAtLeast(0f))
+            val y = ((top + bottom) / 2 - menuSize.height / 2).coerceIn(colHeaderH, (size.height - menuSize.height).coerceAtLeast(colHeaderH))
+            TotalFunctionMenu(vm, Modifier.onSizeChanged { menuSize = it }.offset { androidx.compose.ui.unit.IntOffset(x.toInt(), y.toInt()) })
+        }
+    }
+    // a table just made: whether its first row is headers, in a box just under that row
+    vm.tablePrompt?.let { prompt ->
+        val r = vm.tableInfo?.range ?: return@let
+        val left = colEdge(r.firstCol, false)
+        val below = rowEdge(r.firstRow, true)
+        if (left != null && below != null && below < size.height) {
+            TableHeadersPrompt(vm, prompt.third, Modifier.offset { androidx.compose.ui.unit.IntOffset((left + 31f * density).toInt(), below.toInt()) })
+        }
     }
     }
 }

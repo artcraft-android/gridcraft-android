@@ -47,6 +47,33 @@ pub fn specs() -> Vec<CommandSpec> {
             insert_copied_cells
         ),
         cmd!("home.deleteCells", "Delete Cells…", ["Home", "Cells", "Delete"], None, "{range?, shift: left|up|row|column}", has_doc, delete_cells),
+        cmd!(
+            "table.insert",
+            "Insert Table Rows or Columns",
+            ["Table"],
+            None,
+            "{where: above|below|left|right}: a row or column of cells across the table at the active cell (the sheet's cells beside it stay put); one just past its last data row or column joins the table",
+            has_doc,
+            table_insert
+        ),
+        cmd!(
+            "table.deleteRows",
+            "Delete Table Rows",
+            ["Table"],
+            None,
+            "{}: the table's cells in the selected rows; the total row turns the total row off, the header row can't go",
+            has_doc,
+            |s, _| table_delete_lines(s, Axis::Rows)
+        ),
+        cmd!(
+            "table.deleteColumns",
+            "Delete Table Columns",
+            ["Table"],
+            None,
+            "{}: the table's cells in the selected columns; all of them delete the table",
+            has_doc,
+            |s, _| table_delete_lines(s, Axis::Cols)
+        ),
         cmd!("home.insertSheet", "Insert Sheet", ["Home", "Cells", "Insert"], Some("Shift+F11"), "{name?, before?: index}", has_doc, insert_sheet),
         cmd!("home.deleteSheet", "Delete Sheet", ["Home", "Cells", "Delete"], None, "{sheet?}", has_doc, delete_sheet),
         cmd!("sheet.rename", "Rename Sheet", ["Home", "Cells", "Format"], None, "{sheet?, name}", has_doc, rename_sheet),
@@ -521,6 +548,136 @@ fn delete_cells(s: &mut Session, p: &Json) -> Result<Json> {
     })?;
     cancel_copy_mode(s);
     Ok(out)
+}
+
+/// The table the active cell is in on the active sheet: its sheet and a copy of it.
+fn active_table(s: &Session, id: &str) -> Result<(usize, gridcraft_model::Table)> {
+    let d = s.doc()?;
+    let si = d.wb.active_sheet;
+    let sh = d.wb.sheet(si).ok_or(EngineError::NoDocument)?;
+    let t = sh.tables.iter().find(|t| t.range.contains(d.selection.active));
+    let t = t.ok_or_else(|| EngineError::Disabled(id.into(), "select a cell in a table".into()))?;
+    Ok((si, t.clone()))
+}
+
+/// The Table tab's Insert Row Above / Below and Insert Column Left / Right: cells across the
+/// table only, shifted down or right. A row put just under the last data row, or a column just
+/// past the last one (or before the first), joins the table, as the phone app's do.
+fn table_insert(s: &mut Session, p: &Json) -> Result<Json> {
+    let (si, t) = active_table(s, "table.insert")?;
+    let c = s.doc()?.selection.active;
+    let tr = t.range;
+    let last_data = tr.end.row - t.totals_row as u32;
+    let (axis, at) = match str_param(p, "where").unwrap_or("above") {
+        "above" => {
+            if t.header_row && c.row == tr.start.row {
+                return Err(EngineError::Other("A table row can't go above its header row.".into()));
+            }
+            (Axis::Rows, c.row)
+        }
+        // in the total row the new row goes above it: the total row stays the table's last
+        "below" => (Axis::Rows, (c.row + 1).min(last_data + 1)),
+        "left" => (Axis::Cols, c.col),
+        "right" => (Axis::Cols, c.col + 1),
+        other => return Err(bad("table.insert", format!("unknown `where`: {other} (above, below, left or right)"))),
+    };
+    if (axis == Axis::Rows && tr.end.row + 1 >= MAX_ROWS) || (axis == Axis::Cols && tr.end.col + 1 >= MAX_COLS) {
+        return Err(EngineError::Other("To prevent possible loss of data, cells can't be pushed off the end of the worksheet.".into()));
+    }
+    let range = match axis {
+        Axis::Rows => RangeRef::new(CellRef::new(at, tr.start.col), CellRef::new(at, tr.end.col)),
+        Axis::Cols => RangeRef::new(CellRef::new(tr.start.row, at), CellRef::new(tr.end.row, at)),
+    };
+    let e = Edit::InsertCells { axis, range };
+    if let Some(sh) = s.doc()?.wb.sheet(si) {
+        check_table_shift(sh, &e)?;
+    }
+    let out = edit(s, |cx| {
+        let name = cx.wb.sheet(si).map(|s| s.name.clone()).unwrap_or_default();
+        let sh = cx.sheet_mut(si)?;
+        match axis {
+            Axis::Rows => sh.cells.shift_rows_in_cols(range.start.col, range.end.col, at, 1),
+            Axis::Cols => sh.cells.shift_cols_in_rows(range.start.row, range.end.row, at, 1),
+        }
+        shift_cell_features(sh, &e);
+        // cells put at the table's first row or column, or just past its last, move it rather
+        // than grow it: take them in
+        if let Some(t) = sh.tables.iter_mut().find(|x| x.id == t.id) {
+            match axis {
+                Axis::Rows if at == tr.start.row => t.range.start.row = at,
+                Axis::Rows if at == tr.end.row + 1 => t.range.end.row = at,
+                Axis::Cols if at == tr.start.col || at == tr.end.col + 1 => {
+                    let idx = if at == tr.start.col { 0 } else { t.columns.len() };
+                    if at == tr.start.col {
+                        t.range.start.col = at;
+                    } else {
+                        t.range.end.col = at;
+                    }
+                    let mut n = t.columns.len();
+                    let name = loop {
+                        n += 1;
+                        let name = format!("Column{n}");
+                        if !t.columns.iter().any(|c| c.name.eq_ignore_ascii_case(&name)) {
+                            break name;
+                        }
+                    };
+                    let col = gridcraft_model::TableColumn {
+                        name,
+                        totals: Default::default(),
+                        totals_label: None,
+                        formula: None,
+                        unique_name: None,
+                        xml: None,
+                    };
+                    t.columns.insert(idx, col);
+                }
+                _ => {}
+            }
+        }
+        rewrite(&mut cx.wb, &name, &e);
+        cx.structural = true;
+        Ok(Json::Null)
+    })?;
+    cancel_copy_mode(s);
+    Ok(out)
+}
+
+/// The Table tab's Delete Rows and Delete Columns: the table's cells in the selected rows (or
+/// columns), the cells under (or right of) them moving up (or left) across the table only.
+fn table_delete_lines(s: &mut Session, axis: Axis) -> Result<Json> {
+    let id = if axis == Axis::Rows { "table.deleteRows" } else { "table.deleteColumns" };
+    let (_, t) = active_table(s, id)?;
+    let sel = s.doc()?.selection.current();
+    let tr = t.range;
+    let range = match axis {
+        Axis::Rows => {
+            let (r0, r1) = (sel.start.row.max(tr.start.row), sel.end.row.min(tr.end.row));
+            if t.header_row && r0 == tr.start.row {
+                return Err(EngineError::Other("A table's header row can't be deleted.".into()));
+            }
+            if t.totals_row && r1 == tr.end.row {
+                // the total row goes as the Total Row switch takes it away
+                if r0 == r1 {
+                    return s.execute("table.totalRow", json!({"on": false}));
+                }
+                return Err(EngineError::Other("Turn Total Row off to delete the total row.".into()));
+            }
+            // a table keeps a row: without its header, deleting every row deletes it
+            if !t.header_row && t.data_range().is_some_and(|d| r0 <= d.start.row && r1 >= d.end.row) {
+                return s.execute("table.delete", json!({}));
+            }
+            RangeRef::new(CellRef::new(r0, tr.start.col), CellRef::new(r1, tr.end.col))
+        }
+        Axis::Cols => {
+            let (c0, c1) = (sel.start.col.max(tr.start.col), sel.end.col.min(tr.end.col));
+            if c0 == tr.start.col && c1 == tr.end.col {
+                return s.execute("table.delete", json!({}));
+            }
+            RangeRef::new(CellRef::new(tr.start.row, c0), CellRef::new(tr.end.row, c1))
+        }
+    };
+    let shift = if axis == Axis::Rows { "up" } else { "left" };
+    s.execute("home.deleteCells", json!({"range": range.a1(), "shift": shift}))
 }
 
 /// Insert Copied Cells / Insert Cut Cells: makes room at the destination, then pastes (or, for a

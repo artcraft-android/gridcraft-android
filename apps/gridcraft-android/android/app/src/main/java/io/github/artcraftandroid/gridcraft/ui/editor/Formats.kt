@@ -577,6 +577,35 @@ internal fun AltTextPanel(vm: AppViewModel) {
     }
 }
 
+/**
+ * A table's Alt Text, laid out as an object's: marked decorative while it has no description, as
+ * the phone app shows a table; the box takes a description once that is unticked.
+ */
+@Composable
+internal fun TableAltTextPanel(vm: AppViewModel) {
+    val t = vm.tableInfo ?: return
+    var text by remember(t.name) { mutableStateOf(t.altText) }
+    var decorative by remember(t.name) { mutableStateOf(t.altText.isEmpty()) }
+    val latest by androidx.compose.runtime.rememberUpdatedState(if (decorative) "" else text)
+    androidx.compose.runtime.DisposableEffect(t.name) { onDispose { if (latest != t.altText) vm.command("table.altText", json("text" to latest)) } }
+    Scrolling {
+        Text("Describe this object for screen readers.", color = GridColors.OnSurface, fontSize = 15.sp, modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp))
+        BasicTextField(
+            text,
+            { text = it.take(4000) },
+            enabled = !decorative,
+            textStyle = TextStyle(color = if (decorative) GridColors.Disabled else GridColors.OnSurface, fontSize = 16.sp),
+            cursorBrush = SolidColor(GridColors.Accent),
+            modifier = Modifier.padding(16.dp, 6.dp).fillMaxWidth().height(136.dp).border(1.dp, GridColors.Divider).padding(8.dp),
+        )
+        Box(Modifier.fillMaxWidth().height(1.dp).background(GridColors.Divider))
+        Row(Modifier.fillMaxWidth().height(48.dp).clickable { decorative = !decorative }.padding(start = 4.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Checkbox(checked = decorative, onCheckedChange = { decorative = it })
+            Text("Mark as decorative", color = GridColors.OnSurface, fontSize = 16.sp)
+        }
+    }
+}
+
 // ---- Function help ----
 
 /** A function's help page: its name, its arguments, what it does. */
@@ -678,32 +707,39 @@ private val CHART_FAMILIES: List<Triple<String, String, List<Pair<String?, List<
     ),
 )
 
-/** The page name of a chart family's gallery. */
+/** The page name of a chart family's gallery, and of one changing the selected chart's type. */
 internal const val CHART_FAMILY = "chartFamily:"
+internal const val CHART_TYPE_FAMILY = "chartTypeFamily:"
 
-/** Insert › Chart: the families, each opening its gallery. */
+/**
+ * Insert › Chart: the families, each opening its gallery; the Chart tab's Type ([change]):
+ * Recommended, then the same families, their tiles changing the chart's type.
+ */
 @Composable
-internal fun ChartFamiliesPanel(vm: AppViewModel) {
+internal fun ChartFamiliesPanel(vm: AppViewModel, change: Boolean = false) {
     Scrolling {
-        for ((name, icon, _) in CHART_FAMILIES) PaletteRow(name, Glyph.Chart(icon), onClick = { vm.pushPanel(CHART_FAMILY + name) }, chevron = true, iconTint = GridColors.OnSurface)
+        if (change) PaletteRow("Recommended", Glyph.Chart("column"), onClick = { vm.pushPanel("chartTypeRecommended") }, chevron = true, iconTint = GridColors.OnSurface)
+        for ((name, icon, _) in CHART_FAMILIES) {
+            PaletteRow(name, Glyph.Chart(icon), onClick = { vm.pushPanel((if (change) CHART_TYPE_FAMILY else CHART_FAMILY) + name) }, chevron = true, iconTint = GridColors.OnSurface)
+        }
     }
 }
 
 /** A chart family's gallery: a preview of each kind, two to a row, under their bands. */
 @Composable
-internal fun ChartGalleryPanel(vm: AppViewModel, family: String) {
+internal fun ChartGalleryPanel(vm: AppViewModel, family: String, change: Boolean = false) {
     val sections = CHART_FAMILIES.firstOrNull { it.first == family }?.third ?: return
     Scrolling {
         for ((band, kinds) in sections) {
             if (band != null) SectionBand(band)
-            ChartTiles(vm, kinds)
+            ChartTiles(vm, kinds, change)
         }
     }
 }
 
-/** Preview tiles, two to a row; a tap inserts that kind of chart over the selection. */
+/** Preview tiles, two to a row; a tap inserts that kind of chart over the selection, or ([change]) makes the selected chart that kind. */
 @Composable
-internal fun ChartTiles(vm: AppViewModel, kinds: List<Pair<String, String>>) {
+internal fun ChartTiles(vm: AppViewModel, kinds: List<Pair<String, String>>, change: Boolean = false) {
     Column(Modifier.padding(18.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
         for (row in kinds.chunked(2)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
@@ -713,7 +749,7 @@ internal fun ChartTiles(vm: AppViewModel, kinds: List<Pair<String, String>>) {
                         val sub = kind.substringAfter('|', "")
                         val p = org.json.JSONObject().put("type", type)
                         if (sub.isNotEmpty()) p.put("subtype", sub)
-                        vm.insertObject("insert.chart", p.toString())
+                        if (change) vm.chartCommand("chart.changeType", p) else vm.insertObject("insert.chart", p.toString())
                     }
                 }
                 if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -734,6 +770,127 @@ private fun ChartTile(vm: AppViewModel, kind: String, modifier: Modifier, onClic
         nc.scale(size.width / w, size.height / h)
         for (p in prims) drawPrim(nc, p)
         nc.restore()
+    }
+}
+
+/**
+ * Chart › Color, as the phone app's page: a strip of the six colours each palette gives six
+ * series, Colorful then Monochromatic; the chart's own on a frame.
+ */
+@Composable
+internal fun ChartColorsPanel(vm: AppViewModel) {
+    LaunchedEffect(vm.selectedObject?.id) {
+        vm.loadChartPalettes()
+        vm.loadChartInfo()
+    }
+    val current = vm.chartInfo?.palette
+    @Composable
+    fun Strips(list: List<io.github.artcraftandroid.gridcraft.core.ChartPalette>) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            for (p in list) {
+                Box(
+                    Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 2.dp, vertical = 2.dp)
+                        .then(if (p.id == current) Modifier.border(2.dp, GridColors.Accent) else Modifier)
+                        .clickable { vm.chartCommand("chart.changeColors", org.json.JSONObject().put("palette", p.param)) }
+                        .semantics { contentDescription = p.name },
+                ) {
+                    Row(Modifier.fillMaxSize().padding(if (p.id == current) 2.dp else 0.dp)) {
+                        for (c in p.colors) Box(Modifier.weight(1f).fillMaxHeight().background(Color(c)))
+                    }
+                }
+            }
+        }
+    }
+    Scrolling {
+        SectionBand("Colorful")
+        Strips(vm.chartPalettes.filter { it.id <= 13.toUShort() })
+        SectionBand("Monochromatic")
+        Strips(vm.chartPalettes.filter { it.id > 13.toUShort() })
+    }
+}
+
+// ---- Table Styles ----
+
+/**
+ * Table Styles, as the phone app's gallery: no style first, then the Light, Medium and Dark
+ * styles under their bands, seven to a row, each a small table of its look (the header, banded
+ * rows, the first and last columns and the total row); the table's own style on a frame.
+ */
+@Composable
+internal fun TableStylesPanel(vm: AppViewModel) {
+    LaunchedEffect(Unit) { vm.loadTableStyles() }
+    val current = vm.tableInfo?.style
+    @Composable
+    fun Rows(styles: List<io.github.artcraftandroid.gridcraft.core.TableStylePreview>) {
+        // as the phone app lays them out: slots 18 dp in from the sides and the bands, a small table
+        // in the middle of each, the table's own style on a slot filled green
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp)) {
+            for (row in styles.chunked(7)) {
+                Row(Modifier.fillMaxWidth()) {
+                    for (st in row) {
+                        Box(
+                            Modifier.weight(1f).height(52.dp)
+                                .background(if (st.name == current) GridColors.Accent else Color.Transparent)
+                                .clickable { vm.command("table.style", json("style" to st.name)) }
+                                .semantics { contentDescription = tableStyleName(st.name) },
+                            contentAlignment = Alignment.Center,
+                        ) { TableStyleTile(st, Modifier.size(48.dp, 36.dp)) }
+                    }
+                    repeat(7 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+    val styles = vm.tableStyles
+    Scrolling {
+        SectionBand("Light")
+        Rows(styles.filter { it.name.isEmpty() || it.name.startsWith("TableStyleLight") })
+        SectionBand("Medium")
+        Rows(styles.filter { it.name.startsWith("TableStyleMedium") })
+        SectionBand("Dark")
+        Rows(styles.filter { it.name.startsWith("TableStyleDark") })
+    }
+}
+
+/** What a screen reader says for a table style: "Table Style Medium 2", or "None". */
+private fun tableStyleName(name: String): String =
+    if (name.isEmpty()) "None" else "Table Style " + name.removePrefix("TableStyle").replace(Regex("(\\d+)$"), " $1")
+
+/**
+ * A table style's tile: its sample's five rows of five cells, each in its fill with a dash of its
+ * text colour for the text, and its lines; a white edge along the right and bottom, as the phone
+ * app draws them.
+ */
+@Composable
+private fun TableStyleTile(st: io.github.artcraftandroid.gridcraft.core.TableStylePreview, modifier: Modifier) {
+    Canvas(modifier) {
+        val cw = size.width / 5
+        val ch = size.height / 5
+        val px = 1.dp.toPx()
+        fun width(e: io.github.artcraftandroid.gridcraft.core.Edge) = when (e.stroke) {
+            io.github.artcraftandroid.gridcraft.core.Stroke.MEDIUM, io.github.artcraftandroid.gridcraft.core.Stroke.MEDIUM_DASHED,
+            io.github.artcraftandroid.gridcraft.core.Stroke.MEDIUM_DASH_DOT, io.github.artcraftandroid.gridcraft.core.Stroke.MEDIUM_DASH_DOT_DOT,
+            io.github.artcraftandroid.gridcraft.core.Stroke.SLANT_DASH_DOT -> 1.5f * px
+            io.github.artcraftandroid.gridcraft.core.Stroke.THICK, io.github.artcraftandroid.gridcraft.core.Stroke.DOUBLE -> 2f * px
+            else -> px
+        }
+        drawRect(Color.White)
+        st.cells.forEachIndexed { i, c ->
+            val x = (i % 5) * cw
+            val y = (i / 5) * ch
+            c.fill?.let { drawRect(Color(it), Offset(x, y), Size(cw, ch)) }
+            drawLine(Color(c.text), Offset(x + cw * 0.3f, y + ch / 2), Offset(x + cw * 0.7f, y + ch / 2), px)
+        }
+        st.cells.forEachIndexed { i, c ->
+            val x = (i % 5) * cw
+            val y = (i / 5) * ch
+            c.top?.let { drawLine(Color(it.color), Offset(x, y), Offset(x + cw, y), width(it)) }
+            c.bottom?.let { drawLine(Color(it.color), Offset(x, y + ch), Offset(x + cw, y + ch), width(it)) }
+            c.left?.let { drawLine(Color(it.color), Offset(x, y), Offset(x, y + ch), width(it)) }
+            c.right?.let { drawLine(Color(it.color), Offset(x + cw, y), Offset(x + cw, y + ch), width(it)) }
+        }
+        drawLine(Color.White, Offset(size.width - px / 2, 0f), Offset(size.width - px / 2, size.height), px)
+        drawLine(Color.White, Offset(0f, size.height - px / 2), Offset(size.width, size.height - px / 2), px)
     }
 }
 

@@ -93,6 +93,9 @@ pub struct Table {
     /// The connection (`xl/connections.xml`) an XML table is bound through.
     #[serde(default)]
     pub connection_id: Option<u32>,
+    /// What a screen reader says for the table (Alt Text; `x14:table altText` in the file).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub alt_text: String,
 }
 
 impl Table {
@@ -607,6 +610,10 @@ pub struct ChartElements {
     /// A table of the values under the plot, with legend keys (`c:dTable`).
     #[serde(default)]
     pub data_table: bool,
+    /// The Color page's palette (`cs:colorStyle id`, see [`crate::chart_palette`]), 0 for the
+    /// automatic one: the colours of series without their own.
+    #[serde(default)]
+    pub palette: u16,
 }
 
 impl ChartElements {

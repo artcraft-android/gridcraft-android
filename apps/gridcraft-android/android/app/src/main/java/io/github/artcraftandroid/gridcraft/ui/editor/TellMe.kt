@@ -103,7 +103,10 @@ internal val TELL_ME_ITEMS: List<TellMeItem> = listOf(
     page("Number Format", "Home", "numberFormat", LucideIcons.Hash.glyph(), "currency percentage date time accounting general"),
     cmd("Increase Decimal", "Home", "home.increaseDecimal", null, "decimal places"),
     cmd("Decrease Decimal", "Home", "home.decreaseDecimal", null, "decimal places round"),
-    page("Format as Table", "Home", "formatAsTable", LucideIcons.TableProperties.glyph(), "table style banded rows"),
+    TellMeItem("Format as Table", "Home", LucideIcons.TableProperties.glyph(), "table style banded rows") { vm ->
+        vm.showTab("Home")
+        vm.makeTable("home.formatAsTable")
+    },
     TellMeItem("Cards View", "Home", LucideIcons.GalleryVerticalEnd.glyph(), "table rows records") { it.openCards() },
     page("Insert & Delete", "Home", "insertDelete", LucideIcons.Table.glyph(), "add remove rows columns cells"),
     cmd("Insert Rows", "Home", "home.insertCells", null, "add row", """{"shift": "row"}"""),
@@ -130,7 +133,10 @@ internal val TELL_ME_ITEMS: List<TellMeItem> = listOf(
     cmd("Filter", "Home", "data.filter", LucideIcons.Funnel.glyph(), "autofilter"),
     TellMeItem("Find", "Home", LucideIcons.Search.glyph(), "search look for") { it.openFind() },
     away("Select Range", "Home", LucideIcons.SquareDashedMousePointer.glyph(), "go to reference jump") { it.dialog = "goTo" },
-    away("Table", "Insert", LucideIcons.Table.glyph(), "list range") { it.proposeTable() },
+    TellMeItem("Table", "Insert", LucideIcons.Table.glyph(), "list range") { vm ->
+        vm.showTab("Insert")
+        vm.makeTable("insert.table")
+    },
     page("Pictures", "Insert", "pictures", LucideIcons.Image.glyph(), "photo image camera"),
     page("Shapes", "Insert", "shapes", LucideIcons.Shapes.glyph(), "rectangle oval arrow line"),
     TellMeItem("Text Box", "Insert", LucideIcons.Type.glyph()) { it.insertShape("textBox") },

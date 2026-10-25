@@ -521,9 +521,17 @@ pub fn write_sheet(wb: &Workbook, si: usize, selected: bool, out: &mut Out) -> (
                 out.part(&format!("xl/charts/_rels/chartEx{n}.xml.rels"), None, crels.xml().into_bytes());
                 drels.add_uri(crate::chartex::REL_CHARTEX, &format!("../charts/chartEx{n}.xml"))
             } else {
-                let name = format!("xl/charts/chart{}.xml", out.charts);
+                let n = out.charts;
+                let name = format!("xl/charts/chart{n}.xml");
                 out.part(&name, Some(CT_CHART), crate::chart::write_chart(wb, si, ch).into_bytes());
-                drels.add("chart", &format!("../charts/chart{}.xml", out.charts))
+                // a palette picked on the Color page goes in a colour part, as the reference keeps it
+                if let Some(xml) = crate::chart::colors_xml(ch.elements.palette) {
+                    out.part(&format!("xl/charts/colors{n}.xml"), Some(crate::chartex::CT_COLORS), xml.into_bytes());
+                    let mut crels = Rels::default();
+                    crels.add_uri(crate::chartex::REL_COLORS, &format!("colors{n}.xml"));
+                    out.part(&format!("xl/charts/_rels/chart{n}.xml.rels"), None, crels.xml().into_bytes());
+                }
+                drels.add("chart", &format!("../charts/chart{n}.xml"))
             };
             objs.push(Obj::Chart(ch, rid));
         }
@@ -1105,16 +1113,24 @@ fn table_xml(t: &Table, cols: &[String], name: &str, id: u32, out: &mut Out) -> 
         s.push_str("</tableColumn>");
     }
     s.push_str("</tableColumns>");
-    let style = if t.style.is_empty() { "TableStyleMedium2" } else { &t.style };
+    // no style (the gallery's None) has no name
+    let name = if t.style.is_empty() { String::new() } else { format!(" name=\"{}\"", esc_attr(&t.style)) };
     let _ = write!(
         s,
-        "<tableStyleInfo name=\"{}\" showFirstColumn=\"{}\" showLastColumn=\"{}\" showRowStripes=\"{}\" showColumnStripes=\"{}\"/></table>",
-        esc_attr(style),
-        t.first_col as u8,
-        t.last_col as u8,
-        t.banded_rows as u8,
-        t.banded_cols as u8
+        "<tableStyleInfo{name} showFirstColumn=\"{}\" showLastColumn=\"{}\" showRowStripes=\"{}\" showColumnStripes=\"{}\"/></table>",
+        t.first_col as u8, t.last_col as u8, t.banded_rows as u8, t.banded_cols as u8
     );
+    // Alt Text, where the file format keeps a table's: in an extension after the style info
+    if !t.alt_text.is_empty() {
+        let at = s.len() - "</table>".len();
+        s.insert_str(
+            at,
+            &format!(
+                "<extLst><ext uri=\"{{504A1905-F514-4f6f-8877-14C23A59335A}}\" xmlns:x14=\"http://schemas.microsoft.com/office/spreadsheetml/2009/9/main\"><x14:table altText=\"{}\"/></ext></extLst>",
+                esc_attr(&t.alt_text)
+            ),
+        );
+    }
     s
 }
 

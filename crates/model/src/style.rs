@@ -64,6 +64,12 @@ pub fn apply_tint(rgb: [u8; 3], tint: f64) -> [u8; 3] {
     hsl_to_rgb(h, s, l.clamp(0.0, 1.0))
 }
 
+/// `rgb` with its HSL luminance changed by `f` (DrawingML's `lumMod` and `lumOff`).
+pub fn with_luminance(rgb: [u8; 3], f: impl Fn(f64) -> f64) -> [u8; 3] {
+    let (h, s, l) = rgb_to_hsl(rgb);
+    hsl_to_rgb(h, s, f(l).clamp(0.0, 1.0))
+}
+
 fn rgb_to_hsl([r, g, b]: [u8; 3]) -> (f64, f64, f64) {
     let (r, g, b) = (r as f64 / 255.0, g as f64 / 255.0, b as f64 / 255.0);
     let max = r.max(g).max(b);

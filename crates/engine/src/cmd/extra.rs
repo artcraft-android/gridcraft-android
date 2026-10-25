@@ -25,7 +25,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Change Colors",
             ["Chart Design", "Chart Styles"],
             None,
-            "{chart?, palette: colorful|monochrome|accent1..accent6 | colors: [hex…]}",
+            "{chart?, palette: colorful1..colorful4|monochromatic1..monochromatic13 (the Color page's palettes; colorful, monochrome and accent1..accent6 as before) | colors: [hex…]}",
             has_doc,
             change_colors
         ),
@@ -459,20 +459,33 @@ fn quick_layout(s: &mut Session, p: &Json) -> Result<Json> {
 fn change_colors(s: &mut Session, p: &Json) -> Result<Json> {
     let explicit: Option<Vec<Color>> =
         p.get("colors").and_then(Json::as_array).map(|a| a.iter().filter_map(|c| c.as_str().and_then(Color::from_hex)).collect());
-    let palette = str_param(p, "palette").unwrap_or("colorful").to_string();
+    let palette = str_param(p, "palette").unwrap_or("colorful1");
+    let number = |prefix: &str| palette.strip_prefix(prefix).and_then(|n| n.parse::<u16>().ok());
+    // the Color page's palettes by the numbers files give them (Colorful 1 is the automatic one)
+    let id = match palette {
+        "colorful" => 10,
+        "monochrome" => 14,
+        _ => match (number("colorful"), number("monochromatic"), number("accent")) {
+            (Some(n @ 1..=4), _, _) => 9 + n,
+            (_, Some(n @ 1..=13), _) => 13 + n,
+            (_, _, Some(n @ 1..=6)) => 13 + n,
+            _ => return Err(bad("chart.changeColors", format!("unknown palette `{palette}`"))),
+        },
+    };
     with_chart(s, p, |c| {
-        for (i, se) in c.series.iter_mut().enumerate() {
-            se.color = match &explicit {
-                Some(cols) if !cols.is_empty() => cols.get(i % cols.len()).copied(),
-                _ => match palette.as_str() {
-                    "monochrome" => Some(Color::Theme(4, (-400 + (i as i16 * 200)).clamp(-800, 800))),
-                    p if p.starts_with("accent") => {
-                        let k: u8 = p.trim_start_matches("accent").parse().unwrap_or(1);
-                        Some(Color::Theme(3 + k.clamp(1, 6), (-500 + i as i16 * 250).clamp(-800, 800)))
-                    }
-                    _ => None,
-                },
-            };
+        match &explicit {
+            Some(cols) if !cols.is_empty() => {
+                for (i, se) in c.series.iter_mut().enumerate() {
+                    se.color = cols.get(i % cols.len()).copied();
+                }
+            }
+            // a palette recolours every series, as the reference's Color page does
+            _ => {
+                c.elements.palette = if id == gridcraft_model::chart_palette::AUTOMATIC { 0 } else { id };
+                for se in c.series.iter_mut() {
+                    se.color = None;
+                }
+            }
         }
         Ok(())
     })

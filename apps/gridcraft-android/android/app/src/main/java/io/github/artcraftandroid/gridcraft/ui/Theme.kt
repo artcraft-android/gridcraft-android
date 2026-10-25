@@ -89,6 +89,15 @@ object GridColors {
     val Section get() = pick(0xFFE6E6E6, 0xFF404040)
     val Pressed get() = pick(0xFFD2D2D2, 0xFF303030)
 
+    /** The box of a prompt's tick box (the headers prompt under a new table). */
+    val TickBox get() = pick(0xFFC8C8C8, 0xFF444444)
+
+    /** A list popped up over the sheet (a total row's functions): its dark title, its light rows, the chosen one. */
+    val MenuTitle = Color(0xFF212121)
+    val OnMenuTitle = Color(0xFFE1E1E1)
+    val OnMenu = Color(0xFF505050)
+    val MenuChosen = Color(0xFFD2D2D2)
+
     /**
      * The grid: cells, gridlines, the headers and their lines, a header in the selection. The
      * sheet stays light in the dark theme, as the phone app keeps it; only its headers go dark.

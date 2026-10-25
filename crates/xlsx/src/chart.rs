@@ -312,6 +312,8 @@ pub fn read_chart(root: &El) -> Option<Chart> {
         // a stock chart always has its high-low lines; only a line chart's are a choice
         high_low_lines: groups.iter().any(|(g, k)| *k != ChartKind::Stock && g.child("hiLowLines").is_some()),
         data_table: plot.child("dTable").is_some(),
+        // the colour part beside the chart part says which (see the drawing reader)
+        palette: 0,
     };
     Some(Chart {
         depth,
@@ -568,7 +570,50 @@ fn str_data(tag: &str, f: &str, wb: &Workbook, si: usize) -> String {
     s
 }
 
-fn series_xml(s: &Series, idx: usize, g: G, err: Option<ErrorAmount>, bubble3d: bool, wb: &Workbook, si: usize) -> String {
+/// The colour part for a palette picked on the Color page (`None` for the automatic one): its
+/// colours, how it uses them, and the changes it makes once each has been used.
+pub fn colors_xml(palette: u16) -> Option<String> {
+    use gridcraft_model::chart_palette::{self, ColorMod};
+    let (slot, _) = chart_palette::series_color(palette, 0, 1).filter(|_| palette != chart_palette::AUTOMATIC)?;
+    let mut s = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>
+<cs:colorStyle xmlns:cs=\"http://schemas.microsoft.com/office/drawing/2012/chartStyle\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" meth=\"{}\" id=\"{palette}\">",
+        match palette {
+            14..=19 => "withinLinear",
+            21..=26 => "withinLinearReversed",
+            _ => "cycle",
+        }
+    );
+    match palette {
+        11..=13 => {
+            for i in 0..3 {
+                let (slot, _) = chart_palette::series_color(palette, i, 3)?;
+                s.push_str(&chart_palette::scheme_xml(slot, &[]));
+            }
+        }
+        _ => s.push_str(&chart_palette::scheme_xml(slot, &[])),
+    }
+    // the cycle's variations: the colourful ones vary each colour in turn, the grey one its tints
+    let variations: Vec<Vec<ColorMod>> = match palette {
+        11..=13 => (0..9).filter_map(|k| chart_palette::series_color(palette, k * 3, 27).map(|c| c.1)).collect(),
+        20 => (0..7).filter_map(|k| chart_palette::series_color(palette, k, 7).map(|c| c.1)).collect(),
+        _ => vec![],
+    };
+    for v in variations {
+        if v.is_empty() {
+            s.push_str("<cs:variation/>");
+        } else {
+            let inner = chart_palette::scheme_xml(0, &v);
+            let mods = inner.trim_start_matches("<a:schemeClr val=\"lt1\">").trim_end_matches("</a:schemeClr>");
+            let _ = write!(s, "<cs:variation>{mods}</cs:variation>");
+        }
+    }
+    s.push_str("</cs:colorStyle>");
+    Some(s)
+}
+
+/// `auto`: the colour of the chart's palette for this series, written when it has none of its own.
+fn series_xml(s: &Series, idx: usize, g: G, err: Option<ErrorAmount>, bubble3d: bool, auto: Option<String>, wb: &Workbook, si: usize) -> String {
     let mut x = format!("<c:ser><c:idx val=\"{idx}\"/><c:order val=\"{idx}\"/>");
     if let Some(n) = &s.name {
         if is_ref(n) {
@@ -578,7 +623,7 @@ fn series_xml(s: &Series, idx: usize, g: G, err: Option<ErrorAmount>, bubble3d: 
             let _ = write!(x, "<c:tx><c:v>{}</c:v></c:tx>", esc(lit));
         }
     }
-    let color = s.color.as_ref().and_then(|c: &Color| srgb(c, &wb.theme));
+    let color = s.color.as_ref().and_then(|c: &Color| srgb(c, &wb.theme)).or(auto);
     let line_like = matches!(g, G::Line { .. } | G::Radar { filled: false, .. } | G::Scatter { lines: true, .. });
     match (&color, line_like) {
         (Some(c), true) => {
@@ -746,7 +791,16 @@ fn err_bars_xml(e: ErrorAmount, g: G) -> String {
 fn group_xml(g: G, series: &[(usize, &Series)], ch: &Chart, axes: (u32, u32), wb: &Workbook, si: usize) -> String {
     let el = &ch.elements;
     let bubble3d = ch.depth != Depth::Flat;
-    let sers: String = series.iter().map(|(i, s)| series_xml(s, *i, g, el.error_bars, bubble3d, wb, si)).collect();
+    // a palette picked on the Color page: each series' colour as the theme colour it is made from,
+    // as the reference writes it (charts coloured by point keep theirs)
+    let count = ch.series.len();
+    let auto = |i: usize| {
+        (el.palette != 0 && !matches!(g, G::Pie | G::OfPie { .. } | G::Doughnut))
+            .then(|| gridcraft_model::chart_palette::series_color(el.palette, i, count))
+            .flatten()
+            .map(|(slot, mods)| gridcraft_model::chart_palette::scheme_xml(slot, &mods))
+    };
+    let sers: String = series.iter().map(|(i, s)| series_xml(s, *i, g, el.error_bars, bubble3d, auto(*i), wb, si)).collect();
     let dl = dlbls(ch.data_labels, label_pos_xml(el.label_pos, g));
     // drop lines, high-low lines and up/down bars, in the order CT_LineChart has them
     let drop = if el.drop_lines { "<c:dropLines/>" } else { "" };

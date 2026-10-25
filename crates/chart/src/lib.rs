@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 pub use axis::{Scale, format_number, nice_scale};
 pub use raster::rasterize;
 pub use render::{Swatch, legend_entries, render, supports_trendline};
-pub use resolve::{default_palette, resolve, series_color, series_plot_kind};
+pub use resolve::{default_palette, palette_color, resolve, series_color, series_plot_kind};
 pub use sparkline::render_sparkline;
 
 /// Straight (non-premultiplied) RGBA colour.

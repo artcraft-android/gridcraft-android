@@ -7,6 +7,7 @@
 mod b64;
 pub mod cell;
 mod cellmap;
+pub mod chart_palette;
 pub mod features;
 pub mod password;
 pub mod preserved;

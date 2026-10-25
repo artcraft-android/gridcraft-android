@@ -713,29 +713,6 @@ fun EditorDialog(vm: AppViewModel) {
                 dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
             )
         }
-        "table" -> {
-            val (range, guess) = vm.tableProposal ?: return
-            var header by remember { mutableStateOf(guess) }
-            AlertDialog(
-                onDismissRequest = { vm.dialog = null },
-                title = { Text("Insert Table") },
-                text = {
-                    Column {
-                        Text(range, color = GridColors.OnSurface, fontSize = 16.sp)
-                        Row(Modifier.fillMaxWidth().padding(top = 8.dp).clickable { header = !header }, verticalAlignment = Alignment.CenterVertically) {
-                            androidx.compose.material3.Checkbox(
-                                checked = header,
-                                onCheckedChange = { header = it },
-                                colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = GridColors.Accent),
-                            )
-                            Text("My table has headers", color = GridColors.OnSettings, fontSize = 16.sp)
-                        }
-                    }
-                },
-                confirmButton = { TextButton(onClick = { vm.insertTable(range, header) }) { Text("OK") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
-            )
-        }
         "comment" -> {
             var text by remember { mutableStateOf("") }
             AlertDialog(
@@ -1168,19 +1145,96 @@ fun ListSuggestions(vm: AppViewModel) {
     }
 }
 
-/** The aggregate bar over the formula bar: Average, Count and Sum of a selection of several cells. */
+/**
+ * A total row's functions, as the phone app lists them from the cell's drop-down: a dark title
+ * over a white list (the function the cell has lit) that scrolls past five or so.
+ */
+@Composable
+fun TotalFunctionMenu(vm: AppViewModel, modifier: Modifier = Modifier) {
+    val current = vm.tableInfo?.totalFunction.orEmpty()
+    Column(modifier.width(190.dp).shadow(6.dp)) {
+        Box(Modifier.fillMaxWidth().height(47.dp).background(GridColors.MenuTitle).padding(start = 16.dp), contentAlignment = Alignment.CenterStart) {
+            Text("Total Function", color = GridColors.OnMenuTitle, fontSize = 19.sp)
+        }
+        // opened with the cell's own function in view, at the bottom, as the phone app scrolls it
+        val scroll = rememberScrollState()
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        LaunchedEffect(current) {
+            val i = TOTAL_FUNCTIONS.indexOfFirst { it.second == current }
+            if (i >= 0) scroll.scrollTo(with(density) { ((i + 1) * 32 - 170).dp.roundToPx() }.coerceAtLeast(0))
+        }
+        Column(Modifier.fillMaxWidth().heightIn(max = 170.dp).background(GridColors.Cells).verticalScroll(scroll)) {
+            for ((label, fn) in TOTAL_FUNCTIONS) {
+                Box(
+                    Modifier.fillMaxWidth().height(32.dp).background(if (fn == current) GridColors.MenuChosen else GridColors.Cells).clickable { vm.setTotalFunction(fn) }.padding(start = 16.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text(label, color = GridColors.OnMenu, fontSize = 17.sp, maxLines = 1)
+                }
+            }
+        }
+    }
+}
+
+/** A total row's functions as the phone app names them, with what `table.totalFunction` takes. */
+private val TOTAL_FUNCTIONS = listOf(
+    "Average" to "average",
+    "Count Items" to "count",
+    "Count Numbers" to "countNums",
+    "Maximum Value" to "max",
+    "Minimum Value" to "min",
+    "Sum" to "sum",
+    "Standard Deviation" to "stdDev",
+    "Variance" to "var",
+)
+
+/** Under a table just made: a tick box saying its first row is headers; unticked, it gets a header row of its own. */
+@Composable
+fun TableHeadersPrompt(vm: AppViewModel, on: Boolean, modifier: Modifier = Modifier) {
+    Row(
+        modifier.height(47.dp).shadow(4.dp).background(GridColors.StatusBand).clickable { vm.setTableHeaders(!on) }.padding(start = 20.dp, end = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(20.dp).background(GridColors.TickBox, RoundedCornerShape(2.dp)), contentAlignment = Alignment.Center) {
+            if (on) GlyphIcon(LucideIcons.Check.glyph(), GridColors.OnSettings, size = 16.dp)
+        }
+        Spacer(Modifier.width(10.dp))
+        Text("Table has headers", color = GridColors.OnSettings, fontSize = 17.sp)
+    }
+}
+
+/** Whether the selection's figures show in the formula bar's place: several cells, something in them. */
+fun showsAggregates(vm: AppViewModel): Boolean = !vm.editing && (vm.stats?.count ?: 0uL) > 0uL
+
+/**
+ * The selection's figures in the formula bar's place, as the phone app shows them for several
+ * cells: Sum, Average, Count, Numerical Count, Maximum and Minimum as chips in a row that
+ * scrolls; with no numbers, only Count.
+ */
 @Composable
 fun AggregateBar(vm: AppViewModel) {
     val st = vm.stats ?: return
-    if (st.count == 0uL) return
-    Row(Modifier.fillMaxWidth().height(32.dp).background(GridColors.TabBar).topEdge(GridColors.BarEdge).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Spacer(Modifier.weight(1f))
-        if (st.average.isNotEmpty()) Text("Average: ${st.average}", color = GridColors.OnBar, fontSize = 13.sp, maxLines = 1)
-        Spacer(Modifier.width(16.dp))
-        Text("Count: ${st.count}", color = GridColors.OnBar, fontSize = 13.sp, maxLines = 1)
-        if (st.sum.isNotEmpty()) {
-            Spacer(Modifier.width(16.dp))
-            Text("Sum: ${st.sum}", color = GridColors.OnBar, fontSize = 13.sp, maxLines = 1)
+    val chips = buildList {
+        if (st.numeric > 0uL) {
+            add("Sum: ${st.sum}")
+            add("Average: ${st.average}")
+        }
+        add("Count: ${st.count}")
+        if (st.numeric > 0uL) {
+            add("Numerical Count: ${st.numeric}")
+            add("Maximum: ${st.max}")
+            add("Minimum: ${st.min}")
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().height(40.dp).background(GridColors.FormulaFill).topEdge(GridColors.BarEdge).horizontalScroll(rememberScrollState()).padding(horizontal = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(5.dp),
+    ) {
+        for (c in chips) {
+            Box(Modifier.height(29.dp).background(GridColors.Pressed, RoundedCornerShape(2.dp)).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+                Text(c, color = GridColors.OnSettings, fontSize = 15.sp, maxLines = 1)
+            }
         }
     }
 }

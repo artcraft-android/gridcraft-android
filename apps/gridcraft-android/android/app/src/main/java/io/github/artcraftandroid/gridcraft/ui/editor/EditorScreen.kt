@@ -51,8 +51,8 @@ fun EditorScreen(vm: AppViewModel) {
         return
     }
     Column(Modifier.fillMaxSize().background(GridColors.StatusBand).statusBarsPadding().navigationBarsPadding().imePadding()) {
-        // typing in a shape hides the header, as the phone app does
-        if (vm.findOpen) FindBar(vm) else if (vm.editingShapeText == null && !vm.cropping) EditorHeader(vm)
+        // typing in a shape hides the header, as the phone app does, and so does the open palette
+        if (vm.findOpen) FindBar(vm) else if (vm.editingShapeText == null && !vm.cropping && !vm.paletteOpen) EditorHeader(vm)
         val formulaBar = vm.showFormulaBar || vm.editing
         Box(Modifier.weight(1f).fillMaxWidth()) {
             GridView(vm, Modifier.fillMaxSize())
@@ -79,12 +79,12 @@ fun EditorScreen(vm: AppViewModel) {
         } else if (vm.commentsOpen && !vm.paletteOpen) {
             CommentsPane(vm)
         } else if (vm.paletteOpen) {
-            if (formulaBar) FormulaBar(vm)
+            // several cells: their figures take the formula bar's place
+            if (showsAggregates(vm)) AggregateBar(vm) else if (formulaBar) FormulaBar(vm)
             PaletteSheet(vm, Modifier.fillMaxWidth().height(PALETTE_HEIGHT))
         } else {
             if (vm.comment != null && !vm.editing) CommentCard(vm) else if (!vm.editing) InputMessage(vm)
-            AggregateBar(vm)
-            if (formulaBar) FormulaBar(vm)
+            if (showsAggregates(vm)) AggregateBar(vm) else if (formulaBar) FormulaBar(vm)
             // typing, the keyboard takes the command bar's place
             if (!vm.editing) {
                 if (vm.sheetsBar) SheetsBar(vm) else CommandBar(vm)
