@@ -2,4 +2,12 @@
 <resources>
     <string name="app_name">GridCraft</string>
     <string name="open_with">Open in GridCraft</string>
+    <string name="ui_language">Language</string>
+    <string name="ui_rectangles">Rectangles</string>
+    <string name="ui_basic_shapes">Basic Shapes</string>
+    <string name="ui_block_arrows">Block Arrows</string>
+    <string name="ui_equation_shapes">Equation Shapes</string>
+    <string name="ui_flowchart">Flowchart</string>
+    <string name="ui_stars_and_banners">Stars and Banners</string>
+    <string name="ui_callouts">Callouts</string>
 </resources>

@@ -213,6 +213,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "chrono"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "cipher"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -429,7 +438,7 @@ dependencies = [
 
 [[package]]
 name = "gridcraft-android"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "android_logger",
  "gridcraft-chart",
@@ -442,14 +451,14 @@ dependencies = [
 
 [[package]]
 name = "gridcraft-android-bindgen"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "uniffi",
 ]
 
 [[package]]
 name = "gridcraft-calc"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "gridcraft-core",
  "gridcraft-formula",
@@ -461,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "gridcraft-chart"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "gridcraft-calc",
  "gridcraft-core",
@@ -472,8 +481,9 @@ dependencies = [
 
 [[package]]
 name = "gridcraft-core"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
+ "chrono",
  "js-sys",
  "serde",
  "serde_json",
@@ -482,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "gridcraft-engine"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "gridcraft-calc",
  "gridcraft-chart",
@@ -503,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "gridcraft-formula"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "gridcraft-core",
  "serde",
@@ -512,7 +522,7 @@ dependencies = [
 
 [[package]]
 name = "gridcraft-functions"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "gridcraft-core",
  "regex",
@@ -520,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "gridcraft-model"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "gridcraft-core",
  "gridcraft-formula",
@@ -532,18 +542,18 @@ dependencies = [
 
 [[package]]
 name = "gridcraft-numfmt"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "gridcraft-core",
 ]
 
 [[package]]
 name = "gridcraft-pdf"
-version = "0.10.0"
+version = "0.12.1"
 
 [[package]]
 name = "gridcraft-xlsx"
-version = "0.10.0"
+version = "0.12.1"
 dependencies = [
  "aes",
  "gridcraft-core",

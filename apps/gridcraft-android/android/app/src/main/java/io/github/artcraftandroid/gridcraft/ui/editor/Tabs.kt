@@ -1,5 +1,8 @@
 package io.github.artcraftandroid.gridcraft.ui.editor
 
+import androidx.compose.ui.res.stringResource
+import io.github.artcraftandroid.gridcraft.R
+import io.github.artcraftandroid.gridcraft.ui.uiText
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
@@ -10,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -41,6 +45,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 
 /** The titles of the palette's pages. */
 internal val PANEL_TITLES = mapOf(
+    "pasteName" to "Paste Names",
     "font" to "Font",
     "size" to "Font Size",
     "borders" to "Borders",
@@ -106,6 +111,8 @@ internal val PANEL_TITLES = mapOf(
     "borderColor" to "Line Color",
     "pictureReset" to "Reset",
     "pivotLayout" to "Layout Options",
+    "outlineSettings" to "Outline Settings",
+    "pivotOptions" to "PivotTable Options",
     "pivotStyles" to "Quick Styles",
     "textDirection" to "Text Direction",
     "numberNegatives" to "Number",
@@ -150,7 +157,7 @@ private fun HomeTab(vm: AppViewModel) {
             Box(Modifier.weight(1f).height(ROW).clickable { vm.pushPanel("font") }.padding(start = 16.dp), contentAlignment = androidx.compose.ui.Alignment.CenterStart) {
                 // the theme's body font is named as such
                 val body = vm.themeFonts.getOrNull(1)?.takeIf { it.equals(f?.font, ignoreCase = true) }
-                Text(f?.font?.let { if (body != null) "$it (Body)" else it } ?: "Font", color = GridColors.OnSurface, fontSize = 16.sp, maxLines = 1)
+                Text(f?.font?.let { if (body != null) stringResource(R.string.body_font, it) else it } ?: "Font", color = GridColors.OnSurface, fontSize = 16.sp, maxLines = 1)
             }
             Box(Modifier.height(ROW).clickable { vm.pushPanel("size") }.padding(horizontal = 24.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
                 Text(sizeLabel(f?.size ?: 11f), color = GridColors.OnSurface, fontSize = 16.sp)
@@ -253,7 +260,7 @@ private fun DrawTab(vm: AppViewModel) {
             ) {
                 GlyphIcon(LucideIcons.Plus.glyph(), GridColors.Accent, size = 24.dp)
                 androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
-                Text("Add", color = GridColors.OnSurface, fontSize = 16.sp)
+                Text(uiText("Add"), color = GridColors.OnSurface, fontSize = 16.sp)
                 androidx.compose.foundation.layout.Spacer(Modifier.width(12.dp))
                 GlyphIcon(LucideIcons.ChevronRight.glyph(), GridColors.OnStrip, size = 20.dp)
             }
@@ -316,6 +323,7 @@ private fun FormulasTab(vm: AppViewModel) {
             PaletteRow(label, icon.glyph(), onClick = { vm.pushPanel("fn:$cat") }, chevron = true)
         }
         Band()
+        PaletteRow("Paste Names", LucideIcons.ClipboardPaste.glyph(), onClick = vm::showPasteNames, chevron = true)
         PaletteRow("Calculate Now", LucideIcons.Calculator.glyph(), onClick = { vm.command("formulas.calculateNow") })
     }
 }
@@ -323,6 +331,8 @@ private fun FormulasTab(vm: AppViewModel) {
 @Composable
 private fun DataTab(vm: AppViewModel) {
     Scrolling {
+        PaletteRow("Convert to Number", LucideIcons.Hash.glyph(), onClick = { vm.command("formulas.convertToNumber") })
+        PaletteRow("Outline Settings", LucideIcons.Settings.glyph(), onClick = { vm.pushPanel("outlineSettings") }, chevron = true)
         PaletteRow("Show Detail", LucideIcons.Plus.glyph(), onClick = { vm.command("data.showDetail") })
         PaletteRow("Hide Detail", LucideIcons.Minus.glyph(), onClick = { vm.command("data.hideDetail") })
     }
@@ -348,13 +358,13 @@ private fun ViewTab(vm: AppViewModel) {
     Scrolling {
         // Sheet View: shared views of a workbook in the cloud; the phone app greys them signed out,
         // as GridCraft always is
-        Text("Sheet View", color = GridColors.Disabled, fontSize = 13.sp, modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp))
+        Text(uiText("Sheet View"), color = GridColors.Disabled, fontSize = 13.sp, modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 2.dp))
         // the current view's name, at the left edge like a field
         androidx.compose.foundation.layout.Row(
             Modifier.fillMaxWidth().height(ROW + 1.dp).background(GridColors.Surface).bottomEdge(GridColors.Divider).padding(start = 16.dp, end = 15.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         ) {
-            Text("Default", color = GridColors.Disabled, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            Text(uiText("Default"), color = GridColors.Disabled, fontSize = 16.sp, modifier = Modifier.weight(1f))
             GlyphIcon(LucideIcons.ChevronRight.glyph(), GridColors.Disabled, size = 20.dp)
         }
         PaletteRow("Keep", LucideIcons.Save.glyph(), onClick = {}, enabled = false)
@@ -365,6 +375,8 @@ private fun ViewTab(vm: AppViewModel) {
         CheckPaletteRow("Formula Bar", vm.showFormulaBar) { vm.showFormulaBar = !vm.showFormulaBar }
         CheckPaletteRow("Gridlines", sv?.gridlines == true) { vm.command("view.gridlines", json("on" to (sv?.gridlines != true))) }
         CheckPaletteRow("Headings", sv?.headings == true) { vm.command("view.headings", json("on" to (sv?.headings != true))) }
+        CheckPaletteRow("Show Objects", sv?.showObjects != false) { vm.command("view.showObjects", json("on" to (sv?.showObjects == false))) }
+        CheckPaletteRow("Show Outline Symbols", sv?.showOutlineSymbols != false) { vm.command("view.showOutlineSymbols", json("on" to (sv?.showOutlineSymbols == false))) }
         CheckPaletteRow("Sheet Right-to-Left", sv?.rightToLeft == true) { vm.command("view.rightToLeft", json("on" to (sv?.rightToLeft != true))) }
         Band()
         PaletteRow("Zoom In", LucideIcons.ZoomIn.glyph(), onClick = { vm.zoom = (vm.zoom + 0.1f).coerceAtMost(4f) })
@@ -376,9 +388,9 @@ private fun ViewTab(vm: AppViewModel) {
 
 /** A setting's row with a tick box, as the View tab shows them. */
 @Composable
-private fun CheckPaletteRow(label: String, checked: Boolean, onClick: () -> Unit) {
+internal fun CheckPaletteRow(label: String, checked: Boolean, onClick: () -> Unit) {
     androidx.compose.foundation.layout.Row(
-        Modifier.fillMaxWidth().height(ROW + 1.dp).background(GridColors.Surface).bottomEdge(GridColors.Divider).clickable(onClick = onClick).padding(start = 16.dp),
+        Modifier.fillMaxWidth().heightIn(min = ROW + 1.dp).background(GridColors.Surface).bottomEdge(GridColors.Divider).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         Box(
@@ -386,7 +398,7 @@ private fun CheckPaletteRow(label: String, checked: Boolean, onClick: () -> Unit
             contentAlignment = androidx.compose.ui.Alignment.Center,
         ) { if (checked) GlyphIcon(LucideIcons.Check.glyph(), GridColors.Surface, size = 18.dp) }
         androidx.compose.foundation.layout.Spacer(Modifier.size(18.dp))
-        Text(label, color = GridColors.OnSurface, fontSize = 16.sp, maxLines = 1)
+        Text(uiText(label), color = GridColors.OnSurface, fontSize = 16.sp, maxLines = 2, modifier = Modifier.weight(1f))
     }
 }
 
@@ -407,6 +419,7 @@ internal fun PanelBody(vm: AppViewModel, panel: String) {
         return
     }
     when (panel) {
+        "pasteName" -> DefinedNamesPanel(vm)
         "font" -> Scrolling {
             LaunchedEffect(Unit) { vm.loadThemeFonts() }
             // the workbook theme's fonts first, headings then body (named as such)
@@ -497,7 +510,7 @@ internal fun PanelBody(vm: AppViewModel, panel: String) {
                 vm.dialog = "link"
             }, inset = false)
             if (vm.recentLinks.isEmpty()) {
-                Text("No items available.", color = GridColors.OnSurface, fontSize = 16.sp, modifier = Modifier.padding(16.dp))
+                Text(uiText("No items available."), color = GridColors.OnSurface, fontSize = 16.sp, modifier = Modifier.padding(16.dp))
             }
             for (url in vm.recentLinks) PaletteRow(url, LucideIcons.Link.glyph(), onClick = { vm.insertLink(url, "") })
         }
@@ -512,7 +525,7 @@ internal fun PanelBody(vm: AppViewModel, panel: String) {
         "recommendedCharts" -> Scrolling {
             LaunchedEffect(vm.selection) { vm.loadChartRecommendations() }
             if (vm.chartRecommendations.isEmpty()) {
-                Text("Select the data to chart.", color = GridColors.OnSurface, fontSize = 16.sp, modifier = Modifier.padding(16.dp))
+                Text(uiText("Select the data to chart."), color = GridColors.OnSurface, fontSize = 16.sp, modifier = Modifier.padding(16.dp))
             }
             ChartTiles(vm, vm.chartRecommendations.map { (label, type, sub) -> label to "$type|$sub" })
         }
@@ -673,6 +686,9 @@ internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
             ObjectRows(vm)
         }
         "Pivot Table" -> Scrolling {
+            LaunchedEffect(vm.info?.revision, vm.selection?.activeRow, vm.selection?.activeCol) { vm.loadPivotDetailsAvailability() }
+            PaletteRow("Show Details", LucideIcons.Table.glyph(), onClick = vm::showPivotDetails, enabled = vm.pivotInfo?.enableShowDetails == true && vm.pivotDetailsAvailable)
+            PaletteRow("PivotTable Options", LucideIcons.Settings.glyph(), onClick = { vm.pushPanel("pivotOptions") }, chevron = true)
             PaletteRow("Layout Options", LucideIcons.LayoutTemplate.glyph(), onClick = { vm.pushPanel("pivotLayout") }, chevron = true)
             PaletteRow("Quick Styles", LucideIcons.Paintbrush.glyph(), onClick = { vm.pushPanel("pivotStyles") }, chevron = true)
             Band()
@@ -713,6 +729,17 @@ private fun ObjectRows(vm: AppViewModel) {
 @Composable
 private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
     when (panel) {
+        "outlineSettings" -> Scrolling {
+            val view = vm.sheetView
+            CheckPaletteRow("Summary Rows Below Detail", view?.summaryBelow != false) { vm.command("data.outlineSettings", json("summaryBelow" to (view?.summaryBelow == false))) }
+            CheckPaletteRow("Summary Columns Right of Detail", view?.summaryRight != false) { vm.command("data.outlineSettings", json("summaryRight" to (view?.summaryRight == false))) }
+        }
+        "pivotOptions" -> Scrolling {
+            val pivot = vm.pivotInfo
+            if (pivot != null) CheckPaletteRow("Enable Show Details", pivot.enableShowDetails) {
+                vm.command("pivot.options", json("enableShowDetails" to !pivot.enableShowDetails))
+            }
+        }
         "pivotLayout" -> Scrolling {
             val pv = vm.pivotInfo
             SectionBand("Grand Totals")
@@ -814,13 +841,13 @@ private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                 ) {
                     androidx.compose.material3.Checkbox(on, onCheckedChange = { vm.command(id, json("on" to it)) }, colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = GridColors.Accent))
-                    Text(label, color = GridColors.OnSurface, fontSize = 16.sp)
+                    Text(uiText(label), color = GridColors.OnSurface, fontSize = 16.sp)
                 }
             }
         }
         "tableStyles" -> TableStyleGallery(vm, current = vm.tableInfo?.style) { style -> vm.command("table.style", json("style" to style)) }
         "chartStyle" -> Scrolling {
-            for (n in 1..8) ChoiceRow("Style $n", false, onClick = { vm.chartCommand("chart.set", org.json.JSONObject().put("style", n)) })
+            for (n in 1..8) ChoiceRow(stringResource(R.string.chart_style_number, n), false, onClick = { vm.chartCommand("chart.set", org.json.JSONObject().put("style", n)) })
         }
         "shapeFill" -> ColorGridPanel(vm, "No Fill") { c -> vm.setShapeFill(c) }
         "shapeOutline" -> ColorGridPanel(vm, "No Outline") { c -> vm.setShapeOutline(c) }
@@ -834,7 +861,7 @@ private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
         "cropPosition" -> CropPositionPanel(vm)
         "shapeStyles" -> ShapeStylesPanel(vm)
         "chartLayout" -> Scrolling {
-            for (n in 1..6) ChoiceRow("Layout $n", false, onClick = { vm.chartCommand("chart.quickLayout", org.json.JSONObject().put("layout", n)) })
+            for (n in 1..6) ChoiceRow(stringResource(R.string.chart_layout_number, n), false, onClick = { vm.chartCommand("chart.quickLayout", org.json.JSONObject().put("layout", n)) })
         }
         "chartElements" -> Scrolling {
             LaunchedEffect(vm.selectedObject?.id) { vm.loadChartInfo() }
@@ -922,7 +949,7 @@ private fun labelPositions(kind: String): List<Pair<String, String>> = when (kin
 private fun TableStyleGallery(vm: AppViewModel, current: String?, apply: (String) -> Unit) {
     LaunchedEffect(Unit) { vm.loadTableStyles() }
     androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
         modifier = Modifier.fillMaxSize().padding(8.dp),
     ) {
         items(vm.tableStyles.size) { i ->

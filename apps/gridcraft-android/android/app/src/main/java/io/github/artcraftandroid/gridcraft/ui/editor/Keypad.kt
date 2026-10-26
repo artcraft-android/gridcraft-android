@@ -41,6 +41,14 @@ private const val EMPHASIS = 2
  */
 @Composable
 fun Keypad(vm: AppViewModel) {
+    // Spreadsheet formulas and numeric keys retain their canonical left-to-right order.
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr,
+    ) { KeypadContent(vm) }
+}
+
+@Composable
+private fun KeypadContent(vm: AppViewModel) {
     var page by remember { mutableIntStateOf(0) }
     val sym = remember { DecimalFormatSymbols.getInstance() }
     val decimal = sym.decimalSeparator.toString()

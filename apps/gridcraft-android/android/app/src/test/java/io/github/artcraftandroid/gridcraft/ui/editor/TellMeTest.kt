@@ -43,4 +43,12 @@ class TellMeTest {
         val labels = TELL_ME_ITEMS.map { it.label }
         assertEquals(labels.size, labels.toSet().size)
     }
+
+    @Test
+    fun arabic_labels_and_english_aliases_find_the_same_commands() {
+        val labels = mapOf("Hide Rows" to "إخفاء الصفوف", "Unhide Rows" to "إظهار الصفوف", "Fill Color" to "لون التعبئة")
+        assertEquals(listOf("Hide Rows"), tellMeMatches("إخفاء", items, labels).map { it.label })
+        assertEquals(listOf("Fill Color"), tellMeMatches("لون التعبئة", items, labels).map { it.label })
+        assertEquals(listOf("Hide Rows", "Unhide Rows"), tellMeMatches("hide", items, labels).map { it.label })
+    }
 }

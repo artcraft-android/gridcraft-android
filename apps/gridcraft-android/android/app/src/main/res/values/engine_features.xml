@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="feature_paste_names">Paste Names</string>
+    <string name="feature_paste_list">Paste List</string>
+    <string name="feature_convert_to_number">Convert to Number</string>
+    <string name="feature_outline_settings">Outline Settings</string>
+    <string name="feature_show_objects">Show Objects</string>
+    <string name="feature_show_outline_symbols">Show Outline Symbols</string>
+    <string name="feature_summary_rows_below_detail">Summary Rows Below Detail</string>
+    <string name="feature_summary_columns_right_of_detail">Summary Columns Right of Detail</string>
+    <string name="feature_pivottable_options">PivotTable Options</string>
+    <string name="feature_show_details">Show Details</string>
+    <string name="feature_enable_show_details">Enable Show Details</string>
+    <string name="feature_this_workbook_has_no_defined_names">This workbook has no defined names.</string>
+    <string name="feature_choose_a_name_to_insert_into_the_formula">Choose a name to insert into the formula.</string>
+    <string name="feature_paste_list_writes_names_and_references_from_the_active_cell">Paste List writes names and references from the active cell.</string>
+</resources>

@@ -1101,6 +1101,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val list = e.view { objects() }
         objects = list
         selectedObject = selectedObject?.let { s -> list.firstOrNull { it.kind == s.kind && it.id == s.id } }
+        if (selectedObject == null) {
+            editingShapeText = null
+            cropping = false
+        }
         chartDrawings = list.filter { it.kind == "chart" }.associate { o ->
             o.index to e.view { chartPrims(o.index, o.width.toFloat(), o.height.toFloat()) }
         }
@@ -1290,6 +1294,50 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun command(id: String, params: String = "{}") = launchEngine { e ->
         e.command { execute(id, params) }
         refresh(e)
+    }
+
+    var definedNames by mutableStateOf(listOf<Pair<String, String>>())
+        private set
+
+    fun showPasteNames() = launchEngine { e ->
+        val result = org.json.JSONObject(e.command { execute("formulas.pasteName", "{}") }).getJSONArray("names")
+        definedNames = (0 until result.length()).map { i ->
+            val item = result.getJSONObject(i)
+            item.getString("name") to item.getString("refersTo")
+        }
+        if (paletteOpen) pushPanel("pasteName") else showPanel("Formulas", "pasteName")
+    }
+
+    fun pasteDefinedName(name: String) {
+        if (definedNames.none { it.first == name }) return
+        dialog = null
+        if (!editing) beginEdit("=")
+        if (!editing) return
+        editValue = io.github.artcraftandroid.gridcraft.ui.editor.insertDefinedName(editValue, name)
+        keypad = false
+        collapsePalette()
+    }
+
+    fun pasteDefinedNameList() {
+        if (editing || definedNames.isEmpty()) return
+        dialog = null
+        command("formulas.pasteName", "{\"list\":true}")
+        popPanel()
+    }
+
+    var pivotDetailsAvailable by mutableStateOf(false)
+        private set
+
+    fun loadPivotDetailsAvailability() = launchEngine { e ->
+        pivotDetailsAvailable = e.command { pivotCanShowDetails() }
+    }
+
+    fun showPivotDetails() = launchEngine { e ->
+        e.command { execute("pivot.showDetails", "{}") }
+        refresh(e)
+        collapsePalette()
+        paletteTab = "Home"
+        revealTick++
     }
 
     fun undo() = command("edit.undo")

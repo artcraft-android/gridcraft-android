@@ -1,11 +1,14 @@
 package io.github.artcraftandroid.gridcraft.ui.editor
 
+import io.github.artcraftandroid.gridcraft.ui.uiDescription
+import io.github.artcraftandroid.gridcraft.ui.uiText
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -77,7 +80,7 @@ internal fun BordersPanel(vm: AppViewModel) {
             Row(Modifier.fillMaxWidth().height(ROW + 1.dp).bottomEdge(GridColors.Divider)) {
                 for ((label, preset) in row) {
                     Box(
-                        Modifier.weight(1f).height(ROW).clickable { vm.applyBorder(preset) }.semantics { contentDescription = label },
+                        Modifier.weight(1f).height(ROW).clickable { vm.applyBorder(preset) }.uiDescription(label),
                         contentAlignment = Alignment.Center,
                     ) {
                         GlyphIcon(Glyph.Border(preset), GridColors.OnStrip, size = 26.dp)
@@ -111,12 +114,12 @@ internal fun LineStylePanel(vm: AppViewModel) {
                         vm.borderStyle = style
                         vm.popPanel()
                     }
-                    .semantics { contentDescription = label }
+                    .uiDescription(label)
                     .padding(horizontal = 30.dp, vertical = 2.5.dp),
             ) {
                 Box(Modifier.fillMaxSize().background(Color.White), contentAlignment = Alignment.Center) {
                     if (style == "none") {
-                        Text(label, color = GridColors.LineInk, fontSize = 19.sp)
+                        Text(uiText(label), color = GridColors.LineInk, fontSize = 19.sp)
                     } else {
                         Canvas(Modifier.fillMaxWidth().height(12.dp)) { lineSample(style) }
                     }
@@ -173,25 +176,28 @@ internal fun CellStylesPanel(vm: AppViewModel) {
         val e = vm.engine ?: return@LaunchedEffect
         tiles = e.view { cellStyleTiles(CELL_STYLE_GROUPS.flatMap { it.second }) }.associateBy { it.name }
     }
-    Scrolling {
-        for ((title, names) in CELL_STYLE_GROUPS) {
-            SectionBand(title)
-            Column(Modifier.padding(horizontal = 18.dp, vertical = 9.dp)) {
-                for (row in names.chunked(6)) {
-                    Row(Modifier.fillMaxWidth().height(52.dp)) {
-                        for (name in row) {
-                            val t = tiles[name]
-                            Box(
-                                Modifier.weight(1f).fillMaxHeight().padding(2.dp)
-                                    // the active cell's style sits in a band
-                                    .background(if (t?.chosen == true) GridColors.ChosenBand else Color.Transparent)
-                                    .clickable { vm.command("home.cellStyle", json("name" to name)) }.semantics { contentDescription = name },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (t != null) StyleTileBox(t, tileLabel(name))
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val columns = galleryColumns((maxWidth - 36.dp).value, 6, 56f)
+        Scrolling {
+            for ((title, names) in CELL_STYLE_GROUPS) {
+                SectionBand(title)
+                Column(Modifier.padding(horizontal = 18.dp, vertical = 9.dp)) {
+                    for (row in names.chunked(columns)) {
+                        Row(Modifier.fillMaxWidth().height(52.dp)) {
+                            for (name in row) {
+                                val t = tiles[name]
+                                Box(
+                                    Modifier.weight(1f).fillMaxHeight().padding(2.dp)
+                                        // the active cell's style sits in a band
+                                        .background(if (t?.chosen == true) GridColors.ChosenBand else Color.Transparent)
+                                        .clickable { vm.command("home.cellStyle", json("name" to name)) }.uiDescription(name),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (t != null) StyleTileBox(t, tileLabel(name))
+                                }
                             }
+                            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        repeat(6 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -382,7 +388,7 @@ internal fun CurrencyPanel(vm: AppViewModel) {
     Scrolling {
         SectionBand("Negative Numbers")
         for ((i, c) in cs.currencyCodes().withIndex()) SampleRow(cs.samples()[i], code == c, red = i % 2 == 1) { vm.setNumberCode(c) }
-        Text("Choose Symbol", color = GridColors.OnSurface, fontSize = 14.sp, modifier = Modifier.padding(start = 16.dp, top = 10.dp))
+        Text(uiText("Choose Symbol"), color = GridColors.OnSurface, fontSize = 14.sp, modifier = Modifier.padding(start = 16.dp, top = 10.dp))
         PaletteRow(cs.label, null, onClick = { vm.pushPanel("currencySymbols") }, chevron = true, inset = false)
         PaletteRow("More Symbols", null, onClick = { vm.pushPanel("moreSymbols:currency") }, chevron = true, inset = false)
     }
@@ -454,7 +460,7 @@ internal fun SpecialPanel(vm: AppViewModel) {
     val code = vm.format?.numberCode
     Scrolling {
         for ((label, c) in SPECIAL_FORMATS) SampleRow(label, code == c, end = false) { vm.setNumberCode(c) }
-        Text("Location", color = GridColors.OnSurface, fontSize = 14.sp, modifier = Modifier.padding(start = 16.dp, top = 10.dp))
+        Text(uiText("Location"), color = GridColors.OnSurface, fontSize = 14.sp, modifier = Modifier.padding(start = 16.dp, top = 10.dp))
         PaletteRow("English (United States)", null, onClick = {}, inset = false)
     }
 }
@@ -481,7 +487,7 @@ internal fun CellSizePanel(vm: AppViewModel) {
 private fun SizeField(label: String, current: String, onSet: (String) -> Unit) {
     var text by remember(current) { mutableStateOf(current) }
     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
-        Text(label, color = GridColors.OnSurface, fontSize = 15.sp)
+        Text(uiText(label), color = GridColors.OnSurface, fontSize = 15.sp)
         Row(Modifier.fillMaxWidth().padding(top = 4.dp).height(34.dp).border(1.dp, GridColors.Divider), verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(
                 text,
@@ -493,7 +499,7 @@ private fun SizeField(label: String, current: String, onSet: (String) -> Unit) {
                 keyboardActions = KeyboardActions(onDone = { onSet(text) }),
                 modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
             )
-            Box(Modifier.size(34.dp).clickable { text = "" }.semantics { contentDescription = "Clear" }, contentAlignment = Alignment.Center) {
+            Box(Modifier.size(34.dp).clickable { text = "" }.uiDescription("Clear"), contentAlignment = Alignment.Center) {
                 GlyphIcon(LucideIcons.X.glyph(), GridColors.OnStrip, size = 20.dp)
             }
         }
@@ -554,7 +560,7 @@ internal fun AltTextPanel(vm: AppViewModel) {
     val latest by androidx.compose.runtime.rememberUpdatedState(text)
     androidx.compose.runtime.DisposableEffect(o.kind, o.id) { onDispose { if (latest != o.alt) vm.setAltText(latest) } }
     Scrolling {
-        Text("Describe this object for screen readers.", color = GridColors.OnSurface, fontSize = 15.sp, modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp))
+        Text(uiText("Describe this object for screen readers."), color = GridColors.OnSurface, fontSize = 15.sp, modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 16.dp))
         androidx.compose.foundation.text.BasicTextField(
             text,
             { text = it.take(4000) },
@@ -570,7 +576,7 @@ internal fun AltTextPanel(vm: AppViewModel) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             androidx.compose.material3.Checkbox(checked = o.decorative, onCheckedChange = { vm.setDecorative(it, text) })
-            Text("Mark as decorative", color = GridColors.OnSurface, fontSize = 16.sp)
+            Text(uiText("Mark as decorative"), color = GridColors.OnSurface, fontSize = 16.sp)
         }
     }
 }
@@ -706,7 +712,7 @@ internal fun ChartTiles(vm: AppViewModel, kinds: List<Pair<String, String>>) {
         for (row in kinds.chunked(2)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
                 for ((label, kind) in row) {
-                    ChartTile(vm, kind, Modifier.weight(1f).semantics { contentDescription = label }) {
+                    ChartTile(vm, kind, Modifier.weight(1f).uiDescription(label)) {
                         val type = kind.substringBefore('|')
                         val sub = kind.substringAfter('|', "")
                         val p = org.json.JSONObject().put("type", type)
@@ -814,8 +820,13 @@ internal fun ShapeStylesPanel(vm: AppViewModel) {
     // row spread across, 4 dp apart
     @Composable
     fun Rows(rows: List<List<String>>) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            for (keys in rows) StyleRow(keys, ::look) { vm.applyShapeStyle(it) }
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp)) {
+            val columns = galleryColumns(maxWidth.value, 7, 44f, 4f)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (keys in rows) {
+                    for (row in keys.chunked(columns)) StyleRow(row, columns, ::look) { vm.applyShapeStyle(it) }
+                }
+            }
         }
     }
     Scrolling {
@@ -830,12 +841,12 @@ internal fun ShapeStylesPanel(vm: AppViewModel) {
 
 /** A row of seven style tiles: a rounded square in the style's fill and outline, "Abc" in its text colour. */
 @Composable
-private fun StyleRow(keys: List<String>, look: (String) -> TileLook, onPick: (String) -> Unit) {
+private fun StyleRow(keys: List<String>, columns: Int, look: (String) -> TileLook, onPick: (String) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         for (key in keys) {
             val l = look(key)
-            Box(Modifier.weight(1f).height(52.dp).clickable { onPick(key) }.semantics { contentDescription = styleName(key) }, contentAlignment = Alignment.Center) {
-                Canvas(Modifier.size(44.dp)) {
+            Box(Modifier.weight(1f).height(52.dp).clickable { onPick(key) }.uiDescription(styleName(key)), contentAlignment = Alignment.Center) {
+                Canvas(Modifier.size(44.dp).padding(2.dp)) {
                     val r = androidx.compose.ui.geometry.CornerRadius(7.dp.toPx())
                     if (l.fill == null || l.fill.alpha < 1f) {
                         // a checkerboard: what shows through
@@ -859,6 +870,7 @@ private fun StyleRow(keys: List<String>, look: (String) -> TileLook, onPick: (St
                 Text("Abc", color = l.text, fontSize = 17.sp)
             }
         }
+        repeat((columns - keys.size).coerceAtLeast(0)) { Spacer(Modifier.weight(1f)) }
     }
 }
 
@@ -880,20 +892,22 @@ internal fun ShapesPanel(vm: AppViewModel, change: Boolean = false) {
     val label = bands.flatMap { it.shapes }.associate { it.kind to it.label } + RECENT_LABELS
     val recent = vm.recentShapes.mapNotNull { k -> label[k]?.let { it to k } }
     val all = listOf("Recent Shapes" to recent) + bands.map { b -> b.name to b.shapes.map { it.label to it.kind } }
-    val perRow = if (change) 5 else 8
-    Scrolling {
-        for ((band, tiles) in all) {
-            SectionBand(band)
-            Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                for (row in tiles.chunked(perRow)) {
-                    Row(Modifier.fillMaxWidth().height(57.dp)) {
-                        for ((label, kind) in row) {
-                            Box(
-                                Modifier.weight(1f).fillMaxHeight().clickable { if (change) vm.changeShape(kind) else vm.insertShape(kind) }.semantics { contentDescription = label },
-                                contentAlignment = Alignment.Center,
-                            ) { ShapeTile(vm, kind) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val perRow = galleryColumns((maxWidth - 36.dp).value, if (change) 5 else 8, 44f)
+        Scrolling {
+            for ((band, tiles) in all) {
+                SectionBand(band)
+                Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+                    for (row in tiles.chunked(perRow)) {
+                        Row(Modifier.fillMaxWidth().height(57.dp)) {
+                            for ((label, kind) in row) {
+                                Box(
+                                    Modifier.weight(1f).fillMaxHeight().clickable { if (change) vm.changeShape(kind) else vm.insertShape(kind) }.uiDescription(label),
+                                    contentAlignment = Alignment.Center,
+                                ) { ShapeTile(vm, kind) }
+                            }
+                            repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -905,12 +919,12 @@ internal fun ShapesPanel(vm: AppViewModel, change: Boolean = false) {
 @Composable
 private fun ShapeTile(vm: AppViewModel, kind: String) {
     if (kind == "textBox") {
-        Canvas(Modifier.size(40.dp)) { textBoxSample(GridColors.ShapeTileFill) }
+        Canvas(Modifier.size(40.dp).padding(2.dp)) { textBoxSample(GridColors.ShapeTileFill) }
         return
     }
     var pieces by remember(kind) { mutableStateOf<List<io.github.artcraftandroid.gridcraft.core.ShapePiece>>(emptyList()) }
     LaunchedEffect(kind) { pieces = vm.shapePreview(kind) }
-    Canvas(Modifier.size(44.dp)) {
+    Canvas(Modifier.size(44.dp).padding(2.dp)) {
         val k = size.width / io.github.artcraftandroid.gridcraft.ui.SHAPE_TILE
         drawPieces(pieces, 0f, 0f, k, k, GridColors.ShapeTileFill, GridColors.ShapeTileLine, 1.3f * density, openInk = GridColors.ShapeTileFill)
     }

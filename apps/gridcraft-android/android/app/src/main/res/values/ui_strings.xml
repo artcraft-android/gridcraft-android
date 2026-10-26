@@ -1,0 +1,610 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_home" formatted="false">Home</string>
+    <string name="ui_new" formatted="false">New</string>
+    <string name="ui_open" formatted="false">Open</string>
+    <string name="ui_recent" formatted="false">Recent</string>
+    <string name="ui_starred" formatted="false">Starred</string>
+    <string name="ui_settings" formatted="false">Settings</string>
+    <string name="ui_back" formatted="false">Back</string>
+    <string name="ui_cancel" formatted="false">Cancel</string>
+    <string name="ui_ok" formatted="false">OK</string>
+    <string name="ui_done" formatted="false">Done</string>
+    <string name="ui_close" formatted="false">Close</string>
+    <string name="ui_delete" formatted="false">Delete</string>
+    <string name="ui_remove" formatted="false">Remove</string>
+    <string name="ui_add" formatted="false">Add</string>
+    <string name="ui_save" formatted="false">Save</string>
+    <string name="ui_save_as" formatted="false">Save As</string>
+    <string name="ui_share" formatted="false">Share</string>
+    <string name="ui_share_as_pdf" formatted="false">Share as PDF</string>
+    <string name="ui_print" formatted="false">Print</string>
+    <string name="ui_search" formatted="false">Search</string>
+    <string name="ui_find" formatted="false">Find</string>
+    <string name="ui_replace" formatted="false">Replace</string>
+    <string name="ui_replace_all" formatted="false">Replace All</string>
+    <string name="ui_browse" formatted="false">Browse</string>
+    <string name="ui_today" formatted="false">Today</string>
+    <string name="ui_yesterday" formatted="false">Yesterday</string>
+    <string name="ui_this_week" formatted="false">This week</string>
+    <string name="ui_earlier" formatted="false">Earlier</string>
+    <string name="ui_open_a_workbook" formatted="false">Open a workbook</string>
+    <string name="ui_workbooks_you_star_show_here" formatted="false">Workbooks you star show here.</string>
+    <string name="ui_workbooks_you_open_show_here" formatted="false">Workbooks you open show here.</string>
+    <string name="ui_remove_star" formatted="false">Remove Star</string>
+    <string name="ui_add_star" formatted="false">Add Star</string>
+    <string name="ui_remove_from_list" formatted="false">Remove from list</string>
+    <string name="ui_workbooks_on_this_phone_and_in_your_file_apps" formatted="false">Workbooks on this phone and in your file apps</string>
+    <string name="ui_blank_workbook" formatted="false">Blank workbook</string>
+    <string name="ui_household_budget" formatted="false">Household Budget</string>
+    <string name="ui_quarterly_sales" formatted="false">Quarterly Sales</string>
+    <string name="ui_gradebook" formatted="false">Gradebook</string>
+    <string name="ui_an_empty_sheet" formatted="false">An empty sheet</string>
+    <string name="ui_a_gridcraft_sample" formatted="false">A GridCraft sample</string>
+    <string name="ui_display_preferences" formatted="false">Display Preferences</string>
+    <string name="ui_theme" formatted="false">Theme</string>
+    <string name="ui_system_default" formatted="false">System Default</string>
+    <string name="ui_light" formatted="false">Light</string>
+    <string name="ui_dark" formatted="false">Dark</string>
+    <string name="ui_general" formatted="false">General</string>
+    <string name="ui_autosave" formatted="false">AutoSave</string>
+    <string name="ui_automatically_save_files" formatted="false">Automatically save files</string>
+    <string name="ui_about" formatted="false">About</string>
+    <string name="ui_open_material" formatted="false">Open material</string>
+    <string name="ui_on" formatted="false">On</string>
+    <string name="ui_off" formatted="false">Off</string>
+    <string name="ui_an_open_source_spreadsheet_for_android_built_on_the_gridcraft_engine_it_is_not_affiliated_with_or_endorsed_by_microsoft_excel_is_a_trademark_of_microsoft" formatted="false">An open-source spreadsheet for Android, built on the GridCraft engine. It is not affiliated with or endorsed by Microsoft; Excel is a trademark of Microsoft.</string>
+    <string name="ui_insert" formatted="false">Insert</string>
+    <string name="ui_draw" formatted="false">Draw</string>
+    <string name="ui_formulas" formatted="false">Formulas</string>
+    <string name="ui_data" formatted="false">Data</string>
+    <string name="ui_review" formatted="false">Review</string>
+    <string name="ui_view" formatted="false">View</string>
+    <string name="ui_table" formatted="false">Table</string>
+    <string name="ui_chart" formatted="false">Chart</string>
+    <string name="ui_shape" formatted="false">Shape</string>
+    <string name="ui_picture" formatted="false">Picture</string>
+    <string name="ui_pivottable" formatted="false">PivotTable</string>
+    <string name="ui_font" formatted="false">Font</string>
+    <string name="ui_font_size" formatted="false">Font Size</string>
+    <string name="ui_borders" formatted="false">Borders</string>
+    <string name="ui_fill_color" formatted="false">Fill Color</string>
+    <string name="ui_font_color" formatted="false">Font Color</string>
+    <string name="ui_cell_styles" formatted="false">Cell Styles</string>
+    <string name="ui_number_format" formatted="false">Number Format</string>
+    <string name="ui_insert_delete" formatted="false">Insert &amp; Delete</string>
+    <string name="ui_format_cell_size" formatted="false">Format Cell Size</string>
+    <string name="ui_clear" formatted="false">Clear</string>
+    <string name="ui_autosum" formatted="false">AutoSum</string>
+    <string name="ui_sort_filter" formatted="false">Sort &amp; Filter</string>
+    <string name="ui_freeze_panes" formatted="false">Freeze Panes</string>
+    <string name="ui_financial" formatted="false">Financial</string>
+    <string name="ui_logical" formatted="false">Logical</string>
+    <string name="ui_text" formatted="false">Text</string>
+    <string name="ui_date_time" formatted="false">Date &amp; Time</string>
+    <string name="ui_lookup_reference" formatted="false">Lookup &amp; Reference</string>
+    <string name="ui_math_trig" formatted="false">Math &amp; Trig</string>
+    <string name="ui_statistical" formatted="false">Statistical</string>
+    <string name="ui_engineering" formatted="false">Engineering</string>
+    <string name="ui_information" formatted="false">Information</string>
+    <string name="ui_database" formatted="false">Database</string>
+    <string name="ui_recently_used" formatted="false">Recently Used</string>
+    <string name="ui_recently_used_functions" formatted="false">Recently Used Functions</string>
+    <string name="ui_special" formatted="false">Special</string>
+    <string name="ui_compatibility" formatted="false">Compatibility</string>
+    <string name="ui_shapes" formatted="false">Shapes</string>
+    <string name="ui_date" formatted="false">Date</string>
+    <string name="ui_time" formatted="false">Time</string>
+    <string name="ui_currency" formatted="false">Currency</string>
+    <string name="ui_style" formatted="false">Style</string>
+    <string name="ui_fill" formatted="false">Fill</string>
+    <string name="ui_size" formatted="false">Size</string>
+    <string name="ui_alt_text" formatted="false">Alt Text</string>
+    <string name="ui_crop_picture" formatted="false">Crop Picture</string>
+    <string name="ui_picture_position" formatted="false">Picture Position</string>
+    <string name="ui_crop_position" formatted="false">Crop Position</string>
+    <string name="ui_outline" formatted="false">Outline</string>
+    <string name="ui_shape_styles" formatted="false">Shape Styles</string>
+    <string name="ui_change_shape" formatted="false">Change Shape</string>
+    <string name="ui_style_options" formatted="false">Style Options</string>
+    <string name="ui_table_styles" formatted="false">Table Styles</string>
+    <string name="ui_type" formatted="false">Type</string>
+    <string name="ui_layout" formatted="false">Layout</string>
+    <string name="ui_elements" formatted="false">Elements</string>
+    <string name="ui_colors" formatted="false">Colors</string>
+    <string name="ui_arrange" formatted="false">Arrange</string>
+    <string name="ui_pictures" formatted="false">Pictures</string>
+    <string name="ui_recommended" formatted="false">Recommended</string>
+    <string name="ui_recommended_charts" formatted="false">Recommended Charts</string>
+    <string name="ui_format_as_table" formatted="false">Format as Table</string>
+    <string name="ui_tab_color" formatted="false">Tab Color</string>
+    <string name="ui_styles" formatted="false">Styles</string>
+    <string name="ui_picture_effects" formatted="false">Picture Effects</string>
+    <string name="ui_more_colors" formatted="false">More Colors</string>
+    <string name="ui_pen" formatted="false">Pen</string>
+    <string name="ui_add_pen" formatted="false">Add Pen</string>
+    <string name="ui_accounting" formatted="false">Accounting</string>
+    <string name="ui_line_style" formatted="false">Line Style</string>
+    <string name="ui_line_color" formatted="false">Line Color</string>
+    <string name="ui_reset" formatted="false">Reset</string>
+    <string name="ui_layout_options" formatted="false">Layout Options</string>
+    <string name="ui_quick_styles" formatted="false">Quick Styles</string>
+    <string name="ui_text_direction" formatted="false">Text Direction</string>
+    <string name="ui_number" formatted="false">Number</string>
+    <string name="ui_place_over_cells" formatted="false">Place over Cells</string>
+    <string name="ui_link" formatted="false">Link</string>
+    <string name="ui_place_in_cell" formatted="false">Place in Cell</string>
+    <string name="ui_choose_symbol" formatted="false">Choose Symbol</string>
+    <string name="ui_more_symbols" formatted="false">More Symbols</string>
+    <string name="ui_merge_center" formatted="false">Merge &amp; Center</string>
+    <string name="ui_wrap_text" formatted="false">Wrap Text</string>
+    <string name="ui_bold" formatted="false">Bold</string>
+    <string name="ui_italic" formatted="false">Italic</string>
+    <string name="ui_underline" formatted="false">Underline</string>
+    <string name="ui_strikethrough" formatted="false">Strikethrough</string>
+    <string name="ui_align_left" formatted="false">Align Left</string>
+    <string name="ui_align_center" formatted="false">Align Center</string>
+    <string name="ui_align_right" formatted="false">Align Right</string>
+    <string name="ui_increase_indent" formatted="false">Increase Indent</string>
+    <string name="ui_decrease_indent" formatted="false">Decrease Indent</string>
+    <string name="ui_undo" formatted="false">Undo</string>
+    <string name="ui_redo" formatted="false">Redo</string>
+    <string name="ui_tell_me" formatted="false">Tell me</string>
+    <string name="ui_search_for_a_command" formatted="false">Search for a command</string>
+    <string name="ui_clear_search" formatted="false">Clear Search</string>
+    <string name="ui_suggested" formatted="false">Suggested</string>
+    <string name="ui_collapse_more_options" formatted="false">Collapse more options</string>
+    <string name="ui_more_options" formatted="false">More Options</string>
+    <string name="ui_draw_with_pen" formatted="false">Draw with Pen</string>
+    <string name="ui_draw_with_mouse_or_touch" formatted="false">Draw with Mouse or Touch</string>
+    <string name="ui_eraser" formatted="false">Eraser</string>
+    <string name="ui_sheet_tabs" formatted="false">Sheet Tabs</string>
+    <string name="ui_close_sheets_bar" formatted="false">Close Sheets Bar</string>
+    <string name="ui_keyboard" formatted="false">Keyboard</string>
+    <string name="ui_enter" formatted="false">Enter</string>
+    <string name="ui_pick_a_date_or_time" formatted="false">Pick a Date or Time</string>
+    <string name="ui_formula_bar" formatted="false">Formula Bar</string>
+    <string name="ui_gridlines" formatted="false">Gridlines</string>
+    <string name="ui_headings" formatted="false">Headings</string>
+    <string name="ui_zoom_in" formatted="false">Zoom In</string>
+    <string name="ui_zoom_out" formatted="false">Zoom Out</string>
+    <string name="ui_calculate_now" formatted="false">Calculate Now</string>
+    <string name="ui_show_detail" formatted="false">Show Detail</string>
+    <string name="ui_hide_detail" formatted="false">Hide Detail</string>
+    <string name="ui_show_comments" formatted="false">Show Comments</string>
+    <string name="ui_convert_all_notes" formatted="false">Convert All Notes</string>
+    <string name="ui_comment" formatted="false">Comment</string>
+    <string name="ui_comments" formatted="false">Comments</string>
+    <string name="ui_note" formatted="false">Note</string>
+    <string name="ui_checkbox" formatted="false">Checkbox</string>
+    <string name="ui_text_box" formatted="false">Text Box</string>
+    <string name="ui_cut" formatted="false">Cut</string>
+    <string name="ui_copy" formatted="false">Copy</string>
+    <string name="ui_paste" formatted="false">Paste</string>
+    <string name="ui_paste_special" formatted="false">Paste Special</string>
+    <string name="ui_select_all" formatted="false">Select All</string>
+    <string name="ui_select_range" formatted="false">Select Range</string>
+    <string name="ui_rename" formatted="false">Rename</string>
+    <string name="ui_duplicate" formatted="false">Duplicate</string>
+    <string name="ui_hide" formatted="false">Hide</string>
+    <string name="ui_unhide" formatted="false">Unhide</string>
+    <string name="ui_move" formatted="false">Move</string>
+    <string name="ui_move_left" formatted="false">Move Left</string>
+    <string name="ui_move_right" formatted="false">Move Right</string>
+    <string name="ui_protect_sheet" formatted="false">Protect Sheet</string>
+    <string name="ui_unprotect_sheet" formatted="false">Unprotect Sheet</string>
+    <string name="ui_protect_workbook" formatted="false">Protect Workbook</string>
+    <string name="ui_unprotect_workbook" formatted="false">Unprotect Workbook</string>
+    <string name="ui_password" formatted="false">Password</string>
+    <string name="ui_name" formatted="false">Name</string>
+    <string name="ui_range" formatted="false">Range</string>
+    <string name="ui_value" formatted="false">Value</string>
+    <string name="ui_formula" formatted="false">Formula</string>
+    <string name="ui_none" formatted="false">None</string>
+    <string name="ui_automatic" formatted="false">Automatic</string>
+    <string name="ui_all" formatted="false">All</string>
+    <string name="ui_custom" formatted="false">Custom</string>
+    <string name="ui_default" formatted="false">Default</string>
+    <string name="ui_top" formatted="false">Top</string>
+    <string name="ui_bottom" formatted="false">Bottom</string>
+    <string name="ui_left" formatted="false">Left</string>
+    <string name="ui_right" formatted="false">Right</string>
+    <string name="ui_center" formatted="false">Center</string>
+    <string name="ui_width" formatted="false">Width</string>
+    <string name="ui_height" formatted="false">Height</string>
+    <string name="ui_row_height" formatted="false">Row Height</string>
+    <string name="ui_column_width" formatted="false">Column Width</string>
+    <string name="ui_autofit_row_height" formatted="false">AutoFit Row Height</string>
+    <string name="ui_autofit_column_width" formatted="false">AutoFit Column Width</string>
+    <string name="ui_default_width" formatted="false">Default Width</string>
+    <string name="ui_hide_rows" formatted="false">Hide Rows</string>
+    <string name="ui_hide_columns" formatted="false">Hide Columns</string>
+    <string name="ui_unhide_rows" formatted="false">Unhide Rows</string>
+    <string name="ui_unhide_columns" formatted="false">Unhide Columns</string>
+    <string name="ui_insert_rows" formatted="false">Insert Rows</string>
+    <string name="ui_insert_columns" formatted="false">Insert Columns</string>
+    <string name="ui_delete_rows" formatted="false">Delete Rows</string>
+    <string name="ui_delete_columns" formatted="false">Delete Columns</string>
+    <string name="ui_delete_table" formatted="false">Delete Table</string>
+    <string name="ui_insert_rows_above" formatted="false">Insert Rows Above</string>
+    <string name="ui_insert_rows_below" formatted="false">Insert Rows Below</string>
+    <string name="ui_insert_columns_to_the_left" formatted="false">Insert Columns to the Left</string>
+    <string name="ui_insert_columns_to_the_right" formatted="false">Insert Columns to the Right</string>
+    <string name="ui_clear_all" formatted="false">Clear All</string>
+    <string name="ui_clear_formats" formatted="false">Clear Formats</string>
+    <string name="ui_clear_contents" formatted="false">Clear Contents</string>
+    <string name="ui_clear_comments" formatted="false">Clear Comments</string>
+    <string name="ui_clear_hyperlinks" formatted="false">Clear Hyperlinks</string>
+    <string name="ui_sort_ascending" formatted="false">Sort Ascending</string>
+    <string name="ui_sort_descending" formatted="false">Sort Descending</string>
+    <string name="ui_filter" formatted="false">Filter</string>
+    <string name="ui_reapply" formatted="false">Reapply</string>
+    <string name="ui_clear_filter" formatted="false">Clear Filter</string>
+    <string name="ui_sort_a_to_z" formatted="false">Sort A to Z</string>
+    <string name="ui_sort_z_to_a" formatted="false">Sort Z to A</string>
+    <string name="ui_sort_smallest_to_largest" formatted="false">Sort Smallest to Largest</string>
+    <string name="ui_sort_largest_to_smallest" formatted="false">Sort Largest to Smallest</string>
+    <string name="ui_filter_by_color" formatted="false">Filter by Color</string>
+    <string name="ui_sort_by_color" formatted="false">Sort by Color</string>
+    <string name="ui_freeze_top_row" formatted="false">Freeze Top Row</string>
+    <string name="ui_freeze_first_column" formatted="false">Freeze First Column</string>
+    <string name="ui_unfreeze_panes" formatted="false">Unfreeze Panes</string>
+    <string name="ui_left_to_right" formatted="false">Left-to-Right</string>
+    <string name="ui_right_to_left" formatted="false">Right-to-Left</string>
+    <string name="ui_context" formatted="false">Context</string>
+    <string name="ui_percentage" formatted="false">Percentage</string>
+    <string name="ui_fraction" formatted="false">Fraction</string>
+    <string name="ui_scientific" formatted="false">Scientific</string>
+    <string name="ui_decimal_places" formatted="false">Decimal places</string>
+    <string name="ui_negative_numbers" formatted="false">Negative numbers</string>
+    <string name="ui_use_1000_separator" formatted="false">Use 1000 Separator (,)</string>
+    <string name="ui_symbol" formatted="false">Symbol</string>
+    <string name="ui_no_fill" formatted="false">No Fill</string>
+    <string name="ui_no_color" formatted="false">No Color</string>
+    <string name="ui_no_border" formatted="false">No Border</string>
+    <string name="ui_all_borders" formatted="false">All Borders</string>
+    <string name="ui_outside_borders" formatted="false">Outside Borders</string>
+    <string name="ui_bottom_border" formatted="false">Bottom Border</string>
+    <string name="ui_top_border" formatted="false">Top Border</string>
+    <string name="ui_left_border" formatted="false">Left Border</string>
+    <string name="ui_right_border" formatted="false">Right Border</string>
+    <string name="ui_thick_box_border" formatted="false">Thick Box Border</string>
+    <string name="ui_theme_colors" formatted="false">Theme Colors</string>
+    <string name="ui_standard_colors" formatted="false">Standard Colors</string>
+    <string name="ui_solid" formatted="false">Solid</string>
+    <string name="ui_dashed" formatted="false">Dashed</string>
+    <string name="ui_dotted" formatted="false">Dotted</string>
+    <string name="ui_double" formatted="false">Double</string>
+    <string name="ui_bring_to_front" formatted="false">Bring to Front</string>
+    <string name="ui_send_to_back" formatted="false">Send to Back</string>
+    <string name="ui_bring_forward" formatted="false">Bring Forward</string>
+    <string name="ui_send_backward" formatted="false">Send Backward</string>
+    <string name="ui_rotate_right_90" formatted="false">Rotate Right 90°</string>
+    <string name="ui_rotate_left_90" formatted="false">Rotate Left 90°</string>
+    <string name="ui_flip_vertical" formatted="false">Flip Vertical</string>
+    <string name="ui_flip_horizontal" formatted="false">Flip Horizontal</string>
+    <string name="ui_show" formatted="false">Show</string>
+    <string name="ui_above_chart" formatted="false">Above Chart</string>
+    <string name="ui_centered_overlay" formatted="false">Centered Overlay</string>
+    <string name="ui_primary_horizontal_and_vertical" formatted="false">Primary Horizontal and Vertical</string>
+    <string name="ui_with_legend_keys" formatted="false">With Legend Keys</string>
+    <string name="ui_primary_major_horizontal" formatted="false">Primary Major Horizontal</string>
+    <string name="ui_up_down_bars" formatted="false">Up/Down Bars</string>
+    <string name="ui_chart_title" formatted="false">Chart Title</string>
+    <string name="ui_axis_titles" formatted="false">Axis Titles</string>
+    <string name="ui_data_labels" formatted="false">Data Labels</string>
+    <string name="ui_legend" formatted="false">Legend</string>
+    <string name="ui_data_table" formatted="false">Data Table</string>
+    <string name="ui_error_bars" formatted="false">Error Bars</string>
+    <string name="ui_trendline" formatted="false">Trendline</string>
+    <string name="ui_column" formatted="false">Column</string>
+    <string name="ui_line" formatted="false">Line</string>
+    <string name="ui_pie" formatted="false">Pie</string>
+    <string name="ui_bar" formatted="false">Bar</string>
+    <string name="ui_area" formatted="false">Area</string>
+    <string name="ui_scatter" formatted="false">Scatter</string>
+    <string name="ui_bubble" formatted="false">Bubble</string>
+    <string name="ui_histogram" formatted="false">Histogram</string>
+    <string name="ui_waterfall" formatted="false">Waterfall</string>
+    <string name="ui_funnel" formatted="false">Funnel</string>
+    <string name="ui_radar" formatted="false">Radar</string>
+    <string name="ui_surface" formatted="false">Surface</string>
+    <string name="ui_treemap" formatted="false">Treemap</string>
+    <string name="ui_sunburst" formatted="false">Sunburst</string>
+    <string name="ui_box_whisker" formatted="false">Box &amp; Whisker</string>
+    <string name="ui_camera" formatted="false">Camera</string>
+    <string name="ui_from_photos" formatted="false">From Photos</string>
+    <string name="ui_take_photo" formatted="false">Take Photo</string>
+    <string name="ui_reset_picture" formatted="false">Reset Picture</string>
+    <string name="ui_reset_picture_size" formatted="false">Reset Picture &amp; Size</string>
+    <string name="ui_description" formatted="false">Description</string>
+    <string name="ui_decorative" formatted="false">Decorative</string>
+    <string name="ui_mark_as_decorative" formatted="false">Mark as decorative</string>
+    <string name="ui_refresh" formatted="false">Refresh</string>
+    <string name="ui_field_list" formatted="false">Field List</string>
+    <string name="ui_rows" formatted="false">Rows</string>
+    <string name="ui_columns" formatted="false">Columns</string>
+    <string name="ui_values" formatted="false">Values</string>
+    <string name="ui_filters" formatted="false">Filters</string>
+    <string name="ui_sum" formatted="false">Sum</string>
+    <string name="ui_average" formatted="false">Average</string>
+    <string name="ui_count" formatted="false">Count</string>
+    <string name="ui_maximum" formatted="false">Maximum</string>
+    <string name="ui_minimum" formatted="false">Minimum</string>
+    <string name="engine_version">Engine version %1$s</string>
+    <string name="ui_above" formatted="false">Above</string>
+    <string name="ui_above_average" formatted="false">Above Average</string>
+    <string name="ui_active_sheets" formatted="false">Active Sheets</string>
+    <string name="ui_actual_size" formatted="false">Actual Size</string>
+    <string name="ui_add_level" formatted="false">Add Level</string>
+    <string name="ui_add_sheet" formatted="false">Add Sheet</string>
+    <string name="ui_address" formatted="false">Address</string>
+    <string name="ui_all_fonts" formatted="false">All Fonts</string>
+    <string name="ui_apply_filter" formatted="false">Apply Filter</string>
+    <string name="ui_autosave_is_off_save_your_changes_before_closing" formatted="false">AutoSave is off. Save your changes before closing?</string>
+    <string name="ui_bad" formatted="false">Bad</string>
+    <string name="ui_banded_columns" formatted="false">Banded Columns</string>
+    <string name="ui_banded_rows" formatted="false">Banded Rows</string>
+    <string name="ui_bar_of_pie" formatted="false">Bar of Pie</string>
+    <string name="ui_before_sheet" formatted="false">Before sheet</string>
+    <string name="ui_begins_with" formatted="false">Begins With</string>
+    <string name="ui_begins_with_more" formatted="false">Begins With...</string>
+    <string name="ui_below" formatted="false">Below</string>
+    <string name="ui_below_average" formatted="false">Below Average</string>
+    <string name="ui_best_fit" formatted="false">Best Fit</string>
+    <string name="ui_between" formatted="false">Between</string>
+    <string name="ui_between_more" formatted="false">Between...</string>
+    <string name="ui_black_frame" formatted="false">Black Frame</string>
+    <string name="ui_bottom_align" formatted="false">Bottom Align</string>
+    <string name="ui_bottom_double_border" formatted="false">Bottom Double Border</string>
+    <string name="ui_box_and_whisker" formatted="false">Box and Whisker</string>
+    <string name="ui_calculation" formatted="false">Calculation</string>
+    <string name="ui_cards_view" formatted="false">Cards View</string>
+    <string name="ui_characters" formatted="false">Characters</string>
+    <string name="ui_check_cell" formatted="false">Check Cell</string>
+    <string name="ui_choose_a_value" formatted="false">Choose a value</string>
+    <string name="ui_close_comments" formatted="false">Close Comments</string>
+    <string name="ui_close_find" formatted="false">Close Find</string>
+    <string name="ui_clustered_bar" formatted="false">Clustered Bar</string>
+    <string name="ui_clustered_column" formatted="false">Clustered Column</string>
+    <string name="ui_color" formatted="false">Color</string>
+    <string name="ui_colored_fill" formatted="false">Colored Fill</string>
+    <string name="ui_colored_outline" formatted="false">Colored Outline</string>
+    <string name="ui_colorful" formatted="false">Colorful</string>
+    <string name="ui_connector" formatted="false">Connector</string>
+    <string name="ui_contains" formatted="false">Contains</string>
+    <string name="ui_contains_more" formatted="false">Contains...</string>
+    <string name="ui_contour" formatted="false">Contour</string>
+    <string name="ui_convert_to_range" formatted="false">Convert to Range</string>
+    <string name="ui_count_numbers" formatted="false">Count Numbers</string>
+    <string name="ui_crop" formatted="false">Crop</string>
+    <string name="ui_custom_sort" formatted="false">Custom Sort</string>
+    <string name="ui_dash_dot" formatted="false">Dash Dot</string>
+    <string name="ui_dash_dot_dot" formatted="false">Dash Dot Dot</string>
+    <string name="ui_data_validation" formatted="false">Data Validation</string>
+    <string name="ui_data_and_model" formatted="false">Data and Model</string>
+    <string name="ui_decrease_decimal" formatted="false">Decrease Decimal</string>
+    <string name="ui_delete_shift_left" formatted="false">Delete &amp; Shift Left</string>
+    <string name="ui_delete_shift_up" formatted="false">Delete &amp; Shift Up</string>
+    <string name="ui_delete_comment" formatted="false">Delete Comment</string>
+    <string name="ui_delete_pen" formatted="false">Delete Pen</string>
+    <string name="ui_delete_sheet" formatted="false">Delete Sheet</string>
+    <string name="ui_describe_this_object_for_screen_readers" formatted="false">Describe this object for screen readers.</string>
+    <string name="ui_display_text" formatted="false">Display text</string>
+    <string name="ui_does_not_contain" formatted="false">Does Not Contain</string>
+    <string name="ui_does_not_contain_more" formatted="false">Does Not Contain...</string>
+    <string name="ui_does_not_equal" formatted="false">Does Not Equal</string>
+    <string name="ui_does_not_equal_more" formatted="false">Does Not Equal...</string>
+    <string name="ui_don_t_save" formatted="false">Don\'t Save</string>
+    <string name="ui_doughnut" formatted="false">Doughnut</string>
+    <string name="ui_drop_lines" formatted="false">Drop Lines</string>
+    <string name="ui_drop_shadow" formatted="false">Drop Shadow</string>
+    <string name="ui_edit" formatted="false">Edit</string>
+    <string name="ui_edit_text" formatted="false">Edit Text</string>
+    <string name="ui_ends_with" formatted="false">Ends With</string>
+    <string name="ui_ends_with_more" formatted="false">Ends With...</string>
+    <string name="ui_entire_workbook" formatted="false">Entire Workbook</string>
+    <string name="ui_equals" formatted="false">Equals</string>
+    <string name="ui_equals_more" formatted="false">Equals...</string>
+    <string name="ui_executive" formatted="false">Executive</string>
+    <string name="ui_exit" formatted="false">Exit</string>
+    <string name="ui_expand_formula_bar" formatted="false">Expand Formula Bar</string>
+    <string name="ui_explanatory_text" formatted="false">Explanatory Text</string>
+    <string name="ui_exponential" formatted="false">Exponential</string>
+    <string name="ui_extra_thick" formatted="false">Extra Thick</string>
+    <string name="ui_filled_radar" formatted="false">Filled Radar</string>
+    <string name="ui_filter_by" formatted="false">Filter by</string>
+    <string name="ui_find_options" formatted="false">Find Options</string>
+    <string name="ui_first_column" formatted="false">First Column</string>
+    <string name="ui_fit_all_columns_on_one_page" formatted="false">Fit All Columns on One Page</string>
+    <string name="ui_fit_all_rows_on_one_page" formatted="false">Fit All Rows on One Page</string>
+    <string name="ui_fit_sheet_on_one_page" formatted="false">Fit Sheet on One Page</string>
+    <string name="ui_format_painter" formatted="false">Format Painter</string>
+    <string name="ui_from_file" formatted="false">From File...</string>
+    <string name="ui_go_to" formatted="false">Go To</string>
+    <string name="ui_good" formatted="false">Good</string>
+    <string name="ui_good_bad_and_neutral" formatted="false">Good, Bad and Neutral</string>
+    <string name="ui_gradient_fill" formatted="false">Gradient Fill</string>
+    <string name="ui_grand_totals" formatted="false">Grand Totals</string>
+    <string name="ui_graphics" formatted="false">Graphics</string>
+    <string name="ui_greater_than" formatted="false">Greater Than</string>
+    <string name="ui_greater_than_or_equal_to" formatted="false">Greater Than Or Equal To</string>
+    <string name="ui_greater_than_or_equal_to_more" formatted="false">Greater Than Or Equal To...</string>
+    <string name="ui_greater_than_more" formatted="false">Greater Than...</string>
+    <string name="ui_hair" formatted="false">Hair</string>
+    <string name="ui_header_row" formatted="false">Header Row</string>
+    <string name="ui_headers" formatted="false">Headers</string>
+    <string name="ui_heading_1" formatted="false">Heading 1</string>
+    <string name="ui_heading_2" formatted="false">Heading 2</string>
+    <string name="ui_heading_3" formatted="false">Heading 3</string>
+    <string name="ui_heading_4" formatted="false">Heading 4</string>
+    <string name="ui_high_low_lines" formatted="false">High-Low Lines</string>
+    <string name="ui_highlighter" formatted="false">Highlighter</string>
+    <string name="ui_ignore_print_area" formatted="false">Ignore Print Area</string>
+    <string name="ui_increase_decimal" formatted="false">Increase Decimal</string>
+    <string name="ui_input" formatted="false">Input</string>
+    <string name="ui_insert_shift_down" formatted="false">Insert &amp; Shift Down</string>
+    <string name="ui_insert_shift_right" formatted="false">Insert &amp; Shift Right</string>
+    <string name="ui_insert_link" formatted="false">Insert Link</string>
+    <string name="ui_insert_link_more" formatted="false">Insert Link...</string>
+    <string name="ui_insert_table" formatted="false">Insert Table</string>
+    <string name="ui_insert_a_text_box" formatted="false">Insert a Text Box</string>
+    <string name="ui_inside_base" formatted="false">Inside Base</string>
+    <string name="ui_inside_end" formatted="false">Inside End</string>
+    <string name="ui_intense_effect" formatted="false">Intense Effect</string>
+    <string name="ui_items" formatted="false">Items</string>
+    <string name="ui_keep" formatted="false">Keep</string>
+    <string name="ui_landscape" formatted="false">Landscape</string>
+    <string name="ui_last_column" formatted="false">Last Column</string>
+    <string name="ui_legal" formatted="false">Legal</string>
+    <string name="ui_less_than" formatted="false">Less Than</string>
+    <string name="ui_less_than_or_equal_to" formatted="false">Less Than Or Equal To</string>
+    <string name="ui_less_than_or_equal_to_more" formatted="false">Less Than Or Equal To...</string>
+    <string name="ui_less_than_more" formatted="false">Less Than...</string>
+    <string name="ui_letter" formatted="false">Letter</string>
+    <string name="ui_light_1_outline_colored_fill" formatted="false">Light 1 Outline, Colored Fill</string>
+    <string name="ui_line_with_markers" formatted="false">Line with Markers</string>
+    <string name="ui_linear" formatted="false">Linear</string>
+    <string name="ui_linear_forecast" formatted="false">Linear Forecast</string>
+    <string name="ui_lines" formatted="false">Lines</string>
+    <string name="ui_linked_cell" formatted="false">Linked Cell</string>
+    <string name="ui_location" formatted="false">Location</string>
+    <string name="ui_match_case" formatted="false">Match case</string>
+    <string name="ui_match_entire_cell_contents" formatted="false">Match entire cell contents</string>
+    <string name="ui_max" formatted="false">Max</string>
+    <string name="ui_medium" formatted="false">Medium</string>
+    <string name="ui_medium_dash_dot" formatted="false">Medium Dash Dot</string>
+    <string name="ui_medium_dash_dot_dot" formatted="false">Medium Dash Dot Dot</string>
+    <string name="ui_medium_dashed" formatted="false">Medium Dashed</string>
+    <string name="ui_middle_align" formatted="false">Middle Align</string>
+    <string name="ui_min" formatted="false">Min</string>
+    <string name="ui_moderate_effect" formatted="false">Moderate Effect</string>
+    <string name="ui_monochromatic" formatted="false">Monochromatic</string>
+    <string name="ui_moving_average" formatted="false">Moving Average</string>
+    <string name="ui_my_data_has_headers" formatted="false">My data has headers</string>
+    <string name="ui_my_table_has_headers" formatted="false">My table has headers</string>
+    <string name="ui_negative_numbers_more" formatted="false">Negative Numbers</string>
+    <string name="ui_neutral" formatted="false">Neutral</string>
+    <string name="ui_new_comment" formatted="false">New Comment</string>
+    <string name="ui_next_card" formatted="false">Next Card</string>
+    <string name="ui_next_comment" formatted="false">Next Comment</string>
+    <string name="ui_next_result" formatted="false">Next Result</string>
+    <string name="ui_no" formatted="false">No</string>
+    <string name="ui_no_outline" formatted="false">No Outline</string>
+    <string name="ui_no_shadow" formatted="false">No Shadow</string>
+    <string name="ui_no_items_available" formatted="false">No items available.</string>
+    <string name="ui_normal" formatted="false">Normal</string>
+    <string name="ui_number_keys" formatted="false">Number Keys</string>
+    <string name="ui_open_link" formatted="false">Open Link</string>
+    <string name="ui_options" formatted="false">Options</string>
+    <string name="ui_order" formatted="false">Order</string>
+    <string name="ui_orientation" formatted="false">Orientation</string>
+    <string name="ui_other" formatted="false">Other</string>
+    <string name="ui_output" formatted="false">Output</string>
+    <string name="ui_outside_end" formatted="false">Outside End</string>
+    <string name="ui_oval" formatted="false">Oval</string>
+    <string name="ui_paper_size" formatted="false">Paper Size</string>
+    <string name="ui_paste_formatting" formatted="false">Paste Formatting</string>
+    <string name="ui_paste_formulas" formatted="false">Paste Formulas</string>
+    <string name="ui_paste_options" formatted="false">Paste Options</string>
+    <string name="ui_paste_values" formatted="false">Paste Values</string>
+    <string name="ui_pencil" formatted="false">Pencil</string>
+    <string name="ui_phone_number" formatted="false">Phone Number</string>
+    <string name="ui_photos" formatted="false">Photos</string>
+    <string name="ui_pie_of_pie" formatted="false">Pie of Pie</string>
+    <string name="ui_pivot_table" formatted="false">Pivot Table</string>
+    <string name="ui_points" formatted="false">Points</string>
+    <string name="ui_portrait" formatted="false">Portrait</string>
+    <string name="ui_post" formatted="false">Post</string>
+    <string name="ui_presets" formatted="false">Presets</string>
+    <string name="ui_previous_card" formatted="false">Previous Card</string>
+    <string name="ui_previous_comment" formatted="false">Previous Comment</string>
+    <string name="ui_previous_result" formatted="false">Previous Result</string>
+    <string name="ui_radar_with_markers" formatted="false">Radar with Markers</string>
+    <string name="ui_reapply_all" formatted="false">Reapply All</string>
+    <string name="ui_recent_shapes" formatted="false">Recent Shapes</string>
+    <string name="ui_recent_styles" formatted="false">Recent Styles</string>
+    <string name="ui_reference_or_name" formatted="false">Reference or name</string>
+    <string name="ui_refresh_data" formatted="false">Refresh Data</string>
+    <string name="ui_remove_level" formatted="false">Remove Level</string>
+    <string name="ui_rename_sheet" formatted="false">Rename Sheet</string>
+    <string name="ui_reply" formatted="false">Reply</string>
+    <string name="ui_report_layout" formatted="false">Report Layout</string>
+    <string name="ui_reset_size" formatted="false">Reset Size</string>
+    <string name="ui_resolve_thread" formatted="false">Resolve Thread</string>
+    <string name="ui_resolved" formatted="false">Resolved</string>
+    <string name="ui_retry" formatted="false">Retry</string>
+    <string name="ui_rotate" formatted="false">Rotate</string>
+    <string name="ui_rounded" formatted="false">Rounded</string>
+    <string name="ui_rounded_with_shadow" formatted="false">Rounded with Shadow</string>
+    <string name="ui_save_a_copy" formatted="false">Save a Copy</string>
+    <string name="ui_save_changes" formatted="false">Save changes?</string>
+    <string name="ui_scaling" formatted="false">Scaling</string>
+    <string name="ui_scatter_with_smooth_lines" formatted="false">Scatter with Smooth Lines</string>
+    <string name="ui_scatter_with_smooth_lines_and_markers" formatted="false">Scatter with Smooth Lines and Markers</string>
+    <string name="ui_scatter_with_straight_lines" formatted="false">Scatter with Straight Lines</string>
+    <string name="ui_scatter_with_straight_lines_and_markers" formatted="false">Scatter with Straight Lines and Markers</string>
+    <string name="ui_search_the_whole_workbook" formatted="false">Search the whole workbook</string>
+    <string name="ui_select_the_data_to_chart" formatted="false">Select the data to chart.</string>
+    <string name="ui_selection" formatted="false">Selection</string>
+    <string name="ui_semitransparent" formatted="false">Semitransparent</string>
+    <string name="ui_shadow" formatted="false">Shadow</string>
+    <string name="ui_share_workbook" formatted="false">Share Workbook</string>
+    <string name="ui_sheet_right_to_left" formatted="false">Sheet Right-to-Left</string>
+    <string name="ui_sheet_view" formatted="false">Sheet View</string>
+    <string name="ui_short_date" formatted="false">Short Date</string>
+    <string name="ui_show_filter_buttons" formatted="false">Show Filter Buttons</string>
+    <string name="ui_show_in_compact_form" formatted="false">Show in Compact Form</string>
+    <string name="ui_show_in_outline_form" formatted="false">Show in Outline Form</string>
+    <string name="ui_show_in_tabular_form" formatted="false">Show in Tabular Form</string>
+    <string name="ui_show_the_top" formatted="false">Show the top</string>
+    <string name="ui_slant_dash_dot" formatted="false">Slant Dash Dot</string>
+    <string name="ui_social_security_number" formatted="false">Social Security Number</string>
+    <string name="ui_sort_by" formatted="false">Sort by</string>
+    <string name="ui_stacked_area" formatted="false">Stacked Area</string>
+    <string name="ui_stacked_bar" formatted="false">Stacked Bar</string>
+    <string name="ui_stacked_column" formatted="false">Stacked Column</string>
+    <string name="ui_stacked_line" formatted="false">Stacked Line</string>
+    <string name="ui_stacked_line_with_markers" formatted="false">Stacked Line with Markers</string>
+    <string name="ui_standard_deviation" formatted="false">Standard Deviation</string>
+    <string name="ui_standard_error" formatted="false">Standard Error</string>
+    <string name="ui_subtle_effect" formatted="false">Subtle Effect</string>
+    <string name="ui_subtotals" formatted="false">Subtotals</string>
+    <string name="ui_switch_row_column" formatted="false">Switch Row/Column</string>
+    <string name="ui_tab" formatted="false">Tab</string>
+    <string name="ui_tabloid" formatted="false">Tabloid</string>
+    <string name="ui_theme_fonts" formatted="false">Theme Fonts</string>
+    <string name="ui_theme_styles" formatted="false">Theme Styles</string>
+    <string name="ui_themed_cell_styles" formatted="false">Themed Cell Styles</string>
+    <string name="ui_then_by" formatted="false">Then by</string>
+    <string name="ui_there_are_no_comments_on_this_sheet" formatted="false">There are no comments on this sheet.</string>
+    <string name="ui_thick" formatted="false">Thick</string>
+    <string name="ui_thick_bottom_border" formatted="false">Thick Bottom Border</string>
+    <string name="ui_thick_outside_borders" formatted="false">Thick Outside Borders</string>
+    <string name="ui_thickness" formatted="false">Thickness</string>
+    <string name="ui_thin" formatted="false">Thin</string>
+    <string name="ui_this_file_can_t_be_changed_here_save_your_changes_as_a_copy" formatted="false">This file can\'t be changed here. Save your changes as a copy?</string>
+    <string name="ui_this_table_has_no_rows_to_show" formatted="false">This table has no rows to show.</string>
+    <string name="ui_this_workbook_hasn_t_been_saved_to_a_file_yet" formatted="false">This workbook hasn\'t been saved to a file yet.</string>
+    <string name="ui_title" formatted="false">Title</string>
+    <string name="ui_titles_and_headings" formatted="false">Titles and Headings</string>
+    <string name="ui_top_10" formatted="false">Top 10</string>
+    <string name="ui_top_10_more" formatted="false">Top 10...</string>
+    <string name="ui_top_align" formatted="false">Top Align</string>
+    <string name="ui_top_and_bottom_border" formatted="false">Top and Bottom Border</string>
+    <string name="ui_top_and_double_bottom_border" formatted="false">Top and Double Bottom Border</string>
+    <string name="ui_top_and_thick_bottom_border" formatted="false">Top and Thick Bottom Border</string>
+    <string name="ui_total" formatted="false">Total</string>
+    <string name="ui_totals_row" formatted="false">Totals Row</string>
+    <string name="ui_transparent" formatted="false">Transparent</string>
+    <string name="ui_transparent_colored_outline" formatted="false">Transparent, Colored Outline</string>
+    <string name="ui_type_text_or_a_formula" formatted="false">Type text or a formula</string>
+    <string name="ui_warning_text" formatted="false">Warning Text</string>
+    <string name="ui_what_to_print" formatted="false">What to print</string>
+    <string name="ui_white_frame" formatted="false">White Frame</string>
+    <string name="ui_wireframe_3_d_surface" formatted="false">Wireframe 3-D Surface</string>
+    <string name="ui_wireframe_contour" formatted="false">Wireframe Contour</string>
+    <string name="ui_yes" formatted="false">Yes</string>
+    <string name="ui_and" formatted="false">and</string>
+    <string name="ui_move_to_end" formatted="false">(move to end)</string>
+</resources>

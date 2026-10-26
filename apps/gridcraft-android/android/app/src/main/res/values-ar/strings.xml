@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GridCraft</string>
+    <string name="open_with">فتح في GridCraft</string>
+    <string name="ui_language">اللغة</string>
+    <string name="ui_rectangles">المستطيلات</string>
+    <string name="ui_basic_shapes">أشكال أساسية</string>
+    <string name="ui_block_arrows">أسهم عريضة</string>
+    <string name="ui_equation_shapes">أشكال المعادلات</string>
+    <string name="ui_flowchart">مخطط انسيابي</string>
+    <string name="ui_stars_and_banners">النجوم واللافتات</string>
+    <string name="ui_callouts">وسائل الشرح</string>
+</resources>

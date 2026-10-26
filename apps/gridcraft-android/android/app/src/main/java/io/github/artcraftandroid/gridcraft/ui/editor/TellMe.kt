@@ -1,5 +1,9 @@
 package io.github.artcraftandroid.gridcraft.ui.editor
 
+import androidx.compose.ui.res.stringResource
+import io.github.artcraftandroid.gridcraft.R
+import io.github.artcraftandroid.gridcraft.ui.uiLabel
+import io.github.artcraftandroid.gridcraft.ui.uiText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -150,6 +154,13 @@ internal val TELL_ME_ITEMS: List<TellMeItem> = listOf(
     },
     page("Recently Used Functions", "Formulas", "fn:Recent", null, "formulas"),
 ) + FUNCTION_CATEGORIES.map { (cat, label) -> page(label, "Formulas", "fn:$cat", null, "functions formulas") } + listOf(
+    TellMeItem("Paste Names", "Formulas", LucideIcons.ClipboardPaste.glyph(), "defined names named ranges", opens = true) { it.showPasteNames() },
+    cmd("Convert to Number", "Data", "formulas.convertToNumber", LucideIcons.Hash.glyph(), "numbers text convert"),
+    page("Outline Settings", "Data", "outlineSettings", LucideIcons.Settings.glyph(), "summary rows columns group"),
+    viewSetting("Show Objects", "view.showObjects", "pictures charts shapes show hide") { it.sheetView?.showObjects != false },
+    viewSetting("Show Outline Symbols", "view.showOutlineSymbols", "group outline show hide") { it.sheetView?.showOutlineSymbols != false },
+    TellMeItem("Show Details", "Pivot Table", LucideIcons.Table.glyph(), "pivot source records") { it.showPivotDetails() },
+    page("PivotTable Options", "Pivot Table", "pivotOptions", LucideIcons.Settings.glyph(), "pivot details"),
     cmd("Calculate Now", "Formulas", "formulas.calculateNow", LucideIcons.Calculator.glyph(), "recalculate refresh"),
     cmd("Show Detail", "Data", "data.showDetail", LucideIcons.Plus.glyph(), "expand outline group"),
     cmd("Hide Detail", "Data", "data.hideDetail", LucideIcons.Minus.glyph(), "collapse outline group"),
@@ -172,16 +183,17 @@ private val TELL_ME_SUGGESTED = listOf("Sort & Filter", "Format as Table", "Char
  * The items matching [query]: names starting with it first, then names containing it, then
  * those whose other words start with each word typed.
  */
-internal fun tellMeMatches(query: String, items: List<TellMeItem> = TELL_ME_ITEMS): List<TellMeItem> {
+internal fun tellMeMatches(query: String, items: List<TellMeItem> = TELL_ME_ITEMS, labels: Map<String, String> = emptyMap()): List<TellMeItem> {
     val q = query.trim().lowercase()
     if (q.isEmpty()) return emptyList()
     val words = q.split(' ').filter { it.isNotEmpty() }
     fun rank(item: TellMeItem): Int? {
-        val name = item.label.lowercase()
-        val all = (name + " " + item.words.lowercase()).split(' ', '-', '&').filter { it.isNotEmpty() }
+        val name = (labels[item.label] ?: item.label).lowercase()
+        val canonical = item.label.lowercase()
+        val all = (name + " " + item.label.lowercase() + " " + item.words.lowercase()).split(' ', '-', '&').filter { it.isNotEmpty() }
         return when {
-            name.startsWith(q) -> 0
-            name.contains(q) -> 1
+            name.startsWith(q) || canonical.startsWith(q) -> 0
+            name.contains(q) || canonical.contains(q) -> 1
             words.all { w -> all.any { it.startsWith(w) } } -> 2
             else -> null
         }
@@ -205,7 +217,7 @@ private fun TellMeHeader(vm: AppViewModel, query: String, onQuery: (String) -> U
         BarButton(LucideIcons.ChevronLeft.glyph(), GridColors.BackIcon, { vm.tellMeOpen = false }, width = 56.dp, height = ROW, label = "Back")
         Box(Modifier.width(1.dp).height(32.dp).background(GridColors.SwitcherDivider))
         Box(Modifier.weight(1f).padding(start = 16.dp, end = 4.dp), contentAlignment = Alignment.CenterStart) {
-            if (query.isEmpty()) Text("Search for a command", color = GridColors.Disabled, fontSize = 16.sp, maxLines = 1)
+            if (query.isEmpty()) Text(uiText("Search for a command"), color = GridColors.Disabled, fontSize = 16.sp, maxLines = 1)
             BasicTextField(
                 value = query,
                 onValueChange = onQuery,
@@ -226,7 +238,10 @@ private fun TellMeHeader(vm: AppViewModel, query: String, onQuery: (String) -> U
 @Composable
 internal fun TellMeSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
     var query by remember { mutableStateOf("") }
-    val matches = remember(query) { tellMeMatches(query) }
+    val resources = androidx.compose.ui.platform.LocalContext.current.resources
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val labels = remember(configuration) { TELL_ME_ITEMS.associate { it.label to resources.uiLabel(it.label) } }
+    val matches = remember(query, labels) { tellMeMatches(query, labels = labels) }
     val keyboard = LocalSoftwareKeyboardController.current
     val pick = { item: TellMeItem ->
         keyboard?.hide()
@@ -248,7 +263,7 @@ internal fun TellMeSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
                 item { SectionBand("Suggested") }
                 items(suggested.size) { i -> TellMeRow(suggested[i], pick) }
             } else if (matches.isEmpty()) {
-                item { Text("Nothing matches “${query.trim()}”.", color = GridColors.OnSurface, fontSize = 15.sp, modifier = Modifier.padding(16.dp)) }
+                item { Text(stringResource(R.string.command_not_found, query.trim()), color = GridColors.OnSurface, fontSize = 15.sp, modifier = Modifier.padding(16.dp)) }
             } else {
                 items(matches.size) { i -> TellMeRow(matches[i], pick) }
             }

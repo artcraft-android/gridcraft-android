@@ -1,5 +1,8 @@
 package io.github.artcraftandroid.gridcraft.ui.editor
 
+import androidx.compose.ui.res.stringResource
+import io.github.artcraftandroid.gridcraft.R
+import io.github.artcraftandroid.gridcraft.ui.uiText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,7 +66,7 @@ fun CardsScreen(vm: AppViewModel, t: TableCards) {
                 BarButton(LucideIcons.ChevronUp.glyph(), GridColors.OnBar, { vm.cardOpen = open - 1 }, enabled = open > 0, width = 48.dp, height = 56.dp, label = "Previous Card")
                 BarButton(LucideIcons.ChevronDown.glyph(), GridColors.OnBar, { vm.cardOpen = open + 1 }, enabled = open < t.cards.size - 1, width = 48.dp, height = 56.dp, label = "Next Card")
             } else {
-                Text("${t.cards.size}${if (t.more) "+" else ""} cards", color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(end = 16.dp))
+                Text(stringResource(R.string.card_count, t.cards.size, if (t.more) "+" else ""), color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(end = 16.dp))
             }
         }
         if (open != null) CardDetail(vm, t, open) else CardList(vm, t)
@@ -75,7 +78,7 @@ private fun cardTitle(t: TableCards, i: Int): String = t.cards.getOrNull(i)?.val
 @Composable
 private fun CardList(vm: AppViewModel, t: TableCards) {
     if (t.cards.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("This table has no rows to show.", color = GridColors.OnSurface, fontSize = 15.sp) }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(uiText("This table has no rows to show."), color = GridColors.OnSurface, fontSize = 15.sp) }
         return
     }
     val shape = RoundedCornerShape(8.dp)
@@ -119,8 +122,8 @@ private fun CardDetail(vm: AppViewModel, t: TableCards, i: Int) {
             onDismissRequest = { vm.cardEdit = null },
             title = { Text(t.fields.getOrNull(f).orEmpty()) },
             text = { OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true) },
-            confirmButton = { TextButton(onClick = { vm.setCardValue(card.row, f, text) }) { Text("OK") } },
-            dismissButton = { TextButton(onClick = { vm.cardEdit = null }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { vm.setCardValue(card.row, f, text) }) { Text(uiText("OK")) } },
+            dismissButton = { TextButton(onClick = { vm.cardEdit = null }) { Text(uiText("Cancel")) } },
         )
     }
 }
