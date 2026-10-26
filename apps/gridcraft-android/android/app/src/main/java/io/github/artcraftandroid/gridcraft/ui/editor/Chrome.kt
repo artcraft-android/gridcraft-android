@@ -111,14 +111,15 @@ fun Modifier.topEdge(color: Color): Modifier = drawBehind {
 private val BAR_HEIGHT = 56.dp
 private val BAR_BUTTON = 48.dp
 
-/** Editing: close, the workbook's name, Undo (while there is something to undo), Share, and ⋯ (its sheet: [MoreSheet]). */
+/** Editing: close, the workbook's name, Undo and Redo, Share, and ⋯ (its sheet: [MoreSheet]). */
 @Composable
 fun EditorHeader(vm: AppViewModel) {
     Row(Modifier.fillMaxWidth().height(BAR_HEIGHT).background(GridColors.StatusBand).bottomEdge(GridColors.BarEdge), verticalAlignment = Alignment.CenterVertically) {
         BarButton(LucideIcons.X.glyph(), GridColors.OnBar, vm::closeWorkbook, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Back")
         Text(vm.fileName, color = GridColors.OnBar, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 4.dp))
-        // Undo shows while there is something to undo, as the phone app's header has it
-        if (vm.info?.canUndo == true) BarButton(LucideIcons.Undo2.glyph(), GridColors.OnBar, vm::undo, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Undo")
+        // Keep the pair in place; each action is enabled only when its history is available.
+        BarButton(LucideIcons.Undo2.glyph(), GridColors.OnBar, vm::undo, enabled = vm.info?.canUndo == true, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Undo")
+        BarButton(LucideIcons.Redo2.glyph(), GridColors.OnBar, vm::redo, enabled = vm.info?.canRedo == true, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Redo")
         Box {
             var share by remember { mutableStateOf(false) }
             BarButton(LucideIcons.Share2.glyph(), GridColors.OnBar, { share = true }, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Share")
