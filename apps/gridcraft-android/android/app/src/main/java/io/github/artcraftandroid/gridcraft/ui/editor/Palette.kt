@@ -1,5 +1,6 @@
 package io.github.artcraftandroid.gridcraft.ui.editor
 
+import io.github.artcraftandroid.gridcraft.ui.uiText
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -144,7 +145,7 @@ fun TabSwitcher(vm: AppViewModel, modifier: Modifier = Modifier) {
                 Modifier.fillMaxWidth().height(ROW).background(if (current) GridColors.PopupCurrent else GridColors.PopupFill).clickable { vm.showTab(tab) },
                 contentAlignment = Alignment.CenterStart,
             ) {
-                Text(tab, color = if (current) GridColors.OnPopupCurrent else GridColors.OnPopup, fontSize = 18.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp))
+                Text(uiText(tab), color = if (current) GridColors.OnPopupCurrent else GridColors.OnPopup, fontSize = 18.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp))
             }
         }
     }
@@ -159,7 +160,7 @@ private fun TabHeader(vm: AppViewModel, tab: String) {
     ) {
         Box {
             Row(Modifier.widthIn(min = 112.dp).fillMaxHeight().clickable { vm.toggleTabs() }.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(tab, color = GridColors.Accent, fontSize = 18.sp, maxLines = 1)
+                Text(uiText(tab), color = GridColors.Accent, fontSize = 18.sp, maxLines = 1)
                 Spacer(Modifier.width(12.dp).weight(1f, fill = false))
                 GlyphIcon(LucideIcons.ChevronsUpDown.glyph(), GridColors.SwitchIcon, size = 20.dp)
                 Spacer(Modifier.width(10.dp))
@@ -190,7 +191,7 @@ private fun PageHeader(vm: AppViewModel, title: String) {
         Modifier.fillMaxWidth().height(ROW).background(GridColors.Strip).topEdge(GridColors.StripMore).bottomEdge(GridColors.StripMore),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, color = GridColors.Accent, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 16.dp))
+        Text(uiText(title), color = GridColors.Accent, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 16.dp))
         BarButton(LucideIcons.Lightbulb.glyph(), GridColors.HeaderIcon, vm::tellMeFromPage, width = 48.dp, height = ROW, label = "Tell me")
         BarButton(LucideIcons.Undo2.glyph(), GridColors.HeaderIcon, vm::undo, enabled = info?.canUndo == true, width = 48.dp, height = ROW, disabledTint = GridColors.HeaderIconDisabled, label = "Undo")
         BarButton(LucideIcons.Redo2.glyph(), GridColors.HeaderIcon, vm::redo, enabled = info?.canRedo == true, width = 48.dp, height = ROW, disabledTint = GridColors.HeaderIconDisabled, label = "Redo")
@@ -206,7 +207,7 @@ private fun PanelHeader(title: String, onBack: () -> Unit, onClose: () -> Unit) 
     ) {
         BarButton(LucideIcons.ChevronLeft.glyph(), GridColors.BackIcon, onBack, width = 56.dp, height = ROW, label = "Back")
         Box(Modifier.width(1.dp).height(32.dp).background(GridColors.SwitcherDivider))
-        Text(title, color = GridColors.Accent, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 16.dp))
+        Text(uiText(title), color = GridColors.Accent, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 16.dp))
         BarButton(Glyph.Triangle(up = false), GridColors.CollapseIcon, onClose, width = 43.dp, height = ROW, label = "Collapse more options")
     }
 }
@@ -234,6 +235,7 @@ internal fun PaletteRow(
     trailing: String? = null,
     inset: Boolean = true,
 ) {
+    val forward = if (LocalLayoutDirection.current == LayoutDirection.Rtl) LucideIcons.ChevronLeft else LucideIcons.ChevronRight
     Row(Modifier.fillMaxWidth().height(height + 1.dp).background(if (pressed) GridColors.Pressed else GridColors.Surface).bottomEdge(GridColors.Divider), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).fillMaxHeight().clickable(enabled = enabled, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(16.dp))
@@ -241,20 +243,20 @@ internal fun PaletteRow(
                 Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { if (glyph != null) GlyphIcon(glyph, if (enabled) iconTint else GridColors.Disabled) }
                 Spacer(Modifier.width(10.dp))
             }
-            Text(label, color = if (enabled) GridColors.OnSurface else GridColors.Disabled, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(uiText(label), color = if (enabled) GridColors.OnSurface else GridColors.Disabled, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (trailing != null) {
-                Text(trailing, color = GridColors.OnStrip, fontSize = 15.sp, maxLines = 1)
+                Text(uiText(trailing), color = GridColors.OnStrip, fontSize = 15.sp, maxLines = 1)
                 Spacer(Modifier.width(16.dp))
             }
             if (chevron && onOpen == null) {
-                GlyphIcon(LucideIcons.ChevronRight.glyph(), if (enabled) GridColors.OnStrip else GridColors.Disabled, size = 20.dp)
+                GlyphIcon(forward.glyph(), if (enabled) GridColors.OnStrip else GridColors.Disabled, size = 20.dp)
                 Spacer(Modifier.width(15.dp))
             }
         }
         if (onOpen != null) {
             Box(Modifier.width(1.dp).height(25.dp).background(GridColors.Divider))
             Box(Modifier.width(50.dp).fillMaxHeight().clickable(enabled = enabled, onClick = onOpen), contentAlignment = Alignment.Center) {
-                GlyphIcon(LucideIcons.ChevronRight.glyph(), if (enabled) GridColors.OnStrip else GridColors.Disabled, size = 20.dp)
+                GlyphIcon(forward.glyph(), if (enabled) GridColors.OnStrip else GridColors.Disabled, size = 20.dp)
             }
         }
     }
@@ -285,7 +287,7 @@ internal fun json(vararg pairs: Pair<String, Any>): String = JSONObject().apply 
 @Composable
 internal fun SectionBand(title: String) {
     Box(Modifier.fillMaxWidth().height(26.dp).background(GridColors.Section).padding(start = 16.dp), contentAlignment = Alignment.CenterStart) {
-        Text(title, color = GridColors.OnSurface, fontSize = 14.sp)
+        Text(uiText(title), color = GridColors.OnSurface, fontSize = 14.sp)
     }
 }
 
@@ -294,8 +296,8 @@ internal fun SectionBand(title: String) {
 internal fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit, trailing: String? = null, enabled: Boolean = true) {
     Row(Modifier.fillMaxWidth().height(ROW + 1.dp).background(if (selected) GridColors.Pressed else GridColors.Surface).bottomEdge(GridColors.Divider).clickable(enabled = enabled, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(43.dp), contentAlignment = Alignment.Center) { if (selected) GlyphIcon(LucideIcons.Check.glyph(), GridColors.Accent, size = 20.dp) }
-        Text(label, color = if (enabled) GridColors.OnSurface else GridColors.Disabled, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (trailing != null) Text(trailing, color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(end = 16.dp))
+        Text(uiText(label), color = if (enabled) GridColors.OnSurface else GridColors.Disabled, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (trailing != null) Text(uiText(trailing), color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(end = 16.dp))
     }
 }
 
@@ -344,7 +346,7 @@ internal fun ColorGridPanel(vm: AppViewModel, none: String, onPick: (Int?) -> Un
         ) {
             Box(Modifier.size(24.dp).background(if (automatic) Color.Black else Color.White).border(1.dp, GridColors.SwatchEdge))
             Spacer(Modifier.width(10.dp))
-            Text(none, color = GridColors.OnSurface, fontSize = 16.sp)
+            Text(uiText(none), color = GridColors.OnSurface, fontSize = 16.sp)
         }
     }
 }

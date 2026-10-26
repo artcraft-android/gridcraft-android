@@ -60,7 +60,7 @@ fun SettingsScreen(vm: AppViewModel, engineVersion: String) {
     Column(Modifier.fillMaxSize().background(GridColors.StatusBand).statusBarsPadding().background(GridColors.SettingsBack).navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(56.dp).background(GridColors.Bar), verticalAlignment = Alignment.CenterVertically) {
             BarButton(LucideIcons.ArrowLeft.glyph(), GridColors.OnBar, { vm.closeSettings() }, width = 56.dp, height = 56.dp, label = "Back")
-            Text("Settings", color = GridColors.OnBar, fontSize = 20.sp, modifier = Modifier.padding(start = 16.dp))
+            Text(uiText("Settings"), color = GridColors.OnBar, fontSize = 20.sp, modifier = Modifier.padding(start = 16.dp))
         }
         Column(Modifier.verticalScroll(rememberScrollState())) {
             SettingsSection("Display Preferences")
@@ -70,9 +70,8 @@ fun SettingsScreen(vm: AppViewModel, engineVersion: String) {
             SettingsSwitch("AutoSave", "Automatically save files", vm.autoSaveOn, vm::chooseAutoSave)
             SettingsLine()
             SettingsSection("About")
-            SettingsItem("GridCraft", "Version $engineVersion")
-            Text(
-                "An open-source spreadsheet for Android, built on the GridCraft engine. It is not affiliated with or endorsed by Microsoft; Excel is a trademark of Microsoft.",
+            SettingsItem("GridCraft", androidx.compose.ui.res.stringResource(io.github.artcraftandroid.gridcraft.R.string.engine_version, engineVersion))
+            Text(uiText("An open-source spreadsheet for Android, built on the GridCraft engine. It is not affiliated with or endorsed by Microsoft; Excel is a trademark of Microsoft."),
                 color = GridColors.SettingsValue,
                 fontSize = 14.sp,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -84,7 +83,7 @@ fun SettingsScreen(vm: AppViewModel, engineVersion: String) {
     if (picking) {
         AlertDialog(
             onDismissRequest = { picking = false },
-            title = { Text("Theme") },
+            title = { Text(uiText("Theme")) },
             text = {
                 Column {
                     for ((key, label) in THEMES) {
@@ -103,12 +102,12 @@ fun SettingsScreen(vm: AppViewModel, engineVersion: String) {
                                 },
                                 colors = RadioButtonDefaults.colors(selectedColor = GridColors.Accent),
                             )
-                            Text(label, color = GridColors.OnSurface, fontSize = 16.sp)
+                            Text(uiText(label), color = GridColors.OnSurface, fontSize = 16.sp)
                         }
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { picking = false }) { Text(uiText("Cancel")) } },
             containerColor = GridColors.Surface,
             titleContentColor = GridColors.OnSurface,
         )
@@ -117,7 +116,7 @@ fun SettingsScreen(vm: AppViewModel, engineVersion: String) {
 
 @Composable
 private fun SettingsSection(title: String) {
-    Text(title, color = GridColors.Accent, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().padding(start = 10.dp, top = 14.dp, bottom = 6.dp))
+    Text(uiText(title), color = GridColors.Accent, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().padding(start = 10.dp, top = 14.dp, bottom = 6.dp))
 }
 
 @Composable
@@ -129,8 +128,8 @@ private fun SettingsLine() {
 @Composable
 private fun SettingsItem(title: String, value: String, onClick: (() -> Unit)? = null) {
     Column(Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier).padding(horizontal = 10.dp, vertical = 8.dp)) {
-        Text(title, color = GridColors.OnSettings, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        Text(value, color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
+        Text(uiText(title), color = GridColors.OnSettings, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Text(uiText(value), color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
@@ -138,10 +137,10 @@ private fun SettingsItem(title: String, value: String, onClick: (() -> Unit)? = 
 @Composable
 private fun SettingsSwitch(title: String, what: String, on: Boolean, onChange: (Boolean) -> Unit) {
     Column(Modifier.fillMaxWidth().clickable { onChange(!on) }.padding(horizontal = 10.dp, vertical = 8.dp)) {
-        Text(title, color = GridColors.OnSettings, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-        Text(what, color = GridColors.OnSettings, fontSize = 14.sp, modifier = Modifier.padding(start = 5.dp, top = 14.dp))
+        Text(uiText(title), color = GridColors.OnSettings, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Text(uiText(what), color = GridColors.OnSettings, fontSize = 14.sp, modifier = Modifier.padding(start = 5.dp, top = 14.dp))
         Row(Modifier.padding(start = 5.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (on) "On" else "Off", color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.width(56.dp))
+            Text(uiText(if (on) "On" else "Off"), color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.width(56.dp))
             Box(
                 Modifier.size(40.dp, 24.dp).background(if (on) GridColors.Accent else GridColors.CheckOff, RoundedCornerShape(12.dp)),
                 contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart,

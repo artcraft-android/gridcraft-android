@@ -60,7 +60,7 @@ fun StartScreen(vm: AppViewModel, onOpen: () -> Unit) {
                 Box(
                     Modifier.size(36.dp).clip(CircleShape).background(GridColors.Avatar).clickable { vm.openSettings() },
                     contentAlignment = Alignment.Center,
-                ) { Icon(LucideIcons.UserRound, contentDescription = "Settings", tint = GridColors.OnAvatar, modifier = Modifier.size(22.dp)) }
+                ) { Icon(LucideIcons.UserRound, contentDescription = uiText("Settings"), tint = GridColors.OnAvatar, modifier = Modifier.size(22.dp)) }
                 Spacer(Modifier.width(14.dp))
                 if (searching) {
                     BasicTextField(
@@ -125,10 +125,10 @@ private fun ListTab(icon: ImageVector, label: String?, selected: Boolean, modifi
     val tint = if (selected) GridColors.Accent else GridColors.OnBar
     Box(modifier.fillMaxSize().clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+            Icon(icon, contentDescription = label?.let { uiText(it) }, tint = tint, modifier = Modifier.size(22.dp))
             if (label != null) {
                 Spacer(Modifier.width(8.dp))
-                Text(label, color = tint, fontSize = 15.sp)
+                Text(uiText(label), color = tint, fontSize = 15.sp)
             }
         }
         if (selected) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(GridColors.Accent))
@@ -145,7 +145,7 @@ private fun BottomTab(label: String, icon: ImageVector, selected: Boolean, modif
             contentAlignment = Alignment.Center,
         ) { Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp)) }
         Spacer(Modifier.height(4.dp))
-        Text(label, color = tint, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal)
+        Text(uiText(label), color = tint, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal)
     }
 }
 
@@ -166,10 +166,9 @@ private fun groupOf(time: Long): String {
 private fun RecentList(vm: AppViewModel, files: List<RecentFile>, starred: Boolean, onOpen: () -> Unit) {
     if (files.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Text(if (starred) "Workbooks you star show here." else "Workbooks you open show here.", color = GridColors.OnSurface, fontSize = 16.sp)
+            Text(uiText(if (starred) "Workbooks you star show here." else "Workbooks you open show here."), color = GridColors.OnSurface, fontSize = 16.sp)
             Spacer(Modifier.height(16.dp))
-            Text(
-                "Open a workbook",
+            Text(uiText("Open a workbook"),
                 color = androidx.compose.ui.graphics.Color.White,
                 fontSize = 16.sp,
                 modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(GridColors.Accent).clickable(onClick = onOpen).padding(horizontal = 20.dp, vertical = 10.dp),
@@ -182,7 +181,7 @@ private fun RecentList(vm: AppViewModel, files: List<RecentFile>, starred: Boole
         for (g in listOf("Today", "Yesterday", "This week", "Earlier")) {
             val list = groups[g] ?: continue
             item(key = "h-$g") {
-                Text(g, color = GridColors.OnSurface, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp))
+                Text(uiText(g), color = GridColors.OnSurface, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 4.dp))
             }
             items(list, key = { it.uri }) { r -> RecentRow(vm, r) }
         }
@@ -201,7 +200,7 @@ private fun RecentRow(vm: AppViewModel, r: RecentFile) {
                 Text(r.name.substringBeforeLast('.', r.name), color = GridColors.OnPill, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 if (r.starred) {
                     Spacer(Modifier.width(6.dp))
-                    Icon(LucideIcons.Star, contentDescription = "Starred", tint = GridColors.Accent, modifier = Modifier.size(14.dp))
+                    Icon(LucideIcons.Star, contentDescription = uiText("Starred"), tint = GridColors.Accent, modifier = Modifier.size(14.dp))
                 }
             }
             Text(
@@ -215,11 +214,11 @@ private fun RecentRow(vm: AppViewModel, r: RecentFile) {
         Box {
             StartIcon(LucideIcons.EllipsisVertical) { menu = true }
             DropdownMenu(menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text(if (r.starred) "Remove Star" else "Add Star") }, onClick = {
+                DropdownMenuItem(text = { Text(uiText(if (r.starred) "Remove Star" else "Add Star")) }, onClick = {
                     menu = false
                     vm.starRecent(r.uri, !r.starred)
                 })
-                DropdownMenuItem(text = { Text("Remove from list") }, onClick = {
+                DropdownMenuItem(text = { Text(uiText("Remove from list")) }, onClick = {
                     menu = false
                     vm.removeRecent(r.uri)
                 })
@@ -242,8 +241,8 @@ private fun OpenRow(icon: ImageVector, title: String, detail: String, enabled: B
         Icon(icon, contentDescription = null, tint = GridColors.Accent, modifier = Modifier.size(26.dp))
         Spacer(Modifier.width(16.dp))
         Column {
-            Text(title, color = GridColors.OnPill, fontSize = 16.sp)
-            Text(detail, color = GridColors.OnSurface, fontSize = 13.sp)
+            Text(uiText(title), color = GridColors.OnPill, fontSize = 16.sp)
+            Text(uiText(detail), color = GridColors.OnSurface, fontSize = 13.sp)
         }
     }
 }

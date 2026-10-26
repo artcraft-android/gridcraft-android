@@ -55,7 +55,9 @@ fun EditorScreen(vm: AppViewModel) {
         if (vm.findOpen) FindBar(vm) else if (vm.editingShapeText == null && !vm.cropping) EditorHeader(vm)
         val formulaBar = vm.showFormulaBar || vm.editing
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            GridView(vm, Modifier.fillMaxSize())
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr,
+            ) { GridView(vm, Modifier.fillMaxSize()) }
             // what is typed in the formula bar below gets its help just above it
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                 FunctionSuggestions(vm)
