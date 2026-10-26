@@ -141,11 +141,27 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!(noundo "view.customViews", "Custom Views…", ["View", "Workbook Views"], None, "{save?: name, show?: name, delete?: name} → list", has_doc, custom_views),
         cmd!(noundo "view.split", "Split", ["View", "Window"], None, "{} (toggles a split at the active cell; shown as frozen panes in this version)", has_doc, split),
-        cmd!(noundo "view.newWindow", "New Window", ["View", "Window"], None, "{} opens a second window on the same workbook (a linked copy)", has_doc, new_window),
-        cmd!(noundo "view.arrangeAll", "Arrange All", ["View", "Window"], None, "{}", has_doc, |_, _| ok()),
-        cmd!(noundo "view.hideWindow", "Hide", ["View", "Window"], None, "{}", has_doc, hide_window),
-        cmd!(noundo "view.unhideWindow", "Unhide…", ["View", "Window"], None, "{index?}", has_doc, unhide_window),
-        cmd!(query "view.switchWindows", "Switch Windows", ["View", "Window"], None, "{} → open windows", always, switch_windows),
+        cmd!(noundo "view.newWindow", "New Window", ["View", "Window"], None, "{} → {window, doc, title}: opens another window on the active workbook (the same workbook: saving from either window saves it)", has_doc, new_window),
+        cmd!(
+            noundo "view.arrangeAll",
+            "Arrange All",
+            ["View", "Window"],
+            None,
+            "{arrange?: tiled|horizontal|vertical|cascade, activeWorkbook?: bool} → {arrange, windows}: lays out the visible windows (tiled by default; `activeWorkbook` only the active workbook's), the active window first",
+            has_doc,
+            arrange_all
+        ),
+        cmd!(noundo "view.hideWindow", "Hide", ["View", "Window"], None, "{window?, doc?} (the active window by default)", has_doc, hide_window),
+        cmd!(noundo "view.unhideWindow", "Unhide…", ["View", "Window"], None, "{window?, doc?, index?} (the most recently hidden window by default)", has_doc, unhide_window),
+        cmd!(
+            noundo "view.switchWindows",
+            "Switch Windows",
+            ["View", "Window"],
+            None,
+            "{window?, doc?} → open windows [{window, doc, index, title, dirty, active, hidden}]; with `window` (an id from the list), or `doc` (a workbook id: its most recent window), shows and activates that window first",
+            always,
+            switch_windows
+        ),
         cmd!(noundo "view.ruler", "Ruler", ["View", "Show"], None, "{on?} → {on}: rulers in Page Layout view (an application option)", has_doc, ruler),
         cmd!(query "view.macros", "Macros", ["View", "Macros"], None, "{} → scripts", has_doc, all_scripts),
         // Table tools
@@ -193,8 +209,34 @@ pub fn specs() -> Vec<CommandSpec> {
             new_script
         ),
         cmd!(query "automate.allScripts", "All Scripts", ["Automate", "Scripting Tools"], None, "{} → saved scripts", has_doc, all_scripts),
-        cmd!("automate.runScript", "Run Script", [], None, "{name}", has_doc, run_script),
+        cmd!(
+            "automate.runScript",
+            "Run Script",
+            [],
+            None,
+            "{name, trusted?: bool (runs a script from an untrusted workbook this once)} — refuses scripts in a workbook opened from a file until it is trusted, and steps that reach outside the workbook (file.*, link.*, any `path` param)",
+            has_doc,
+            run_script
+        ),
+        cmd!(
+            noundo "automate.trustScripts",
+            "Trust Scripts",
+            ["Automate", "Scripting Tools"],
+            None,
+            "{trusted?: bool (default true)} → {trusted}: lets this workbook's scripts run for the rest of the session",
+            has_doc,
+            trust_scripts
+        ),
         cmd!("automate.deleteScript", "Delete Script", [], None, "{name}", has_doc, delete_script),
+        cmd!(
+            noundo "automate.stopAction",
+            "Stop Action",
+            [],
+            None,
+            "{} → {stopped: bool}: stops an action left running on the active workbook (an open undo group, such as a debugger's) and puts back the workbook and its undo history as they were when it began",
+            has_doc,
+            stop_action
+        ),
         // Cell controls, themes, borders, styles
         cmd!(
             "insert.checkbox",
@@ -268,7 +310,7 @@ pub fn specs() -> Vec<CommandSpec> {
 
 fn find_chart(s: &Session, p: &Json) -> Result<(usize, usize)> {
     let d = s.doc()?;
-    let si = d.wb.active_sheet;
+    let si = d.wb.active_sheet();
     let sh = d.wb.sheet(si).ok_or(EngineError::NoDocument)?;
     let idx = match u32_param(p, "chart") {
         Some(id) => sh.charts.iter().position(|c| c.id == id),
@@ -404,7 +446,7 @@ fn add_element(s: &mut Session, p: &Json) -> Result<Json> {
 /// The trendline described by `chart.addElement`'s trendline parameters (Excel's Add Chart
 /// Element ▸ Trendline choices, plus the Format Trendline options).
 fn trendline_param(p: &Json) -> Result<Trendline> {
-    let num = |k: &str| f64_param(p, k).filter(|v| v.is_finite() && *v >= 0.0).unwrap_or(0.0);
+    let num = |k: &str| Trendline::clamp_forecast(f64_param(p, k).unwrap_or(0.0));
     let mut t = Trendline {
         forward: num("forward"),
         backward: num("backward"),
@@ -487,7 +529,7 @@ fn select_data(s: &mut Session, p: &Json) -> Result<Json> {
             let (sheet_name, body) = split_sheet(range);
             let src_si = match sheet_name {
                 Some(n) => d.wb.sheet_index(&n).ok_or_else(|| bad("chart.selectData", "no such sheet"))?,
-                None => d.wb.active_sheet,
+                None => d.wb.active_sheet(),
             };
             let r = RangeRef::parse(body).ok_or_else(|| bad("chart.selectData", "not a range"))?;
             if r.count() > 1_000_000 {
@@ -509,7 +551,7 @@ fn select_data(s: &mut Session, p: &Json) -> Result<Json> {
             let (sheet_name, body) = split_sheet(t);
             let si = match sheet_name {
                 Some(n) => d.wb.sheet_index(&n).ok_or_else(|| bad("chart.selectData", "no such sheet"))?,
-                None => d.wb.active_sheet,
+                None => d.wb.active_sheet(),
             };
             let r = RangeRef::parse(body).ok_or_else(|| bad("chart.selectData", "`categories` is not a range"))?;
             let name = d.wb.sheet(si).map(|sh| sh.name.clone()).ok_or(EngineError::NoDocument)?;
@@ -591,7 +633,7 @@ fn shape_outline(s: &mut Session, p: &Json) -> Result<Json> {
 }
 
 fn with_shape(s: &mut Session, p: &Json, f: impl FnOnce(&mut Shape)) -> Result<Json> {
-    let si = s.doc()?.wb.active_sheet;
+    let si = s.doc()?.wb.active_sheet();
     let id = u32_param(p, "id");
     edit(s, |cx| {
         let shapes = &mut cx.sheet_mut(si)?.shapes;
@@ -609,7 +651,7 @@ fn arrange(s: &mut Session, p: &Json, forward: bool) -> Result<Json> {
     let id = u32_param(p, "id").ok_or_else(|| bad("arrange", "missing `id`"))?;
     let kind = str_param(p, "kind").unwrap_or("shape").to_string();
     let extreme = bool_param(p, "toFront").or(bool_param(p, "toBack")).unwrap_or(false);
-    let si = s.doc()?.wb.active_sheet;
+    let si = s.doc()?.wb.active_sheet();
     fn reorder<T>(v: &mut Vec<T>, i: usize, forward: bool, extreme: bool) {
         if i >= v.len() {
             return;
@@ -675,7 +717,7 @@ fn align(s: &mut Session, p: &Json) -> Result<Json> {
     let ids: Vec<u32> =
         p.get("ids").and_then(Json::as_array).map(|a| a.iter().filter_map(|v| v.as_u64().map(|x| x as u32)).collect()).unwrap_or_default();
     let how = str_param(p, "align").unwrap_or("left").to_string();
-    let si = s.doc()?.wb.active_sheet;
+    let si = s.doc()?.wb.active_sheet();
     edit(s, |cx| {
         let sheet = cx.sheet_mut(si)?;
         let geo: Vec<(u32, f64, f64, f32, f32)> = {
@@ -731,7 +773,7 @@ fn rotate(s: &mut Session, p: &Json) -> Result<Json> {
     };
     if str_param(p, "kind") == Some("image") {
         let id = u32_param(p, "id").ok_or_else(|| bad("arrange.rotate", "missing `id`"))?;
-        let si = s.doc()?.wb.active_sheet;
+        let si = s.doc()?.wb.active_sheet();
         return edit(s, |cx| {
             let img = cx.sheet_mut(si)?.images.iter_mut().find(|i| i.id == id).ok_or_else(|| bad("arrange.rotate", "no such picture"))?;
             turn(&mut img.turn);
@@ -808,7 +850,7 @@ fn custom_views(s: &mut Session, p: &Json) -> Result<Json> {
     let mut views = stash_map(&d.wb, VIEWS_NAME);
     if let Some(name) = str_param(p, "save") {
         let sh = d.wb.active().ok_or(EngineError::NoDocument)?;
-        views[name] = json!({"sheet": d.wb.active_sheet, "selection": d.selection.a1(), "zoom": sh.zoom, "freeze": sh.freeze});
+        views[name] = json!({"sheet": d.wb.active_sheet(), "selection": d.selection.a1(), "zoom": sh.zoom, "freeze": sh.freeze});
         let v = views.clone();
         edit(s, |cx| {
             stash_set(&mut cx.wb, VIEWS_NAME, &v);
@@ -855,46 +897,71 @@ fn split(s: &mut Session, _: &Json) -> Result<Json> {
 }
 
 fn new_window(s: &mut Session, _: &Json) -> Result<Json> {
-    let d = s.doc()?.clone();
-    let mut copy = crate::DocState::new((*d.wb).clone(), d.path.clone(), format!("{}:2", d.display_title()));
-    copy.selection = d.selection.clone();
-    let i = s.add_document(copy);
-    Ok(json!({"index": i}))
+    let id = s.new_window()?;
+    let doc = s.window(id).map(|w| w.doc_uid);
+    Ok(json!({"window": id, "doc": doc, "title": s.window_title(id)}))
 }
 
-fn hide_window(s: &mut Session, _: &Json) -> Result<Json> {
-    s.hidden_windows.push(s.active_index());
-    let n = s.documents().len();
-    if n > 1 {
-        let next = (0..n).find(|i| !s.hidden_windows.contains(i)).unwrap_or(0);
-        s.set_active(next);
+/// The window a window command names: `window` (an id), else `doc` (a workbook id: its most
+/// recent window), else the active window.
+pub(crate) fn window_param(s: &Session, cmd: &str, p: &Json) -> Result<u64> {
+    let t = crate::Target::from_json(p).map_err(|e| bad(cmd, e.to_string()))?;
+    s.target_window(t).map_err(|e| bad(cmd, e.to_string()))
+}
+
+/// View › Arrange All. The engine has no window geometry: it picks the windows and the layout,
+/// and the interface moves its native windows ([`Session::window_list`] order, active first).
+fn arrange_all(s: &mut Session, p: &Json) -> Result<Json> {
+    let arrange = match str_param(p, "arrange").unwrap_or("tiled") {
+        a @ ("tiled" | "horizontal" | "vertical" | "cascade") => a,
+        other => return Err(bad("view.arrangeAll", format!("`arrange` must be tiled, horizontal, vertical or cascade, not `{other}`"))),
+    };
+    let active = s.active_window();
+    let doc = active.and_then(|w| s.window(w)).map(|w| w.doc_uid);
+    let only_active = p.get("activeWorkbook").and_then(Json::as_bool).unwrap_or(false);
+    let mut windows: Vec<u64> = s.windows().iter().filter(|w| !w.hidden && (!only_active || Some(w.doc_uid) == doc)).map(|w| w.id).collect();
+    if let Some(at) = windows.iter().position(|w| Some(*w) == active)
+        && let Some(first) = windows.get_mut(..=at)
+    {
+        first.rotate_right(1);
     }
+    Ok(json!({"arrange": arrange, "windows": windows}))
+}
+
+fn hide_window(s: &mut Session, p: &Json) -> Result<Json> {
+    let id = window_param(s, "view.hideWindow", p)?;
+    s.hide_window(id);
     ok()
 }
 
 fn unhide_window(s: &mut Session, p: &Json) -> Result<Json> {
-    let i = u32_param(p, "index").map(|v| v as usize).or_else(|| s.hidden_windows.last().copied());
-    if let Some(i) = i {
-        s.hidden_windows.retain(|x| *x != i);
-        s.set_active(i);
+    let id = if p.get("window").is_some_and(|v| !v.is_null()) || p.get("doc").is_some_and(|v| !v.is_null()) {
+        Some(window_param(s, "view.unhideWindow", p)?)
+    } else if let Some(i) = u32_param(p, "index") {
+        // A workbook's position in the document list.
+        let uid = s.documents().get(i as usize).map(|d| d.uid).ok_or_else(|| bad("view.unhideWindow", "no such window"))?;
+        s.windows().iter().filter(|w| w.doc_uid == uid && w.hidden).map(|w| w.id).next_back().or_else(|| s.doc_window(uid))
+    } else {
+        s.last_hidden_window()
+    };
+    if let Some(id) = id {
+        s.unhide_window(id);
     }
     ok()
 }
 
-fn switch_windows(s: &mut Session, _: &Json) -> Result<Json> {
-    Ok(Json::Array(
-        s.documents()
-            .iter()
-            .enumerate()
-            .map(|(i, d)| json!({"index": i, "title": d.display_title(), "active": i == s.active_index(), "hidden": s.hidden_windows.contains(&i)}))
-            .collect(),
-    ))
+fn switch_windows(s: &mut Session, p: &Json) -> Result<Json> {
+    if p.get("window").is_some_and(|v| !v.is_null()) || p.get("doc").is_some_and(|v| !v.is_null()) {
+        let id = window_param(s, "view.switchWindows", p)?;
+        s.unhide_window(id);
+    }
+    Ok(s.window_list())
 }
 
 fn table_resize(s: &mut Session, p: &Json) -> Result<Json> {
     let r = str_param(p, "range").and_then(RangeRef::parse).ok_or_else(|| bad("table.resize", "missing `range`"))?;
     let d = s.doc()?;
-    let si = d.wb.active_sheet;
+    let si = d.wb.active_sheet();
     let sh = d.wb.sheet(si).ok_or(EngineError::NoDocument)?;
     let ti = match str_param(p, "table") {
         Some(n) => sh.tables.iter().position(|t| t.name.eq_ignore_ascii_case(n)),
@@ -904,6 +971,9 @@ fn table_resize(s: &mut Session, p: &Json) -> Result<Json> {
     edit(s, |cx| {
         let sheet = cx.sheet_mut(si)?;
         let headers: Vec<String> = (r.start.col..=r.end.col).map(|c| sheet.value(CellRef::new(r.start.row, c)).display()).collect();
+        if sheet.tables.iter().enumerate().any(|(i, o)| i != ti && o.range.intersects(&r)) {
+            return Err(EngineError::Other("A table can't overlap another table.".into()));
+        }
         let t = sheet.tables.get_mut(ti).ok_or_else(|| bad("table", "gone"))?;
         if r.start.row != t.range.start.row || !r.intersects(&t.range) {
             return Err(EngineError::Other(
@@ -984,7 +1054,7 @@ fn from_csv(s: &mut Session, p: &Json) -> Result<Json> {
         return Err(EngineError::Other("Nothing to import.".into()));
     }
     let name = str_param(p, "sheet").map(str::to_string).or_else(|| {
-        str_param(p, "path").and_then(|x| std::path::Path::new(x).file_stem().and_then(|f| f.to_str()).map(|f| f.chars().take(31).collect()))
+        str_param(p, "path").and_then(|x| std::path::Path::new(x).file_stem().and_then(std::ffi::OsStr::to_str).map(|f| f.chars().take(31).collect()))
     });
     let r = s.execute("home.insertSheet", json!({"name": name})).or_else(|_| s.execute("home.insertSheet", json!({})))?;
     let w = rows.iter().map(Vec::len).max().unwrap_or(1).max(1);
@@ -1000,7 +1070,7 @@ fn from_table_range(s: &mut Session, p: &Json) -> Result<Json> {
     let d = s.doc()?;
     let sh = d.wb.active().ok_or(EngineError::NoDocument)?;
     let r = if r.is_single() { crate::selection::current_region(sh, r.start) } else { r };
-    let text = crate::display::range_text(&d.wb, d.wb.active_sheet, r);
+    let text = crate::display::range_text(&d.wb, d.wb.active_sheet(), r);
     from_csv(s, &json!({"text": text, "delimiter": "\t", "sheet": format!("{} (2)", sh.name).chars().take(31).collect::<String>()}))
 }
 
@@ -1046,10 +1116,13 @@ fn new_script(s: &mut Session, p: &Json) -> Result<Json> {
 }
 
 fn all_scripts(s: &mut Session, _: &Json) -> Result<Json> {
-    let wb = &s.doc()?.wb;
+    let d = s.doc()?;
+    let (wb, trusted) = (&d.wb, d.scripts_trusted);
     let all = stash_get(wb, SCRIPTS_NAME);
-    let mut list: Vec<Json> =
-        all.as_object().map(|o| o.iter().map(|(k, v)| json!({"name": k, "steps": v.as_array().map_or(0, Vec::len)})).collect()).unwrap_or_default();
+    let mut list: Vec<Json> = all
+        .as_object()
+        .map(|o| o.iter().map(|(k, v)| json!({"name": k, "steps": v.as_array().map_or(0, Vec::len), "trusted": trusted})).collect())
+        .unwrap_or_default();
     // A preserved VBA project is reported alongside GridCraft's own scripts; it is carried on
     // save but never executed here, so it has no step count.
     if let Some(bytes) = &wb.vba_project {
@@ -1058,20 +1131,94 @@ fn all_scripts(s: &mut Session, _: &Json) -> Result<Json> {
     Ok(Json::Array(list))
 }
 
+/// Whether `wb` carries GridCraft scripts (a workbook opened with them starts untrusted).
+pub(crate) fn has_scripts(wb: &Workbook) -> bool {
+    stash_map(wb, SCRIPTS_NAME).as_object().is_some_and(|o| !o.is_empty())
+}
+
+/// Why a script step is refused, whatever the workbook's trust: scripts stay inside the
+/// workbook. Anything that reads or writes files (`file.*`, or any `path` parameter: Get Data,
+/// From Text/CSV, Insert Picture) or leaves the app (`link.*` opens URLs) is the caller's to run
+/// directly, not a stored script's. (Nested `automate.*` steps are skipped.) This check goes by
+/// command id and parameter name, so it is only the up-front refusal: the steps also run inside
+/// an [`crate::io::ScriptSandbox`] (file access refused whatever the parameter is called) and
+/// [`run_script`] drops any `OpenUrl` request a step raises.
+fn denied_script_step(id: &str, params: &Json) -> Option<String> {
+    if id.starts_with("file.") || id.starts_with("link.") {
+        return Some(format!("scripts can't run `{id}`: it reaches outside the workbook"));
+    }
+    // Scripts are scoped to their workbook: a step that switches the active window would
+    // point every later step at another open document, so those are refused too.
+    if id.starts_with("window.") || matches!(id, "view.switchWindows" | "view.newWindow" | "view.hideWindow" | "view.unhideWindow") {
+        return Some(format!("scripts can't run `{id}`: it reaches outside the workbook"));
+    }
+    if params.get("path").is_some() {
+        return Some(format!("scripts can't pass a file `path` to `{id}`"));
+    }
+    None
+}
+
+fn trust_scripts(s: &mut Session, p: &Json) -> Result<Json> {
+    // Only a missing `trusted` means "trust"; `"false"`, `0` or `null` are mistakes, not consent.
+    let trusted = match p.get("trusted") {
+        None => true,
+        Some(Json::Bool(b)) => *b,
+        Some(_) => return Err(bad("automate.trustScripts", "`trusted` must be true or false")),
+    };
+    s.doc_mut()?.scripts_trusted = trusted;
+    Ok(json!({"trusted": trusted}))
+}
+
+/// Runs a stored script. Scripts in a workbook opened from a file run only once the workbook is
+/// trusted for this session (`automate.trustScripts`, or `trusted: true` on this call); steps that
+/// reach outside the workbook ([`denied_script_step`]) are refused before any step runs.
 fn run_script(s: &mut Session, p: &Json) -> Result<Json> {
     let name = str_param(p, "name").ok_or_else(|| bad("automate.runScript", "missing `name`"))?;
-    let all = stash_get(&s.doc()?.wb, SCRIPTS_NAME);
+    let d = s.doc()?;
+    let all = stash_get(&d.wb, SCRIPTS_NAME);
     let steps = all.get(name).and_then(Json::as_array).cloned().ok_or_else(|| bad("automate.runScript", "no such script"))?;
+    if !d.scripts_trusted && !bool_param(p, "trusted").unwrap_or(false) {
+        return Err(bad(
+            "automate.runScript",
+            "scripts in this workbook came from a file and are disabled; trust the workbook first (Trust Scripts in View › Macros, Alt+F8; `automate.trustScripts`; or `trusted: true`)",
+        ));
+    }
+    let steps: Vec<Json> = steps.into_iter().take(100_000).collect();
+    for st in &steps {
+        let id = st["command"].as_str().unwrap_or("");
+        if let Some(why) = denied_script_step(id, &st["params"]) {
+            return Err(bad("automate.runScript", why));
+        }
+    }
+    let _sandbox = crate::io::ScriptSandbox::enter();
     let mut n = 0;
-    for st in steps.iter().take(100_000) {
+    for st in &steps {
         let id = st["command"].as_str().unwrap_or("");
         if id.starts_with("automate.") {
             continue;
         }
-        s.execute(id, st["params"].clone())?;
+        let before = s.ui_requests.len();
+        let ran = s.execute(id, st["params"].clone());
+        // A step that asks the host to open a URL leaves the app: drop the request and stop.
+        if s.ui_requests.get(before..).is_some_and(|new| new.iter().any(|r| matches!(r, crate::UiRequest::OpenUrl(_)))) {
+            let mut i = 0;
+            s.ui_requests.retain(|r| {
+                i += 1;
+                i <= before || !matches!(r, crate::UiRequest::OpenUrl(_))
+            });
+            return Err(bad("automate.runScript", format!("scripts can't open links (`{id}`)")));
+        }
+        ran?;
         n += 1;
     }
     Ok(json!({"ran": n}))
+}
+
+/// Automate › Stop Action: rolls back the undo groups open on the active workbook, so Undo and
+/// Redo work there again.
+fn stop_action(s: &mut Session, _: &Json) -> Result<Json> {
+    let uid = s.doc()?.uid;
+    Ok(json!({"stopped": s.abort_groups(uid)}))
 }
 
 fn delete_script(s: &mut Session, p: &Json) -> Result<Json> {
@@ -1173,7 +1320,7 @@ fn theme_fonts(s: &mut Session, p: &Json) -> Result<Json> {
 
 fn background(s: &mut Session, p: &Json) -> Result<Json> {
     if bool_param(p, "clear").unwrap_or(false) {
-        let si = s.doc()?.wb.active_sheet;
+        let si = s.doc()?.wb.active_sheet();
         return edit(s, |cx| {
             cx.sheet_mut(si)?.images.retain(|i| i.alt != "Sheet background");
             Ok(Json::Null)
@@ -1236,7 +1383,7 @@ fn recently_used(s: &mut Session, _: &Json) -> Result<Json> {
 
 fn use_in_formula(s: &mut Session, p: &Json) -> Result<Json> {
     let name = str_param(p, "name").ok_or_else(|| bad("formulas.useInFormula", "missing `name`"))?;
-    s.ui_requests.push(crate::UiRequest::EditCell(Some(format!("={name}"))));
+    s.ui_requests.push(crate::UiRequest::InsertName(name.to_string()));
     ok()
 }
 
@@ -1266,7 +1413,7 @@ fn watch_window(s: &mut Session, p: &Json) -> Result<Json> {
         .iter()
         .map(|w| {
             let (sheet, body) = split_sheet(w);
-            let si = sheet.and_then(|n| d.wb.sheet_index(&n)).unwrap_or(d.wb.active_sheet);
+            let si = sheet.and_then(|n| d.wb.sheet_index(&n)).unwrap_or(d.wb.active_sheet());
             let c = CellRef::parse(body).unwrap_or_default();
             let sh = d.wb.sheet(si);
             json!({"cell": w, "value": sh.map(|s| s.value(c).display()), "formula": sh.and_then(|s| s.cell(c)).and_then(|x| x.formula.as_ref()).map(|f| format!("={}", f.text))})
