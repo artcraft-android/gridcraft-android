@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="command_not_found">لا توجد نتائج تطابق «%1$s».</string>
+    <string name="find_result_position">%1$d من %2$d</string>
+    <string name="aggregate_average">المتوسط: %1$s</string>
+    <string name="aggregate_count">العدد: %1$s</string>
+    <string name="aggregate_sum">المجموع: %1$s</string>
+    <string name="card_count">البطاقات: %1$d%2$s</string>
+    <string name="chart_style_number">النمط %1$d</string>
+    <string name="chart_layout_number">التخطيط %1$d</string>
+    <string name="continue_validation">%1$s\n\nهل تريد المتابعة؟</string>
+    <string name="reply_count">الردود: %1$d</string>
+    <string name="body_font">%1$s (النص الأساسي)</string>
+</resources>

@@ -1,6 +1,7 @@
 name: Build APK
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
       variant:
@@ -50,6 +51,9 @@ jobs:
       - name: Install cargo-ndk
         run: cargo install cargo-ndk --version 4.1.2 --locked
 
+      - name: Test Rust engine and Android bridge
+        run: cargo test --workspace --exclude gridcraft-android-bindgen --locked
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
@@ -58,9 +62,9 @@ jobs:
         run: |
           chmod +x ./gradlew
           if [ "${{ inputs.variant }}" = "release" ]; then
-            ./gradlew assembleRelease
+            ./gradlew assembleRelease testDebugUnitTest
           else
-            ./gradlew assembleDebug
+            ./gradlew assembleDebug testDebugUnitTest
           fi
 
       - name: Upload APK

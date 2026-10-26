@@ -1,5 +1,6 @@
 package io.github.artcraftandroid.gridcraft.ui.editor
 
+import io.github.artcraftandroid.gridcraft.ui.uiText
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -13,6 +14,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -22,6 +27,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -35,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -51,8 +58,7 @@ import io.github.artcraftandroid.gridcraft.ui.Motion
 import kotlin.math.roundToInt
 import org.json.JSONObject
 
-/** The palette's height, its rows (47 dp and a 1 dp line), list rows and group bands. */
-val PALETTE_HEIGHT = 419.dp
+/** Palette rows (47 dp and a 1 dp line) and group bands; height follows the viewport. */
 internal val ROW = 47.dp
 internal val BAND = 8.dp
 
@@ -137,14 +143,15 @@ private object CentredOnAnchor : androidx.compose.ui.window.PopupPositionProvide
 /** The tab switcher's list: every tab (and the selected object's), the current one marked. */
 @Composable
 fun TabSwitcher(vm: AppViewModel, modifier: Modifier = Modifier) {
-    Column(modifier.width(IntrinsicSize.Max).widthIn(min = 112.dp).shadow(6.dp)) {
+    val maximumHeight = LocalConfiguration.current.screenHeightDp.dp * 0.8f
+    Column(modifier.width(IntrinsicSize.Max).widthIn(min = 112.dp).heightIn(max = maximumHeight).shadow(6.dp).verticalScroll(rememberScrollState())) {
         for (tab in PALETTE_TABS + listOfNotNull(vm.contextTab)) {
             val current = tab == vm.paletteTab
             Box(
                 Modifier.fillMaxWidth().height(ROW).background(if (current) GridColors.PopupCurrent else GridColors.PopupFill).clickable { vm.showTab(tab) },
                 contentAlignment = Alignment.CenterStart,
             ) {
-                Text(tab, color = if (current) GridColors.OnPopupCurrent else GridColors.OnPopup, fontSize = 18.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp))
+                Text(uiText(tab), color = if (current) GridColors.OnPopupCurrent else GridColors.OnPopup, fontSize = 18.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp))
             }
         }
     }
@@ -159,7 +166,7 @@ private fun TabHeader(vm: AppViewModel, tab: String) {
     ) {
         Box {
             Row(Modifier.widthIn(min = 112.dp).fillMaxHeight().clickable { vm.toggleTabs() }.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(tab, color = GridColors.Accent, fontSize = 18.sp, maxLines = 1)
+                Text(uiText(tab), color = GridColors.Accent, fontSize = 18.sp, maxLines = 1)
                 Spacer(Modifier.width(12.dp).weight(1f, fill = false))
                 GlyphIcon(LucideIcons.ChevronsUpDown.glyph(), GridColors.SwitchIcon, size = 20.dp)
                 Spacer(Modifier.width(10.dp))
@@ -190,7 +197,7 @@ private fun PageHeader(vm: AppViewModel, title: String) {
         Modifier.fillMaxWidth().height(ROW).background(GridColors.Strip).topEdge(GridColors.StripMore).bottomEdge(GridColors.StripMore),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, color = GridColors.Accent, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 16.dp))
+        Text(uiText(title), color = GridColors.Accent, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 16.dp))
         BarButton(LucideIcons.Lightbulb.glyph(), GridColors.HeaderIcon, vm::tellMeFromPage, width = 48.dp, height = ROW, label = "Tell me")
         BarButton(LucideIcons.Undo2.glyph(), GridColors.HeaderIcon, vm::undo, enabled = info?.canUndo == true, width = 48.dp, height = ROW, disabledTint = GridColors.HeaderIconDisabled, label = "Undo")
         BarButton(LucideIcons.Redo2.glyph(), GridColors.HeaderIcon, vm::redo, enabled = info?.canRedo == true, width = 48.dp, height = ROW, disabledTint = GridColors.HeaderIconDisabled, label = "Redo")
@@ -206,7 +213,7 @@ private fun PanelHeader(title: String, onBack: () -> Unit, onClose: () -> Unit) 
     ) {
         BarButton(LucideIcons.ChevronLeft.glyph(), GridColors.BackIcon, onBack, width = 56.dp, height = ROW, label = "Back")
         Box(Modifier.width(1.dp).height(32.dp).background(GridColors.SwitcherDivider))
-        Text(title, color = GridColors.Accent, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 16.dp))
+        Text(uiText(title), color = GridColors.Accent, fontSize = 18.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 16.dp))
         BarButton(Glyph.Triangle(up = false), GridColors.CollapseIcon, onClose, width = 43.dp, height = ROW, label = "Collapse more options")
     }
 }
@@ -234,6 +241,7 @@ internal fun PaletteRow(
     trailing: String? = null,
     inset: Boolean = true,
 ) {
+    val forward = if (LocalLayoutDirection.current == LayoutDirection.Rtl) LucideIcons.ChevronLeft else LucideIcons.ChevronRight
     Row(Modifier.fillMaxWidth().height(height + 1.dp).background(if (pressed) GridColors.Pressed else GridColors.Surface).bottomEdge(GridColors.Divider), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).fillMaxHeight().clickable(enabled = enabled, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.width(16.dp))
@@ -241,20 +249,20 @@ internal fun PaletteRow(
                 Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { if (glyph != null) GlyphIcon(glyph, if (enabled) iconTint else GridColors.Disabled) }
                 Spacer(Modifier.width(10.dp))
             }
-            Text(label, color = if (enabled) GridColors.OnSurface else GridColors.Disabled, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(uiText(label), color = if (enabled) GridColors.OnSurface else GridColors.Disabled, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (trailing != null) {
-                Text(trailing, color = GridColors.OnStrip, fontSize = 15.sp, maxLines = 1)
+                Text(uiText(trailing), color = GridColors.OnStrip, fontSize = 15.sp, maxLines = 1)
                 Spacer(Modifier.width(16.dp))
             }
             if (chevron && onOpen == null) {
-                GlyphIcon(LucideIcons.ChevronRight.glyph(), if (enabled) GridColors.OnStrip else GridColors.Disabled, size = 20.dp)
+                GlyphIcon(forward.glyph(), if (enabled) GridColors.OnStrip else GridColors.Disabled, size = 20.dp)
                 Spacer(Modifier.width(15.dp))
             }
         }
         if (onOpen != null) {
             Box(Modifier.width(1.dp).height(25.dp).background(GridColors.Divider))
             Box(Modifier.width(50.dp).fillMaxHeight().clickable(enabled = enabled, onClick = onOpen), contentAlignment = Alignment.Center) {
-                GlyphIcon(LucideIcons.ChevronRight.glyph(), if (enabled) GridColors.OnStrip else GridColors.Disabled, size = 20.dp)
+                GlyphIcon(forward.glyph(), if (enabled) GridColors.OnStrip else GridColors.Disabled, size = 20.dp)
             }
         }
     }
@@ -277,7 +285,21 @@ internal val LocalTabScroll = androidx.compose.runtime.compositionLocalOf<androi
 
 @Composable
 internal fun Scrolling(content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(LocalTabScroll.current ?: rememberScrollState()), content = content)
+    val scroll = LocalTabScroll.current ?: rememberScrollState()
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(bottom = 16.dp), content = content)
+        // A visible thumb makes the remaining rows discoverable; the last row has bottom padding.
+        if (scroll.maxValue > 0 && scroll.maxValue < Int.MAX_VALUE) {
+            val overflow = with(density) { scroll.maxValue.toDp() }
+            val thumb = (maxHeight * (maxHeight / (maxHeight + overflow))).coerceAtLeast(24.dp).coerceAtMost(maxHeight)
+            val travel = (maxHeight - thumb).coerceAtLeast(0.dp)
+            Box(
+                Modifier.align(Alignment.TopEnd).offset(y = travel * (scroll.value.toFloat() / scroll.maxValue))
+                    .width(3.dp).height(thumb).background(GridColors.SettingsValue.copy(alpha = 0.6f), RoundedCornerShape(2.dp)),
+            )
+        }
+    }
 }
 
 internal fun json(vararg pairs: Pair<String, Any>): String = JSONObject().apply { for ((k, v) in pairs) put(k, v) }.toString()
@@ -285,7 +307,7 @@ internal fun json(vararg pairs: Pair<String, Any>): String = JSONObject().apply 
 @Composable
 internal fun SectionBand(title: String) {
     Box(Modifier.fillMaxWidth().height(26.dp).background(GridColors.Section).padding(start = 16.dp), contentAlignment = Alignment.CenterStart) {
-        Text(title, color = GridColors.OnSurface, fontSize = 14.sp)
+        Text(uiText(title), color = GridColors.OnSurface, fontSize = 14.sp)
     }
 }
 
@@ -294,22 +316,24 @@ internal fun SectionBand(title: String) {
 internal fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit, trailing: String? = null, enabled: Boolean = true) {
     Row(Modifier.fillMaxWidth().height(ROW + 1.dp).background(if (selected) GridColors.Pressed else GridColors.Surface).bottomEdge(GridColors.Divider).clickable(enabled = enabled, onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.width(43.dp), contentAlignment = Alignment.Center) { if (selected) GlyphIcon(LucideIcons.Check.glyph(), GridColors.Accent, size = 20.dp) }
-        Text(label, color = if (enabled) GridColors.OnSurface else GridColors.Disabled, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        if (trailing != null) Text(trailing, color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(end = 16.dp))
+        Text(uiText(label), color = if (enabled) GridColors.OnSurface else GridColors.Disabled, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        if (trailing != null) Text(uiText(trailing), color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(end = 16.dp))
     }
 }
 
 /** A grid of colour swatches, [perRow] across the width with hairline gaps, each with a thin edge, as the phone app draws them. */
 @Composable
-internal fun SwatchGrid(swatches: List<Swatch>, perRow: Int, @Suppress("UNUSED_PARAMETER") cellW: Dp, onPick: (Swatch) -> Unit) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
-        for (row in swatches.chunked(perRow)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
-                for (s in row) {
-                    Box(Modifier.weight(1f).height(40.dp).background(Color(s.argb)).border(1.dp, GridColors.SwatchEdge).clickable { onPick(s) })
+internal fun SwatchGrid(swatches: List<Swatch>, perRow: Int, cellW: Dp, onPick: (Swatch) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        val columns = galleryColumns(maxWidth.value, perRow, cellW.value, 2f)
+        Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
+            for (row in swatches.chunked(columns)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
+                    for (s in row) {
+                        Box(Modifier.weight(1f).aspectRatio(1f).background(Color(s.argb)).border(1.dp, GridColors.SwatchEdge).clickable { onPick(s) })
+                    }
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                 }
-                // a short last row keeps the cells' width
-                repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }
@@ -344,7 +368,7 @@ internal fun ColorGridPanel(vm: AppViewModel, none: String, onPick: (Int?) -> Un
         ) {
             Box(Modifier.size(24.dp).background(if (automatic) Color.Black else Color.White).border(1.dp, GridColors.SwatchEdge))
             Spacer(Modifier.width(10.dp))
-            Text(none, color = GridColors.OnSurface, fontSize = 16.sp)
+            Text(uiText(none), color = GridColors.OnSurface, fontSize = 16.sp)
         }
     }
 }

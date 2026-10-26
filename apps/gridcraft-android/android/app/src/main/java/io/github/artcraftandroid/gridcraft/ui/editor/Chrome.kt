@@ -1,5 +1,10 @@
 package io.github.artcraftandroid.gridcraft.ui.editor
 
+import androidx.compose.ui.draw.scale
+import io.github.artcraftandroid.gridcraft.ui.uiDescription
+import androidx.compose.ui.res.stringResource
+import io.github.artcraftandroid.gridcraft.R
+import io.github.artcraftandroid.gridcraft.ui.uiText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.semantics.contentDescription
@@ -77,16 +82,18 @@ fun BarButton(
     disabledTint: Color = GridColors.Disabled,
     label: String? = null,
 ) {
+    val accessibleLabel = label?.let { uiText(it) }
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     Box(
         modifier
             .size(width, height)
             .background(if (pressed) GridColors.Pressed else Color.Transparent)
             .clickable(enabled = enabled, onClick = onClick)
             // what a screen reader says for it, the phone app's name for the button
-            .then(if (label != null) Modifier.semantics { contentDescription = label } else Modifier),
+            .then(if (label != null) Modifier.semantics { contentDescription = accessibleLabel!! } else Modifier),
         contentAlignment = Alignment.Center,
     ) {
-        GlyphIcon(glyph, if (enabled) tint else disabledTint, size = iconSize)
+        GlyphIcon(glyph, if (enabled) tint else disabledTint, modifier = Modifier.scale(if (rtl && label == "Back") -1f else 1f, 1f), size = iconSize)
     }
 }
 
@@ -104,23 +111,24 @@ fun Modifier.topEdge(color: Color): Modifier = drawBehind {
 private val BAR_HEIGHT = 56.dp
 private val BAR_BUTTON = 48.dp
 
-/** Editing: close, the workbook's name, Undo (while there is something to undo), Share, and ⋯ (its sheet: [MoreSheet]). */
+/** Editing: close, the workbook's name, Undo and Redo, Share, and ⋯ (its sheet: [MoreSheet]). */
 @Composable
 fun EditorHeader(vm: AppViewModel) {
     Row(Modifier.fillMaxWidth().height(BAR_HEIGHT).background(GridColors.StatusBand).bottomEdge(GridColors.BarEdge), verticalAlignment = Alignment.CenterVertically) {
         BarButton(LucideIcons.X.glyph(), GridColors.OnBar, vm::closeWorkbook, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Back")
         Text(vm.fileName, color = GridColors.OnBar, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(start = 4.dp))
-        // Undo shows while there is something to undo, as the phone app's header has it
-        if (vm.info?.canUndo == true) BarButton(LucideIcons.Undo2.glyph(), GridColors.OnBar, vm::undo, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Undo")
+        // Keep the pair in place; each action is enabled only when its history is available.
+        BarButton(LucideIcons.Undo2.glyph(), GridColors.OnBar, vm::undo, enabled = vm.info?.canUndo == true, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Undo")
+        BarButton(LucideIcons.Redo2.glyph(), GridColors.OnBar, vm::redo, enabled = vm.info?.canRedo == true, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Redo")
         Box {
             var share by remember { mutableStateOf(false) }
             BarButton(LucideIcons.Share2.glyph(), GridColors.OnBar, { share = true }, width = BAR_BUTTON, height = BAR_HEIGHT, label = "Share")
             DropdownMenu(share, onDismissRequest = { share = false }) {
-                DropdownMenuItem(text = { Text("Share Workbook") }, onClick = {
+                DropdownMenuItem(text = { Text(uiText("Share Workbook")) }, onClick = {
                     share = false
                     vm.share("xlsx")
                 })
-                DropdownMenuItem(text = { Text("Share as PDF") }, onClick = {
+                DropdownMenuItem(text = { Text(uiText("Share as PDF")) }, onClick = {
                     share = false
                     vm.share("pdf")
                 })
@@ -132,7 +140,7 @@ fun EditorHeader(vm: AppViewModel) {
 
 /** The header's ⋯: a sheet from the bottom with Draw with Pen, Share as PDF, Save, Save As, Print, then Settings. */
 @Composable
-fun MoreSheet(vm: AppViewModel) {
+fun MoreSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
     val top = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
     @Composable
     fun item(label: String, glyph: Glyph, action: () -> Unit) {
@@ -145,10 +153,10 @@ fun MoreSheet(vm: AppViewModel) {
         ) {
             GlyphIcon(glyph, GridColors.OnSettings, size = 24.dp)
             Spacer(Modifier.width(29.dp))
-            Text(label, color = GridColors.OnSettings, fontSize = 16.sp)
+            Text(uiText(label), color = GridColors.OnSettings, fontSize = 16.sp)
         }
     }
-    Column(Modifier.fillMaxWidth().shadow(8.dp, top).background(GridColors.Sheet, top)) {
+    Column(modifier.fillMaxWidth().shadow(8.dp, top).background(GridColors.Sheet, top).verticalScroll(rememberScrollState())) {
         Box(Modifier.fillMaxWidth().height(32.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.size(36.dp, 4.dp).background(GridColors.Handle, RoundedCornerShape(2.dp)))
         }
@@ -169,6 +177,14 @@ fun MoreSheet(vm: AppViewModel) {
  */
 @Composable
 fun FormulaBar(vm: AppViewModel) {
+    // Spreadsheet formulas and numeric keys retain their canonical left-to-right order.
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr,
+    ) { FormulaBarContent(vm) }
+}
+
+@Composable
+private fun FormulaBarContent(vm: AppViewModel) {
     val sel = vm.selection
     val focus = remember { FocusRequester() }
     val expanded = vm.formulaExpanded
@@ -247,7 +263,7 @@ fun FormulaBar(vm: AppViewModel) {
                 contentAlignment = if (expanded) Alignment.TopStart else Alignment.CenterStart,
             ) {
                 if (shown.isEmpty()) {
-                    Text("Type text or a formula", color = GridColors.OnBar.copy(alpha = 0.6f), fontSize = 16.sp, maxLines = 1)
+                    Text(uiText("Type text or a formula"), color = GridColors.OnBar.copy(alpha = 0.6f), fontSize = 16.sp, maxLines = 1)
                 } else {
                     Text(shown, color = GridColors.OnSettings, fontSize = 16.sp, maxLines = lines, overflow = TextOverflow.Ellipsis)
                 }
@@ -292,7 +308,7 @@ fun CommandBar(vm: AppViewModel) {
         Row(Modifier.height(48.dp).shadow(3.dp, shape).clip(shape).background(GridColors.Bar), verticalAlignment = Alignment.CenterVertically) {
             Box {
                 Row(
-                    Modifier.fillMaxHeight().clickable { vm.showSheetsBar(true) }.semantics { contentDescription = "Sheet Tabs" }.padding(start = 14.dp, end = 16.dp),
+                    Modifier.fillMaxHeight().clickable { vm.showSheetsBar(true) }.uiDescription("Sheet Tabs").padding(start = 14.dp, end = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     GlyphIcon(LucideIcons.Layers.glyph(), GridColors.OnPill, size = 20.dp)
@@ -348,7 +364,7 @@ fun SheetsBar(vm: AppViewModel) {
     val info = vm.info ?: return
     Row(Modifier.fillMaxWidth().height(48.dp).background(GridColors.SheetsBar).topEdge(GridColors.BarEdge), verticalAlignment = Alignment.CenterVertically) {
         Box(
-            Modifier.width(45.dp).fillMaxHeight().background(GridColors.SheetsToggle).clickable { vm.showSheetsBar(false) }.semantics { contentDescription = "Close Sheets Bar" },
+            Modifier.width(45.dp).fillMaxHeight().background(GridColors.SheetsToggle).clickable { vm.showSheetsBar(false) }.uiDescription("Close Sheets Bar"),
             contentAlignment = Alignment.Center,
         ) {
             GlyphIcon(LucideIcons.Layers.glyph(), GridColors.OnBar, size = 22.dp)
@@ -415,7 +431,7 @@ private fun TabMenu(vm: AppViewModel, i: Int) {
                 @Composable
                 fun item(label: String, last: Boolean = false, onClick: () -> Unit) {
                     Box(Modifier.fillMaxHeight().clickable(onClick = onClick).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
-                        Text(label, color = GridColors.OnPill, fontSize = 16.sp)
+                        Text(uiText(label), color = GridColors.OnPill, fontSize = 16.sp)
                     }
                     if (!last) Box(Modifier.width(1.dp).height(24.dp).background(GridColors.BarLine))
                 }
@@ -432,7 +448,7 @@ private fun TabMenu(vm: AppViewModel, i: Int) {
             else -> Column(Modifier.width(if (page == "color") 320.dp else 240.dp).shadow(6.dp, shape).background(GridColors.StatusBand, shape).clip(shape)) {
                 Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
                     BarButton(LucideIcons.ChevronLeft.glyph(), GridColors.OnPill, { page = null }, width = 48.dp, height = 44.dp, iconSize = 20.dp, label = "Back")
-                    Text(if (page == "color") "Color" else "Move", color = GridColors.OnPill, fontSize = 17.sp)
+                    Text(uiText(if (page == "color") "Color" else "Move"), color = GridColors.OnPill, fontSize = 17.sp)
                 }
                 if (page == "color") {
                     Box(Modifier.fillMaxWidth().height(360.dp)) {
@@ -450,7 +466,7 @@ private fun TabMenu(vm: AppViewModel, i: Int) {
                         }
                     }
                     Box(Modifier.fillMaxWidth().height(44.dp).clickable { vm.moveSheetBefore(i, null) }.padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-                        Text("(move to end)", color = GridColors.OnPill, fontSize = 16.sp)
+                        Text(uiText("(move to end)"), color = GridColors.OnPill, fontSize = 16.sp)
                     }
                 }
             }
@@ -489,7 +505,7 @@ fun CellMenu(vm: AppViewModel, modifier: Modifier = Modifier) {
             BarButton(LucideIcons.ChevronDown.glyph(), GridColors.OnPill, { pasteOptions = true }, enabled = vm.canPaste, width = 38.dp, height = 36.dp, iconSize = 18.dp, label = "Paste Options")
             DropdownMenu(expanded = pasteOptions, onDismissRequest = { pasteOptions = false }) {
                 for ((label, what) in listOf("Paste" to "all", "Paste Values" to "values", "Paste Formulas" to "formulas", "Paste Formatting" to "formats")) {
-                    DropdownMenuItem(text = { Text(label) }, onClick = {
+                    DropdownMenuItem(text = { Text(uiText(label)) }, onClick = {
                         pasteOptions = false
                         vm.pasteSpecial(what)
                     })
@@ -522,7 +538,7 @@ fun CellMenu(vm: AppViewModel, modifier: Modifier = Modifier) {
 @Composable
 private fun MenuText(label: String, onClick: () -> Unit) {
     Box(Modifier.height(36.dp).clickable(onClick = onClick).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
-        Text(label, color = GridColors.OnPill, fontSize = 16.sp)
+        Text(uiText(label), color = GridColors.OnPill, fontSize = 16.sp)
     }
 }
 
@@ -533,10 +549,10 @@ fun RenameDialog(vm: AppViewModel, index: Int) {
     var name by remember(index) { mutableStateOf(old) }
     AlertDialog(
         onDismissRequest = { vm.renaming = null },
-        title = { Text("Rename Sheet") },
+        title = { Text(uiText("Rename Sheet")) },
         text = { OutlinedTextField(value = name, onValueChange = { name = it.take(31) }, singleLine = true) },
-        confirmButton = { TextButton(onClick = { vm.renameSheet(index, name) }) { Text("OK") } },
-        dismissButton = { TextButton(onClick = { vm.renaming = null }) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { vm.renameSheet(index, name) }) { Text(uiText("OK")) } },
+        dismissButton = { TextButton(onClick = { vm.renaming = null }) { Text(uiText("Cancel")) } },
     )
 }
 
@@ -549,7 +565,7 @@ fun FindBar(vm: AppViewModel) {
         Row(Modifier.fillMaxWidth().height(BAR_HEIGHT).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             FindField(vm.findText, { vm.findText = it }, "Find", LucideIcons.Search, ImeAction.Search, { vm.runFind() }, Modifier.weight(1f).focusRequester(focus)) {
                 if (vm.findHits.isNotEmpty()) {
-                    Text("${vm.findIndex + 1} of ${vm.findHits.size}", color = GridColors.FindHint, fontSize = 14.sp)
+                    Text(stringResource(R.string.find_result_position, vm.findIndex + 1, vm.findHits.size), color = GridColors.FindHint, fontSize = 14.sp)
                 } else if (vm.findStatus.isNotEmpty()) {
                     Text(vm.findStatus, color = GridColors.FindHint, fontSize = 14.sp, maxLines = 1)
                 }
@@ -563,8 +579,8 @@ fun FindBar(vm: AppViewModel) {
         if (vm.replaceOpen) {
             Row(Modifier.fillMaxWidth().height(BAR_HEIGHT).padding(start = 8.dp, end = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 FindField(vm.replaceText, { vm.replaceText = it }, "Replace", LucideIcons.Replace, ImeAction.Done, { vm.replaceOne() }, Modifier.weight(1f)) {}
-                TextButton(onClick = { vm.replaceOne() }, enabled = vm.findText.isNotEmpty()) { Text("Replace", color = GridColors.Accent) }
-                TextButton(onClick = { vm.replaceAll() }, enabled = vm.findText.isNotEmpty()) { Text("All", color = GridColors.Accent) }
+                TextButton(onClick = { vm.replaceOne() }, enabled = vm.findText.isNotEmpty()) { Text(uiText("Replace"), color = GridColors.Accent) }
+                TextButton(onClick = { vm.replaceAll() }, enabled = vm.findText.isNotEmpty()) { Text(uiText("All"), color = GridColors.Accent) }
             }
         }
         if (vm.findOptionsOpen) {
@@ -613,7 +629,7 @@ private fun FindField(
 @Composable
 private fun FindOption(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().height(48.dp).clickable { onChange(!on) }.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = GridColors.OnSettings, fontSize = 16.sp, modifier = Modifier.weight(1f))
+        Text(uiText(label), color = GridColors.OnSettings, fontSize = 16.sp, modifier = Modifier.weight(1f))
         androidx.compose.material3.Switch(
             checked = on,
             onCheckedChange = onChange,
@@ -638,7 +654,7 @@ fun CommentCard(vm: AppViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (c.threaded) {
                 Box(Modifier.weight(1f).height(40.dp), contentAlignment = Alignment.CenterStart) {
-                    if (reply.isEmpty()) Text("Reply", color = GridColors.FindHint, fontSize = 15.sp)
+                    if (reply.isEmpty()) Text(uiText("Reply"), color = GridColors.FindHint, fontSize = 15.sp)
                     BasicTextField(
                         value = reply,
                         onValueChange = { reply = it },
@@ -673,18 +689,18 @@ fun EditorDialog(vm: AppViewModel) {
             AlertDialog(
                 onDismissRequest = { vm.answerEntryAlert("cancel") },
                 title = { Text(a.title.ifEmpty { "Data Validation" }) },
-                text = { Text(if (a.style == "warning") "${a.message}\n\nContinue?" else a.message, color = GridColors.OnSurface, fontSize = 15.sp) },
+                text = { Text(if (a.style == "warning") stringResource(R.string.continue_validation, a.message) else a.message, color = GridColors.OnSurface, fontSize = 15.sp) },
                 confirmButton = {
                     when (a.style) {
-                        "stop" -> TextButton(onClick = { vm.answerEntryAlert("retry") }) { Text("Retry") }
+                        "stop" -> TextButton(onClick = { vm.answerEntryAlert("retry") }) { Text(uiText("Retry")) }
                         "warning" -> Row {
-                            TextButton(onClick = { vm.answerEntryAlert("allow") }) { Text("Yes") }
-                            TextButton(onClick = { vm.answerEntryAlert("retry") }) { Text("No") }
+                            TextButton(onClick = { vm.answerEntryAlert("allow") }) { Text(uiText("Yes")) }
+                            TextButton(onClick = { vm.answerEntryAlert("retry") }) { Text(uiText("No")) }
                         }
-                        else -> TextButton(onClick = { vm.answerEntryAlert("allow") }) { Text("OK") }
+                        else -> TextButton(onClick = { vm.answerEntryAlert("allow") }) { Text(uiText("OK")) }
                     }
                 },
-                dismissButton = { TextButton(onClick = { vm.answerEntryAlert("cancel") }) { Text("Cancel") } },
+                dismissButton = { TextButton(onClick = { vm.answerEntryAlert("cancel") }) { Text(uiText("Cancel")) } },
             )
         }
         "print" -> PrintOptions(vm)
@@ -699,18 +715,18 @@ fun EditorDialog(vm: AppViewModel) {
             )[rule] ?: "Filter"
             AlertDialog(
                 onDismissRequest = { vm.dialog = null },
-                title = { Text(title) },
+                title = { Text(uiText(title)) },
                 text = {
                     Column {
-                        OutlinedTextField(value = a, onValueChange = { a = it.take(255) }, singleLine = true, label = { Text(if (rule == "top10") "Show the top" else "Value") })
+                        OutlinedTextField(value = a, onValueChange = { a = it.take(255) }, singleLine = true, label = { Text(uiText(if (rule == "top10") "Show the top" else "Value")) })
                         if (rule == "between") {
-                            Text("and", color = GridColors.OnSurface, fontSize = 14.sp, modifier = Modifier.padding(vertical = 6.dp))
-                            OutlinedTextField(value = b, onValueChange = { b = it.take(255) }, singleLine = true, label = { Text("Value") })
+                            Text(uiText("and"), color = GridColors.OnSurface, fontSize = 14.sp, modifier = Modifier.padding(vertical = 6.dp))
+                            OutlinedTextField(value = b, onValueChange = { b = it.take(255) }, singleLine = true, label = { Text(uiText("Value")) })
                         }
                     }
                 },
-                confirmButton = { TextButton(onClick = { vm.applyFilterRule(rule, a.trim(), b.trim()) }, enabled = a.isNotBlank() && (rule != "between" || b.isNotBlank())) { Text("OK") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+                confirmButton = { TextButton(onClick = { vm.applyFilterRule(rule, a.trim(), b.trim()) }, enabled = a.isNotBlank() && (rule != "between" || b.isNotBlank())) { Text(uiText("OK")) } },
+                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
             )
         }
         "table" -> {
@@ -718,7 +734,7 @@ fun EditorDialog(vm: AppViewModel) {
             var header by remember { mutableStateOf(guess) }
             AlertDialog(
                 onDismissRequest = { vm.dialog = null },
-                title = { Text("Insert Table") },
+                title = { Text(uiText("Insert Table")) },
                 text = {
                     Column {
                         Text(range, color = GridColors.OnSurface, fontSize = 16.sp)
@@ -728,41 +744,41 @@ fun EditorDialog(vm: AppViewModel) {
                                 onCheckedChange = { header = it },
                                 colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = GridColors.Accent),
                             )
-                            Text("My table has headers", color = GridColors.OnSettings, fontSize = 16.sp)
+                            Text(uiText("My table has headers"), color = GridColors.OnSettings, fontSize = 16.sp)
                         }
                     }
                 },
-                confirmButton = { TextButton(onClick = { vm.insertTable(range, header) }) { Text("OK") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+                confirmButton = { TextButton(onClick = { vm.insertTable(range, header) }) { Text(uiText("OK")) } },
+                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
             )
         }
         "comment" -> {
             var text by remember { mutableStateOf("") }
             AlertDialog(
                 onDismissRequest = { vm.dialog = null },
-                title = { Text("New Comment") },
+                title = { Text(uiText("New Comment")) },
                 text = { OutlinedTextField(value = text, onValueChange = { text = it.take(32767) }, minLines = 2) },
-                confirmButton = { TextButton(onClick = { vm.newComment(text) }) { Text("Post") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+                confirmButton = { TextButton(onClick = { vm.newComment(text) }) { Text(uiText("Post")) } },
+                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
             )
         }
         "goTo" -> {
             var ref by remember { mutableStateOf("") }
             AlertDialog(
                 onDismissRequest = { vm.dialog = null },
-                title = { Text("Go To") },
+                title = { Text(uiText("Go To")) },
                 text = {
                     OutlinedTextField(
                         value = ref,
                         onValueChange = { ref = it },
                         singleLine = true,
-                        label = { Text("Reference or name") },
+                        label = { Text(uiText("Reference or name")) },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                         keyboardActions = KeyboardActions(onGo = { vm.goTo(ref) }),
                     )
                 },
-                confirmButton = { TextButton(onClick = { vm.goTo(ref) }) { Text("OK") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+                confirmButton = { TextButton(onClick = { vm.goTo(ref) }) { Text(uiText("OK")) } },
+                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
             )
         }
         "rowHeight", "columnWidth" -> {
@@ -770,24 +786,24 @@ fun EditorDialog(vm: AppViewModel) {
             var value by remember { mutableStateOf("") }
             AlertDialog(
                 onDismissRequest = { vm.dialog = null },
-                title = { Text(if (rows) "Row Height" else "Column Width") },
+                title = { Text(uiText(if (rows) "Row Height" else "Column Width")) },
                 text = {
                     OutlinedTextField(
                         value = value,
                         onValueChange = { value = it.take(8) },
                         singleLine = true,
-                        label = { Text(if (rows) "Points" else "Characters") },
+                        label = { Text(uiText(if (rows) "Points" else "Characters")) },
                         keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal, imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = { vm.setSize(rows, value) }),
                     )
                 },
-                confirmButton = { TextButton(onClick = { vm.setSize(rows, value) }) { Text("OK") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+                confirmButton = { TextButton(onClick = { vm.setSize(rows, value) }) { Text(uiText("OK")) } },
+                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
             )
         }
         "closeUnsaved" -> AlertDialog(
             onDismissRequest = { vm.dialog = null },
-            title = { Text("Save changes?") },
+            title = { Text(uiText("Save changes?")) },
             text = {
                 Text(
                     when {
@@ -797,11 +813,11 @@ fun EditorDialog(vm: AppViewModel) {
                     },
                 )
             },
-            confirmButton = { TextButton(onClick = vm::saveAndClose) { Text(if (vm.readOnlyFile) "Save a Copy" else "Save") } },
+            confirmButton = { TextButton(onClick = vm::saveAndClose) { Text(uiText(if (vm.readOnlyFile) "Save a Copy" else "Save")) } },
             dismissButton = {
                 Row {
-                    TextButton(onClick = { vm.dialog = null }) { Text("Cancel") }
-                    TextButton(onClick = { vm.closeWorkbook(force = true) }) { Text("Don't Save") }
+                    TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) }
+                    TextButton(onClick = { vm.closeWorkbook(force = true) }) { Text(uiText("Don't Save")) }
                 }
             },
         )
@@ -810,16 +826,16 @@ fun EditorDialog(vm: AppViewModel) {
             var text by remember { mutableStateOf("") }
             AlertDialog(
                 onDismissRequest = { vm.dialog = null },
-                title = { Text("Insert Link") },
+                title = { Text(uiText("Insert Link")) },
                 text = {
                     Column {
-                        OutlinedTextField(value = target, onValueChange = { target = it }, singleLine = true, label = { Text("Address") })
+                        OutlinedTextField(value = target, onValueChange = { target = it }, singleLine = true, label = { Text(uiText("Address")) })
                         Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text("Display text") })
+                        OutlinedTextField(value = text, onValueChange = { text = it }, singleLine = true, label = { Text(uiText("Display text")) })
                     }
                 },
-                confirmButton = { TextButton(onClick = { vm.insertLink(target, text) }) { Text("Insert") } },
-                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+                confirmButton = { TextButton(onClick = { vm.insertLink(target, text) }) { Text(uiText("Insert")) } },
+                dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
             )
         }
     }
@@ -834,7 +850,7 @@ private fun CheckRow(label: String, checked: Boolean, onChange: (Boolean) -> Uni
             onCheckedChange = onChange,
             colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = GridColors.Accent),
         )
-        Text(label, color = GridColors.OnSettings, fontSize = 16.sp)
+        Text(uiText(label), color = GridColors.OnSettings, fontSize = 16.sp)
     }
 }
 
@@ -848,7 +864,7 @@ private fun CustomSortDialog(vm: AppViewModel) {
     val columns = pv.columns.map { (letter, heading) -> (if (header && heading.isNotBlank()) heading else "Column $letter") to letter }
     AlertDialog(
         onDismissRequest = { vm.dialog = null },
-        title = { Text("Custom Sort") },
+        title = { Text(uiText("Custom Sort")) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(pv.range, color = GridColors.OnSurface, fontSize = 16.sp)
@@ -865,12 +881,12 @@ private fun CustomSortDialog(vm: AppViewModel) {
                     Picker("Order", listOf("A to Z, smallest to largest" to "asc", "Z to A, largest to smallest" to "desc"), level.second) { levels[i] = level.first to it }
                 }
                 if (levels.size < 64 && columns.isNotEmpty()) {
-                    TextButton(onClick = { levels.add(columns.first().second to "asc") }) { Text("Add Level") }
+                    TextButton(onClick = { levels.add(columns.first().second to "asc") }) { Text(uiText("Add Level")) }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { vm.customSort(pv.range, header, levels.toList()) }, enabled = columns.isNotEmpty()) { Text("OK") } },
-        dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { vm.customSort(pv.range, header, levels.toList()) }, enabled = columns.isNotEmpty()) { Text(uiText("OK")) } },
+        dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
     )
 }
 
@@ -885,7 +901,7 @@ private fun Picker(label: String, options: List<Pair<String, String>>, value: St
             onValueChange = {},
             readOnly = true,
             singleLine = true,
-            label = { Text(label) },
+            label = { Text(uiText(label)) },
             trailingIcon = { GlyphIcon(LucideIcons.ChevronDown.glyph(), GridColors.OnSurface, size = 18.dp) },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -896,7 +912,7 @@ private fun Picker(label: String, options: List<Pair<String, String>>, value: St
             open = true
         })
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            for ((text, v) in options) DropdownMenuItem(text = { Text(text) }, onClick = {
+            for ((text, v) in options) DropdownMenuItem(text = { Text(uiText(text)) }, onClick = {
                 onPick(v)
                 open = false
             })
@@ -912,7 +928,7 @@ private fun Picker(label: String, options: List<Pair<String, String>>, value: St
  * the column's cells have fills, Color.
  */
 @Composable
-fun FilterSheet(vm: AppViewModel) {
+fun FilterSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
     val values = vm.filterValues
     val at = vm.filterAt
     val filtered = values.any { !it.shown } || vm.viewport?.cells?.any { it.row == at?.first && it.col == at.second && it.filtered } == true
@@ -928,7 +944,7 @@ fun FilterSheet(vm: AppViewModel) {
     val card = RoundedCornerShape(8.dp)
     val top = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
     // one height whichever tab is up, as the phone app's sheet
-    Column(Modifier.fillMaxWidth().height(540.dp).shadow(8.dp, top).background(GridColors.Sheet, top)) {
+    Column(modifier.fillMaxWidth().shadow(8.dp, top).background(GridColors.Sheet, top).verticalScroll(rememberScrollState())) {
         Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.size(36.dp, 4.dp).background(GridColors.Handle, RoundedCornerShape(2.dp)))
         }
@@ -939,12 +955,12 @@ fun FilterSheet(vm: AppViewModel) {
         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp).fillMaxWidth().height(48.dp).background(GridColors.Card, card).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             GlyphIcon(LucideIcons.Eye.glyph(), GridColors.Disabled, size = 20.dp)
             Spacer(Modifier.width(12.dp))
-            Text("Sheet View", color = GridColors.Disabled, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            Text(uiText("Sheet View"), color = GridColors.Disabled, fontSize = 16.sp, modifier = Modifier.weight(1f))
             GlyphIcon(LucideIcons.ChevronRight.glyph(), GridColors.Disabled, size = 20.dp)
         }
         Row(Modifier.fillMaxWidth().height(52.dp).padding(start = 32.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Filter by", color = GridColors.OnSettings, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            TextButton(onClick = { pick(emptySet()) }, enabled = filtered) { Text("Clear All", color = if (filtered) GridColors.Accent else GridColors.Disabled, fontSize = 16.sp) }
+            Text(uiText("Filter by"), color = GridColors.OnSettings, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            TextButton(onClick = { pick(emptySet()) }, enabled = filtered) { Text(uiText("Clear All"), color = if (filtered) GridColors.Accent else GridColors.Disabled, fontSize = 16.sp) }
         }
         Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(34.dp).background(GridColors.Segment, RoundedCornerShape(17.dp))) {
             val tabs = listOf("items" to "Items", "rules" to if (numeric) "Number" else "Text") +
@@ -952,7 +968,7 @@ fun FilterSheet(vm: AppViewModel) {
             for ((key, label) in tabs) {
                 val on = tab == key
                 Box(Modifier.weight(1f).fillMaxHeight().background(if (on) GridColors.SegmentOn else Color.Transparent, RoundedCornerShape(17.dp)).clickable { tab = key }, contentAlignment = Alignment.Center) {
-                    Text(label, color = if (on) Color.White else GridColors.OnSettings, fontSize = 15.sp, fontWeight = if (on) FontWeight.Medium else FontWeight.Normal)
+                    Text(uiText(label), color = if (on) Color.White else GridColors.OnSettings, fontSize = 15.sp, fontWeight = if (on) FontWeight.Medium else FontWeight.Normal)
                 }
             }
         }
@@ -962,18 +978,18 @@ fun FilterSheet(vm: AppViewModel) {
                 GlyphIcon(LucideIcons.Search.glyph(), GridColors.SettingsValue, size = 20.dp)
                 Spacer(Modifier.width(10.dp))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                    if (query.isEmpty()) Text("Search", color = GridColors.SettingsValue, fontSize = 16.sp)
+                    if (query.isEmpty()) Text(uiText("Search"), color = GridColors.SettingsValue, fontSize = 16.sp)
                     BasicTextField(query, { query = it }, singleLine = true, textStyle = TextStyle(color = GridColors.OnSettings, fontSize = 16.sp), cursorBrush = SolidColor(GridColors.Accent), modifier = Modifier.fillMaxWidth())
                 }
             }
             Spacer(Modifier.height(12.dp))
             val any = ticked.isNotEmpty()
             Box(Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(48.dp).background(GridColors.Card, card).clickable { pick(if (any) emptySet() else values.map { it.text }.toSet()) }.padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-                Text(if (any) "Clear All" else "Select All", color = GridColors.Accent, fontSize = 15.sp)
+                Text(uiText(if (any) "Clear All" else "Select All"), color = GridColors.Accent, fontSize = 15.sp)
             }
             Spacer(Modifier.height(4.dp))
             val list = values.filter { query.isBlank() || it.text.contains(query.trim(), ignoreCase = true) }
-            androidx.compose.foundation.lazy.LazyColumn(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().background(GridColors.Card, card)) {
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().heightIn(max = 320.dp).background(GridColors.Card, card)) {
                 items(list.size) { k ->
                     val v = list[k]
                     FilterRow(v.text, v.text in ticked) { pick(if (v.text in ticked) ticked - v.text else ticked + v.text) }
@@ -1033,7 +1049,7 @@ private fun SortButton(label: String, ascending: Boolean, modifier: Modifier, on
             }
             Text("↓", color = GridColors.OnSettings, fontSize = 18.sp)
         }
-        Text(label, color = GridColors.OnSettings, fontSize = 15.sp)
+        Text(uiText(label), color = GridColors.OnSettings, fontSize = 15.sp)
     }
 }
 
@@ -1052,7 +1068,7 @@ private fun FilterRules(vm: AppViewModel, numeric: Boolean) {
     var open by remember { mutableStateOf<String?>(null) }
     var first by remember { mutableStateOf("") }
     var second by remember { mutableStateOf("") }
-    androidx.compose.foundation.lazy.LazyColumn(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().background(GridColors.Card, RoundedCornerShape(8.dp))) {
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().heightIn(max = 320.dp).background(GridColors.Card, RoundedCornerShape(8.dp))) {
         items(rules.size) { k ->
             val (label, rule) = rules[k]
             Column(Modifier.fillMaxWidth()) {
@@ -1067,7 +1083,7 @@ private fun FilterRules(vm: AppViewModel, numeric: Boolean) {
                         }
                     }.padding(horizontal = 16.dp),
                     contentAlignment = Alignment.CenterStart,
-                ) { Text(label, color = GridColors.OnSettings, fontSize = 16.sp) }
+                ) { Text(uiText(label), color = GridColors.OnSettings, fontSize = 16.sp) }
                 if (open == rule) {
                     val focus = remember { FocusRequester() }
                     LaunchedEffect(rule) { runCatching { focus.requestFocus() } }
@@ -1080,7 +1096,7 @@ private fun FilterRules(vm: AppViewModel, numeric: Boolean) {
                     }
                     RuleField(first, { first = it }, type, rule != "between", apply, Modifier.focusRequester(focus))
                     if (rule == "between") {
-                        Text("and", color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(start = 16.dp, top = 4.dp))
+                        Text(uiText("and"), color = GridColors.SettingsValue, fontSize = 14.sp, modifier = Modifier.padding(start = 16.dp, top = 4.dp))
                         RuleField(second, { second = it }, type, true, apply, Modifier)
                     }
                     Spacer(Modifier.height(8.dp))
@@ -1110,7 +1126,7 @@ private fun RuleField(value: String, onChange: (String) -> Unit, type: androidx.
 private fun FilterRow(label: String, on: Boolean, onToggle: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(44.dp).clickable(onClick = onToggle).padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         androidx.compose.material3.Checkbox(on, onCheckedChange = { onToggle() }, colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = GridColors.Accent))
-        Text(label, color = GridColors.OnSurface, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(uiText(label), color = GridColors.OnSurface, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -1175,24 +1191,24 @@ fun AggregateBar(vm: AppViewModel) {
     if (st.count == 0uL) return
     Row(Modifier.fillMaxWidth().height(32.dp).background(GridColors.TabBar).topEdge(GridColors.BarEdge).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.weight(1f))
-        if (st.average.isNotEmpty()) Text("Average: ${st.average}", color = GridColors.OnBar, fontSize = 13.sp, maxLines = 1)
+        if (st.average.isNotEmpty()) Text(stringResource(R.string.aggregate_average, st.average.toString()), color = GridColors.OnBar, fontSize = 13.sp, maxLines = 1)
         Spacer(Modifier.width(16.dp))
-        Text("Count: ${st.count}", color = GridColors.OnBar, fontSize = 13.sp, maxLines = 1)
+        Text(stringResource(R.string.aggregate_count, st.count.toString()), color = GridColors.OnBar, fontSize = 13.sp, maxLines = 1)
         if (st.sum.isNotEmpty()) {
             Spacer(Modifier.width(16.dp))
-            Text("Sum: ${st.sum}", color = GridColors.OnBar, fontSize = 13.sp, maxLines = 1)
+            Text(stringResource(R.string.aggregate_sum, st.sum.toString()), color = GridColors.OnBar, fontSize = 13.sp, maxLines = 1)
         }
     }
 }
 
 /** A validation list to pick the active cell's value from. */
 @Composable
-fun ValidationSheet(vm: AppViewModel) {
+fun ValidationSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
     val items = vm.validation?.items.orEmpty()
-    Column(Modifier.fillMaxWidth().heightIn(max = 400.dp).background(GridColors.Sheet).topEdge(GridColors.BarEdge)) {
+    Column(modifier.fillMaxWidth().background(GridColors.Sheet).topEdge(GridColors.BarEdge)) {
         Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(vm.validation?.title?.ifBlank { null } ?: "Choose a value", color = GridColors.OnSettings, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-            TextButton(onClick = { vm.pickingList = false }) { Text("Cancel", color = GridColors.Accent) }
+            TextButton(onClick = { vm.pickingList = false }) { Text(uiText("Cancel"), color = GridColors.Accent) }
         }
         androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth()) {
             items(items.size) { i ->
@@ -1220,12 +1236,12 @@ fun InputMessage(vm: AppViewModel) {
  * Next, Delete Comment and Comment over the list. A comment picked goes to its cell.
  */
 @Composable
-fun CommentsPane(vm: AppViewModel) {
+fun CommentsPane(vm: AppViewModel, modifier: Modifier = Modifier) {
     val sel = vm.selection
     val here = vm.commentList.any { it.row == sel?.activeRow && it.col == sel.activeCol }
-    Column(Modifier.fillMaxWidth().heightIn(max = 360.dp).background(GridColors.Sheet).topEdge(GridColors.BarEdge)) {
+    Column(modifier.fillMaxWidth().background(GridColors.Sheet).topEdge(GridColors.BarEdge)) {
         Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Comments", color = GridColors.OnSettings, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Text(uiText("Comments"), color = GridColors.OnSettings, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             BarButton(LucideIcons.ChevronUp.glyph(), GridColors.OnBar, { vm.goToComment(false) }, enabled = vm.commentList.isNotEmpty(), width = 44.dp, height = 48.dp, label = "Previous Comment")
             BarButton(LucideIcons.ChevronDown.glyph(), GridColors.OnBar, { vm.goToComment(true) }, enabled = vm.commentList.isNotEmpty(), width = 44.dp, height = 48.dp, label = "Next Comment")
             BarButton(LucideIcons.Trash2.glyph(), GridColors.OnBar, vm::deleteComment, enabled = here, width = 44.dp, height = 48.dp, label = "Delete Comment")
@@ -1233,7 +1249,7 @@ fun CommentsPane(vm: AppViewModel) {
             BarButton(LucideIcons.X.glyph(), GridColors.OnBar, { vm.showComments(false) }, width = 44.dp, height = 48.dp, label = "Close Comments")
         }
         if (vm.commentList.isEmpty()) {
-            Text("There are no comments on this sheet.", color = GridColors.OnSurface, fontSize = 15.sp, modifier = Modifier.padding(16.dp))
+            Text(uiText("There are no comments on this sheet."), color = GridColors.OnSurface, fontSize = 15.sp, modifier = Modifier.padding(16.dp))
         }
         androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth()) {
             items(vm.commentList.size) { i ->
@@ -1249,10 +1265,10 @@ fun CommentsPane(vm: AppViewModel) {
                         Text(c.cell, color = GridColors.Accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         Spacer(Modifier.width(8.dp))
                         Text(c.author.ifBlank { if (c.threaded) "Comment" else "Note" }, color = GridColors.OnSettings, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        if (c.resolved) Text("Resolved", color = GridColors.FindHint, fontSize = 12.sp)
+                        if (c.resolved) Text(uiText("Resolved"), color = GridColors.FindHint, fontSize = 12.sp)
                     }
                     Text(c.text, color = GridColors.OnSurface, fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    if (c.replies > 0u) Text(if (c.replies == 1u) "1 reply" else "${c.replies} replies", color = GridColors.FindHint, fontSize = 12.sp)
+                    if (c.replies > 0u) Text(stringResource(R.string.reply_count, c.replies.toInt()), color = GridColors.FindHint, fontSize = 12.sp)
                 }
             }
         }
@@ -1312,7 +1328,7 @@ private fun PrintOptions(vm: AppViewModel) {
     var ignoreArea by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = { vm.dialog = null },
-        title = { Text("Print") },
+        title = { Text(uiText("Print")) },
         text = {
             androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 460.dp)) {
                 item { PrintHeading("What to print") }
@@ -1337,13 +1353,13 @@ private fun PrintOptions(vm: AppViewModel) {
                 item {
                     Row(Modifier.fillMaxWidth().clickable { ignoreArea = !ignoreArea }, verticalAlignment = Alignment.CenterVertically) {
                         androidx.compose.material3.Checkbox(ignoreArea, onCheckedChange = { ignoreArea = it }, colors = androidx.compose.material3.CheckboxDefaults.colors(checkedColor = GridColors.Accent))
-                        Text("Ignore Print Area", color = GridColors.OnSettings, fontSize = 15.sp)
+                        Text(uiText("Ignore Print Area"), color = GridColors.OnSettings, fontSize = 15.sp)
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { vm.print(what, fit, orientation, paper, ignoreArea) }) { Text("Print") } },
-        dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { vm.print(what, fit, orientation, paper, ignoreArea) }) { Text(uiText("Print")) } },
+        dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
     )
 }
 
@@ -1351,14 +1367,14 @@ private val PAPERS = listOf("Letter", "Legal", "A4", "A3", "A5", "Tabloid", "Exe
 
 @Composable
 private fun PrintHeading(text: String) {
-    Text(text, color = GridColors.Accent, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+    Text(uiText(text), color = GridColors.Accent, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
 }
 
 @Composable
 private fun PrintChoice(label: String, on: Boolean, onPick: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(40.dp).clickable(onClick = onPick), verticalAlignment = Alignment.CenterVertically) {
         androidx.compose.material3.RadioButton(on, onClick = onPick, colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = GridColors.Accent))
-        Text(label, color = GridColors.OnSettings, fontSize = 15.sp)
+        Text(uiText(label), color = GridColors.OnSettings, fontSize = 15.sp)
     }
 }
 
@@ -1372,8 +1388,8 @@ private fun DateTimePicker(vm: AppViewModel) {
         AlertDialog(
             onDismissRequest = { vm.dialog = null },
             text = { androidx.compose.material3.TimePicker(state) },
-            confirmButton = { TextButton(onClick = { vm.pickDateTime("%d:%02d".format(state.hour, state.minute)) }) { Text("OK") } },
-            dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = { vm.pickDateTime("%d:%02d".format(state.hour, state.minute)) }) { Text(uiText("OK")) } },
+            dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
         )
     } else {
         val state = androidx.compose.material3.rememberDatePickerState(initialSelectedDateMillis = System.currentTimeMillis())
@@ -1387,9 +1403,9 @@ private fun DateTimePicker(vm: AppViewModel) {
                         val d = java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneOffset.UTC).toLocalDate()
                         vm.pickDateTime(d.toString())
                     }
-                }) { Text("OK") }
+                }) { Text(uiText("OK")) }
             },
-            dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { vm.dialog = null }) { Text(uiText("Cancel")) } },
         ) { androidx.compose.material3.DatePicker(state) }
     }
 }

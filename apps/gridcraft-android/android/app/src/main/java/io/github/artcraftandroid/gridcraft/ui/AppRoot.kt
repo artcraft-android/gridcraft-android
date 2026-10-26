@@ -20,14 +20,15 @@ fun AppRoot(vm: AppViewModel, onOpen: () -> Unit) {
     val context = LocalContext.current
     LaunchedEffect(vm.message) {
         vm.message?.let {
-            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+            Toast.makeText(context, context.resources.uiLabel(it), Toast.LENGTH_LONG).show()
             vm.message = null
         }
     }
+    val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     AnimatedContent(
         targetState = vm.screen,
         transitionSpec = {
-            val dir = if (targetState.ordinal > initialState.ordinal) 1 else -1
+            val dir = (if (targetState.ordinal > initialState.ordinal) 1 else -1) * (if (rtl) -1 else 1)
             slideInHorizontally(tween(Motion.BASIC, easing = Motion.EaseOutSharp)) { it * dir } togetherWith
                 slideOutHorizontally(tween(Motion.BASIC, easing = Motion.EaseOutSharp)) { -it * dir }
         },

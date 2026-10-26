@@ -4,6 +4,8 @@
 
 <h1 align="center">GridCraft for Android</h1>
 
+[العربية](README.ar.md) · [Engine synchronization notes](ENGINE_UPSTREAM.md)
+
 <p align="center">
   <b>GridCraft-android is an open-source spreadsheet app for Android, built on the same Rust engine, <a href="https://github.com/storytold/gridcraft">GridCraft</a>, as the desktop app, with a Kotlin/Jetpack Compose UI.</b><br>
   Many credits to the original maintainers, <a href="https://github.com/storytold">storytold</a>.

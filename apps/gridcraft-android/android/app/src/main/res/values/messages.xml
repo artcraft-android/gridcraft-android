@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="command_not_found">Nothing matches “%1$s”.</string>
+    <string name="find_result_position">%1$d of %2$d</string>
+    <string name="aggregate_average">Average: %1$s</string>
+    <string name="aggregate_count">Count: %1$s</string>
+    <string name="aggregate_sum">Sum: %1$s</string>
+    <string name="card_count">%1$d%2$s cards</string>
+    <string name="chart_style_number">Style %1$d</string>
+    <string name="chart_layout_number">Layout %1$d</string>
+    <string name="continue_validation">%1$s\n\nContinue?</string>
+    <string name="reply_count">%1$d replies</string>
+    <string name="body_font">%1$s (Body)</string>
+</resources>

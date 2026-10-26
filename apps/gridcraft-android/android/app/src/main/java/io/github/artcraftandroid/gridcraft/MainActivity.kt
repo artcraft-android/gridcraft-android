@@ -22,6 +22,10 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     private val vm: AppViewModel by viewModels()
 
+    override fun attachBaseContext(newBase: android.content.Context) {
+        super.attachBaseContext(AppLanguages.attach(newBase))
+    }
+
     private val openWorkbook = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             // keep the right to write back to it
@@ -66,6 +70,7 @@ class MainActivity : ComponentActivity() {
         // the bars' icons follow the theme: dark on the light bars, light on the dark ones
         enableEdgeToEdge(SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT), SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT))
         super.onCreate(savedInstanceState)
+        AppLanguages.migrate(this)
         window.isNavigationBarContrastEnforced = false
         setContent {
             GridcraftTheme(vm.themeChoice) {

@@ -803,7 +803,7 @@ impl MobileSession {
     fn snapshot(&self) -> Option<(Arc<Workbook>, usize, u64)> {
         let s = self.lock();
         let d = s.active()?;
-        Some((d.wb.clone(), d.wb.active_sheet, d.revision))
+        Some((d.wb.clone(), d.wb.active_sheet(), d.revision))
     }
 }
 
@@ -1325,7 +1325,7 @@ impl MobileSession {
             return vec![];
         }
         let Some(d) = s.active() else { return vec![] };
-        let si = d.wb.active_sheet;
+        let si = d.wb.active_sheet();
         let Some(chart) = d.wb.sheet(si).and_then(|sh| sh.charts.first()) else { return vec![] };
         let size = |v: f32| if v.is_finite() { v.clamp(1.0, 4096.0) } else { 1.0 };
         let data = gridcraft_chart::resolve(&d.wb, si, chart);
@@ -1372,7 +1372,7 @@ impl MobileSession {
 
     pub fn image_bytes(&self, index: u32) -> Option<Vec<u8>> {
         let (wb, si, _) = self.snapshot()?;
-        Some(wb.sheet(si)?.images.get(index as usize)?.data.clone())
+        Some(wb.sheet(si)?.images.get(index as usize)?.data.to_vec())
     }
 
     /// The values of the filter column at (`row`, `col`) (a filter's or a table's header cell),
@@ -1380,7 +1380,7 @@ impl MobileSession {
     pub fn filter_column(&self, row: u32, col: u32) -> Vec<FilterValue> {
         let mut s = self.lock();
         let Some(d) = s.active() else { return vec![] };
-        let si = d.wb.active_sheet;
+        let si = d.wb.active_sheet();
         let c = CellRef::new(row.min(MAX_ROWS - 1), col.min(MAX_COLS - 1));
         // a table's filter covers its header and data rows, not its totals row
         let table = d.wb.active().and_then(|sh| {
@@ -1414,7 +1414,7 @@ impl MobileSession {
         let s = self.lock();
         let Some(d) = s.active() else { return vec![] };
         let wb = &d.wb;
-        gridcraft_engine::cmd::data::filter_fills(wb, wb.active_sheet, col.min(MAX_COLS - 1))
+        gridcraft_engine::cmd::data::filter_fills(wb, wb.active_sheet(), col.min(MAX_COLS - 1))
             .into_iter()
             .map(|(c, chosen)| {
                 let param = match c {
@@ -1554,7 +1554,7 @@ impl MobileSession {
     pub fn validation(&self) -> Option<ValidationView> {
         let s = self.lock();
         let d = s.active()?;
-        let si = d.wb.active_sheet;
+        let si = d.wb.active_sheet();
         let c = d.selection.active;
         let dv = d.wb.active()?.validations.iter().find(|v| v.ranges.iter().any(|r| r.contains(c)))?;
         let items = if dv.kind == gridcraft_engine::model::ValidationKind::List && dv.in_cell_dropdown {
@@ -1574,7 +1574,7 @@ impl MobileSession {
         use gridcraft_engine::model::ErrorStyle;
         let s = self.lock();
         let d = s.active()?;
-        let (dv, message) = gridcraft_engine::cmd::data::check_validation(&d.wb, d.wb.active_sheet, d.selection.active, &input)?;
+        let (dv, message) = gridcraft_engine::cmd::data::check_validation(&d.wb, d.wb.active_sheet(), d.selection.active, &input)?;
         let style = match dv.error_style {
             ErrorStyle::Stop => "stop",
             ErrorStyle::Warning => "warning",
@@ -2147,7 +2147,7 @@ fn info(s: &Session) -> WorkbookInfo {
                 tab_color: sh.tab_color.and_then(|c| c.resolve(theme)).map(argb),
             })
             .collect(),
-        active_sheet: u32::try_from(d.wb.active_sheet).unwrap_or(0),
+        active_sheet: u32::try_from(d.wb.active_sheet()).unwrap_or(0),
         structure_locked: d.wb.protected_structure,
         structure_password: d.wb.structure_password.is_some(),
         calc_mode: match d.wb.calc.mode {
