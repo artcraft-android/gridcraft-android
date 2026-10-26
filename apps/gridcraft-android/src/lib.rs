@@ -117,6 +117,10 @@ pub struct SheetView {
     pub gridlines: bool,
     pub headings: bool,
     pub right_to_left: bool,
+    pub show_objects: bool,
+    pub show_outline_symbols: bool,
+    pub summary_below: bool,
+    pub summary_right: bool,
     /// The sheet's zoom, in percent.
     pub zoom: u32,
     /// The rows a filter is narrowing (their numbers show in blue), first and last.
@@ -134,13 +138,15 @@ pub struct SheetView {
 }
 
 /// An outline group: lines `start..=end` at outline level `level` or deeper. Its − / + button
-/// sits on the line after `end`, and `collapsed` says its detail is hidden.
+/// sits on `summary`, before or after the detail; `collapsed` says its detail is hidden.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct OutlineGroupView {
     pub level: u8,
     pub start: u32,
     pub end: u32,
     pub collapsed: bool,
+    /// The summary line holding the group toggle, or None at a sheet boundary.
+    pub summary: Option<u32>,
 }
 
 /// Rows `first..=last`, 0-based.
@@ -728,6 +734,7 @@ pub struct PivotInfo {
     /// `PivotStyleLight16`…
     pub style: String,
     pub show_headers: bool,
+    pub enable_show_details: bool,
 }
 
 /// What a chart shows, for the Chart tab's Elements menus.
@@ -930,14 +937,18 @@ impl MobileSession {
             gridlines: sh.show_gridlines,
             headings: sh.show_headings,
             right_to_left: sh.right_to_left,
+            show_objects: wb.show_objects != gridcraft_engine::model::ShowObjects::None,
+            show_outline_symbols: sh.show_outline_symbols,
+            summary_below: sh.summary_below,
+            summary_right: sh.summary_right,
             zoom: u32::from(sh.zoom),
             filtered_rows: filtered_rows(sh),
             autofilter: sh.autofilter.is_some(),
             show_formulas: sh.show_formulas,
             row_levels: gridcraft_engine::outline::max_level(&sh.rows),
             col_levels: gridcraft_engine::outline::max_level(&sh.cols),
-            row_groups: outline_groups(&sh.rows),
-            col_groups: outline_groups(&sh.cols),
+            row_groups: outline_groups(&sh.rows, !sh.summary_below),
+            col_groups: outline_groups(&sh.cols, !sh.summary_right),
         }
     }
 
@@ -1099,6 +1110,9 @@ impl MobileSession {
     pub fn objects(&self) -> Vec<SheetObject> {
         let Some((wb, si, _)) = self.snapshot() else { return vec![] };
         let Some(sh) = wb.sheet(si) else { return vec![] };
+        if wb.show_objects == gridcraft_engine::model::ShowObjects::None {
+            return vec![];
+        }
         let place = |a: &gridcraft_engine::model::Anchor| {
             let c = a.cell;
             let x = sh.col_left(c.col.min(MAX_COLS)) + f64::from(a.dx);
@@ -1707,7 +1721,23 @@ impl MobileSession {
             .into(),
             style: pt.style.clone(),
             show_headers: pt.show_headers,
+            enable_show_details: pt.enable_show_details,
         })
+    }
+
+    /// Query only when the PivotTable tools are visible; source/report validation can be costly.
+    pub fn pivot_can_show_details(&self) -> bool {
+        let s = self.lock();
+        let Some(d) = s.active() else { return false };
+        let at = d.selection.active;
+        let Some(sh) = d.wb.active() else { return false };
+        let Some(pt) = sh.pivots.iter().find(|pt| pt.last_range.is_some_and(|r| r.contains(at))) else { return false };
+        if !pt.enable_show_details {
+            return false;
+        }
+        let origin = pt.last_range.map(|r| r.start).unwrap_or_default();
+        gridcraft_engine::pivot::detail_records(&d.wb, pt, d.wb.active_sheet(), at.row.saturating_sub(origin.row), at.col.saturating_sub(origin.col))
+            .is_ok_and(|records| records.is_some())
     }
 
     /// What the chart with id `id` on the active sheet shows.
@@ -2069,6 +2099,10 @@ fn empty_view() -> SheetView {
         gridlines: true,
         headings: true,
         right_to_left: false,
+        show_objects: true,
+        show_outline_symbols: true,
+        summary_below: true,
+        summary_right: true,
         zoom: 100,
         filtered_rows: None,
         autofilter: false,
@@ -2080,11 +2114,17 @@ fn empty_view() -> SheetView {
     }
 }
 
-fn outline_groups(lines: &std::collections::BTreeMap<u32, gridcraft_engine::model::LineInfo>) -> Vec<OutlineGroupView> {
-    gridcraft_engine::outline::groups(lines)
+fn outline_groups(lines: &std::collections::BTreeMap<u32, gridcraft_engine::model::LineInfo>, before: bool) -> Vec<OutlineGroupView> {
+    gridcraft_engine::outline::groups_with(lines, before)
         .into_iter()
         .take(10_000)
-        .map(|g| OutlineGroupView { level: g.level, start: g.start, end: g.end, collapsed: g.collapsed })
+        .map(|g| OutlineGroupView {
+            level: g.level,
+            start: g.start,
+            end: g.end,
+            collapsed: g.collapsed,
+            summary: g.has_summary().then(|| g.summary()),
+        })
         .collect()
 }
 

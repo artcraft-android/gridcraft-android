@@ -154,6 +154,13 @@ internal val TELL_ME_ITEMS: List<TellMeItem> = listOf(
     },
     page("Recently Used Functions", "Formulas", "fn:Recent", null, "formulas"),
 ) + FUNCTION_CATEGORIES.map { (cat, label) -> page(label, "Formulas", "fn:$cat", null, "functions formulas") } + listOf(
+    TellMeItem("Paste Names", "Formulas", LucideIcons.ClipboardPaste.glyph(), "defined names named ranges", opens = true) { it.showPasteNames() },
+    cmd("Convert to Number", "Data", "formulas.convertToNumber", LucideIcons.Hash.glyph(), "numbers text convert"),
+    page("Outline Settings", "Data", "outlineSettings", LucideIcons.Settings.glyph(), "summary rows columns group"),
+    viewSetting("Show Objects", "view.showObjects", "pictures charts shapes show hide") { it.sheetView?.showObjects != false },
+    viewSetting("Show Outline Symbols", "view.showOutlineSymbols", "group outline show hide") { it.sheetView?.showOutlineSymbols != false },
+    TellMeItem("Show Details", "Pivot Table", LucideIcons.Table.glyph(), "pivot source records") { it.showPivotDetails() },
+    page("PivotTable Options", "Pivot Table", "pivotOptions", LucideIcons.Settings.glyph(), "pivot details"),
     cmd("Calculate Now", "Formulas", "formulas.calculateNow", LucideIcons.Calculator.glyph(), "recalculate refresh"),
     cmd("Show Detail", "Data", "data.showDetail", LucideIcons.Plus.glyph(), "expand outline group"),
     cmd("Hide Detail", "Data", "data.hideDetail", LucideIcons.Minus.glyph(), "collapse outline group"),

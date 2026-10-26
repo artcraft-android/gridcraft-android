@@ -9,6 +9,20 @@ import io.github.artcraftandroid.gridcraft.R
 
 /** Only application-owned labels belong here; workbook data must be displayed verbatim. */
 internal val UI_LABELS: Map<String, Int> = mapOf(
+    "Paste Names" to R.string.feature_paste_names,
+    "Paste List" to R.string.feature_paste_list,
+    "Convert to Number" to R.string.feature_convert_to_number,
+    "Outline Settings" to R.string.feature_outline_settings,
+    "Show Objects" to R.string.feature_show_objects,
+    "Show Outline Symbols" to R.string.feature_show_outline_symbols,
+    "Summary Rows Below Detail" to R.string.feature_summary_rows_below_detail,
+    "Summary Columns Right of Detail" to R.string.feature_summary_columns_right_of_detail,
+    "PivotTable Options" to R.string.feature_pivottable_options,
+    "Show Details" to R.string.feature_show_details,
+    "Enable Show Details" to R.string.feature_enable_show_details,
+    "This workbook has no defined names." to R.string.feature_this_workbook_has_no_defined_names,
+    "Choose a name to insert into the formula." to R.string.feature_choose_a_name_to_insert_into_the_formula,
+    "Paste List writes names and references from the active cell." to R.string.feature_paste_list_writes_names_and_references_from_the_active_cell,
     "Rectangles" to R.string.ui_rectangles,
     "Basic Shapes" to R.string.ui_basic_shapes,
     "Block Arrows" to R.string.ui_block_arrows,

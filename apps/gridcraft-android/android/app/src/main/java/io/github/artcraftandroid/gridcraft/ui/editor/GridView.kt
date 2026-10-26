@@ -120,8 +120,8 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
     // the outline band of grouped rows (left of the row numbers) and columns (above the letters):
     // a lane per level, and one for the level button that shows everything
     val lane = OUTLINE_LANE_DP * density
-    val rowLevels = if (headings) sv?.rowLevels?.toInt() ?: 0 else 0
-    val colLevels = if (headings) sv?.colLevels?.toInt() ?: 0 else 0
+    val rowLevels = if (headings && sv?.showOutlineSymbols != false) sv?.rowLevels?.toInt() ?: 0 else 0
+    val colLevels = if (headings && sv?.showOutlineSymbols != false) sv?.colLevels?.toInt() ?: 0 else 0
     val rowBand = if (rowLevels > 0) (rowLevels + 1) * lane else 0f
     val colBand = if (colLevels > 0) (colLevels + 1) * lane else 0f
     val rowHeaderW = if (headings) rowBand + maxOf(ROW_HEADER_DP, digits * 6.9f + 8f) * density else 0f
@@ -197,14 +197,14 @@ fun GridView(vm: AppViewModel, modifier: Modifier = Modifier) {
             val k = (p.x / lane).toInt() + 1
             if (p.y <= colHeaderH) return if (k <= rowLevels + 1) "data.showLevels" to json("rows" to k) else null
             val r = rowAt(p.y) ?: return null
-            val g = sv?.rowGroups?.firstOrNull { it.level.toInt() == k && it.end + 1u == r.index } ?: return null
+            val g = sv?.rowGroups?.firstOrNull { it.level.toInt() == k && it.summary == r.index } ?: return null
             return (if (g.collapsed) "data.showDetail" else "data.hideDetail") to json("rows" to "${g.start.toLong() + 1}:${g.end.toLong() + 1}", "level" to k)
         }
         if (p.y < colBand && p.x >= rowBand) {
             val k = (p.y / lane).toInt() + 1
             if (p.x <= rowHeaderW) return if (k <= colLevels + 1) "data.showLevels" to json("cols" to k) else null
             val c = colAt(p.x) ?: return null
-            val g = sv?.colGroups?.firstOrNull { it.level.toInt() == k && it.end + 1u == c.index } ?: return null
+            val g = sv?.colGroups?.firstOrNull { it.level.toInt() == k && it.summary == c.index } ?: return null
             return (if (g.collapsed) "data.showDetail" else "data.hideDetail") to json("cols" to columnLetters(g.start.toInt()) + ":" + columnLetters(g.end.toInt()), "level" to k)
         }
         return null
@@ -918,15 +918,17 @@ private fun DrawScope.drawOutline(
             val at = pane.lines.associateBy { it.index }
             clipRect(0f, pane.from, rowBand, pane.to) {
                 for (g in sv.rowGroups) {
-                    if (g.end + 1u < lo || g.start > hi) continue
+                    if (maxOf(g.end, g.summary ?: g.end) < lo || minOf(g.start, g.summary ?: g.start) > hi) continue
                     val x = (g.level.toInt() - 0.5f) * lane
-                    val summary = at[g.end + 1u]?.let { pane.at(it.start + it.size / 2) }
+                    val summary = g.summary?.let { at[it] }?.let { pane.at(it.start + it.size / 2) }
+                    val before = g.summary?.let { it < g.start } == true
                     if (!g.collapsed) {
-                        val top = at[g.start]?.let { pane.at(it.start) + 2f * density } ?: pane.from
-                        val bottom = summary?.let { it - box / 2 } ?: at[g.end]?.let { pane.at(it.start + it.size) } ?: pane.to
+                        val top = if (before) summary?.let { it + box / 2 } ?: pane.from else at[g.start]?.let { pane.at(it.start) + 2f * density } ?: pane.from
+                        val bottom = if (before) at[g.end]?.let { pane.at(it.start + it.size) - 2f * density } ?: pane.to else summary?.let { it - box / 2 } ?: at[g.end]?.let { pane.at(it.start + it.size) } ?: pane.to
                         if (bottom > top) {
                             drawLine(ink, Offset(x, top), Offset(x, bottom), stroke)
-                            if (at[g.start] != null) drawLine(ink, Offset(x, top), Offset(x + lane * 0.35f, top), stroke)
+                            val cap = if (before) bottom else top
+                            drawLine(ink, Offset(x, cap), Offset(x + lane * 0.35f, cap), stroke)
                         }
                     }
                     if (summary != null) button(x, summary, if (g.collapsed) "+" else "-")
@@ -944,15 +946,17 @@ private fun DrawScope.drawOutline(
             val at = pane.lines.associateBy { it.index }
             clipRect(pane.from, 0f, pane.to, colBand) {
                 for (g in sv.colGroups) {
-                    if (g.end + 1u < lo || g.start > hi) continue
+                    if (maxOf(g.end, g.summary ?: g.end) < lo || minOf(g.start, g.summary ?: g.start) > hi) continue
                     val y = (g.level.toInt() - 0.5f) * lane
-                    val summary = at[g.end + 1u]?.let { pane.at(it.start + it.size / 2) }
+                    val summary = g.summary?.let { at[it] }?.let { pane.at(it.start + it.size / 2) }
+                    val before = g.summary?.let { it < g.start } == true
                     if (!g.collapsed) {
-                        val left = at[g.start]?.let { pane.at(it.start) + 2f * density } ?: pane.from
-                        val right = summary?.let { it - box / 2 } ?: at[g.end]?.let { pane.at(it.start + it.size) } ?: pane.to
+                        val left = if (before) summary?.let { it + box / 2 } ?: pane.from else at[g.start]?.let { pane.at(it.start) + 2f * density } ?: pane.from
+                        val right = if (before) at[g.end]?.let { pane.at(it.start + it.size) - 2f * density } ?: pane.to else summary?.let { it - box / 2 } ?: at[g.end]?.let { pane.at(it.start + it.size) } ?: pane.to
                         if (right > left) {
                             drawLine(ink, Offset(left, y), Offset(right, y), stroke)
-                            if (at[g.start] != null) drawLine(ink, Offset(left, y), Offset(left, y + lane * 0.35f), stroke)
+                            val cap = if (before) right else left
+                            drawLine(ink, Offset(cap, y), Offset(cap, y + lane * 0.35f), stroke)
                         }
                     }
                     if (summary != null) button(summary, y, if (g.collapsed) "+" else "-")

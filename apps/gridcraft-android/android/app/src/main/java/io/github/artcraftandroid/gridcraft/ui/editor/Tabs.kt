@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -109,6 +110,8 @@ internal val PANEL_TITLES = mapOf(
     "borderColor" to "Line Color",
     "pictureReset" to "Reset",
     "pivotLayout" to "Layout Options",
+    "outlineSettings" to "Outline Settings",
+    "pivotOptions" to "PivotTable Options",
     "pivotStyles" to "Quick Styles",
     "textDirection" to "Text Direction",
     "numberNegatives" to "Number",
@@ -319,6 +322,7 @@ private fun FormulasTab(vm: AppViewModel) {
             PaletteRow(label, icon.glyph(), onClick = { vm.pushPanel("fn:$cat") }, chevron = true)
         }
         Band()
+        PaletteRow("Paste Names", LucideIcons.ClipboardPaste.glyph(), onClick = vm::showPasteNames, chevron = true)
         PaletteRow("Calculate Now", LucideIcons.Calculator.glyph(), onClick = { vm.command("formulas.calculateNow") })
     }
 }
@@ -326,6 +330,8 @@ private fun FormulasTab(vm: AppViewModel) {
 @Composable
 private fun DataTab(vm: AppViewModel) {
     Scrolling {
+        PaletteRow("Convert to Number", LucideIcons.Hash.glyph(), onClick = { vm.command("formulas.convertToNumber") })
+        PaletteRow("Outline Settings", LucideIcons.Settings.glyph(), onClick = { vm.pushPanel("outlineSettings") }, chevron = true)
         PaletteRow("Show Detail", LucideIcons.Plus.glyph(), onClick = { vm.command("data.showDetail") })
         PaletteRow("Hide Detail", LucideIcons.Minus.glyph(), onClick = { vm.command("data.hideDetail") })
     }
@@ -368,6 +374,8 @@ private fun ViewTab(vm: AppViewModel) {
         CheckPaletteRow("Formula Bar", vm.showFormulaBar) { vm.showFormulaBar = !vm.showFormulaBar }
         CheckPaletteRow("Gridlines", sv?.gridlines == true) { vm.command("view.gridlines", json("on" to (sv?.gridlines != true))) }
         CheckPaletteRow("Headings", sv?.headings == true) { vm.command("view.headings", json("on" to (sv?.headings != true))) }
+        CheckPaletteRow("Show Objects", sv?.showObjects != false) { vm.command("view.showObjects", json("on" to (sv?.showObjects == false))) }
+        CheckPaletteRow("Show Outline Symbols", sv?.showOutlineSymbols != false) { vm.command("view.showOutlineSymbols", json("on" to (sv?.showOutlineSymbols == false))) }
         CheckPaletteRow("Sheet Right-to-Left", sv?.rightToLeft == true) { vm.command("view.rightToLeft", json("on" to (sv?.rightToLeft != true))) }
         Band()
         PaletteRow("Zoom In", LucideIcons.ZoomIn.glyph(), onClick = { vm.zoom = (vm.zoom + 0.1f).coerceAtMost(4f) })
@@ -379,9 +387,9 @@ private fun ViewTab(vm: AppViewModel) {
 
 /** A setting's row with a tick box, as the View tab shows them. */
 @Composable
-private fun CheckPaletteRow(label: String, checked: Boolean, onClick: () -> Unit) {
+internal fun CheckPaletteRow(label: String, checked: Boolean, onClick: () -> Unit) {
     androidx.compose.foundation.layout.Row(
-        Modifier.fillMaxWidth().height(ROW + 1.dp).background(GridColors.Surface).bottomEdge(GridColors.Divider).clickable(onClick = onClick).padding(start = 16.dp),
+        Modifier.fillMaxWidth().heightIn(min = ROW + 1.dp).background(GridColors.Surface).bottomEdge(GridColors.Divider).clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         Box(
@@ -389,7 +397,7 @@ private fun CheckPaletteRow(label: String, checked: Boolean, onClick: () -> Unit
             contentAlignment = androidx.compose.ui.Alignment.Center,
         ) { if (checked) GlyphIcon(LucideIcons.Check.glyph(), GridColors.Surface, size = 18.dp) }
         androidx.compose.foundation.layout.Spacer(Modifier.size(18.dp))
-        Text(uiText(label), color = GridColors.OnSurface, fontSize = 16.sp, maxLines = 1)
+        Text(uiText(label), color = GridColors.OnSurface, fontSize = 16.sp, maxLines = 2, modifier = Modifier.weight(1f))
     }
 }
 
@@ -676,6 +684,9 @@ internal fun ContextRows(vm: AppViewModel, tab: String): Boolean {
             ObjectRows(vm)
         }
         "Pivot Table" -> Scrolling {
+            LaunchedEffect(vm.info?.revision, vm.selection?.activeRow, vm.selection?.activeCol) { vm.loadPivotDetailsAvailability() }
+            PaletteRow("Show Details", LucideIcons.Table.glyph(), onClick = vm::showPivotDetails, enabled = vm.pivotInfo?.enableShowDetails == true && vm.pivotDetailsAvailable)
+            PaletteRow("PivotTable Options", LucideIcons.Settings.glyph(), onClick = { vm.pushPanel("pivotOptions") }, chevron = true)
             PaletteRow("Layout Options", LucideIcons.LayoutTemplate.glyph(), onClick = { vm.pushPanel("pivotLayout") }, chevron = true)
             PaletteRow("Quick Styles", LucideIcons.Paintbrush.glyph(), onClick = { vm.pushPanel("pivotStyles") }, chevron = true)
             Band()
@@ -716,6 +727,17 @@ private fun ObjectRows(vm: AppViewModel) {
 @Composable
 private fun ContextPanel(vm: AppViewModel, panel: String): Boolean {
     when (panel) {
+        "outlineSettings" -> Scrolling {
+            val view = vm.sheetView
+            CheckPaletteRow("Summary Rows Below Detail", view?.summaryBelow != false) { vm.command("data.outlineSettings", json("summaryBelow" to (view?.summaryBelow == false))) }
+            CheckPaletteRow("Summary Columns Right of Detail", view?.summaryRight != false) { vm.command("data.outlineSettings", json("summaryRight" to (view?.summaryRight == false))) }
+        }
+        "pivotOptions" -> Scrolling {
+            val pivot = vm.pivotInfo
+            if (pivot != null) CheckPaletteRow("Enable Show Details", pivot.enableShowDetails) {
+                vm.command("pivot.options", json("enableShowDetails" to !pivot.enableShowDetails))
+            }
+        }
         "pivotLayout" -> Scrolling {
             val pv = vm.pivotInfo
             SectionBand("Grand Totals")

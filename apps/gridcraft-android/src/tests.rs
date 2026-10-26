@@ -17,6 +17,79 @@ fn a_new_session_has_a_blank_workbook() {
 }
 
 #[test]
+fn object_visibility_reaches_the_android_snapshot_and_undo_restores_it() {
+    let m = MobileSession::new();
+    m.execute("insert.shape".into(), json!({"kind": "rectangle"}).to_string()).unwrap();
+    assert!(!m.objects().is_empty());
+    m.execute("view.showObjects".into(), json!({"on": false}).to_string()).unwrap();
+    assert!(!m.sheet_view().show_objects);
+    assert!(m.objects().is_empty());
+    m.execute("edit.undo".into(), "{}".into()).unwrap();
+    assert!(m.sheet_view().show_objects);
+    assert!(!m.objects().is_empty());
+}
+
+#[test]
+fn outline_settings_move_summary_controls_without_losing_the_groups() {
+    let m = MobileSession::new();
+    m.execute("data.group".into(), json!({"rows":"2:5"}).to_string()).unwrap();
+    m.execute("data.group".into(), json!({"cols":"B:C"}).to_string()).unwrap();
+    m.execute("data.outlineSettings".into(), json!({"summaryBelow":false,"summaryRight":false}).to_string()).unwrap();
+    let view = m.sheet_view();
+    assert!(!view.summary_below && !view.summary_right);
+    assert_eq!(view.row_groups[0].summary, Some(0));
+    assert_eq!(view.col_groups[0].summary, Some(0));
+    m.execute("view.showOutlineSymbols".into(), json!({"on":false}).to_string()).unwrap();
+    assert!(!m.sheet_view().show_outline_symbols);
+    assert!(!m.sheet_view().row_groups.is_empty());
+}
+
+#[test]
+fn numeric_text_can_be_converted_and_undone_through_the_android_api() {
+    let m = MobileSession::new();
+    m.commit("'123".into(), "none".into()).unwrap();
+    assert!(!cell(&m.viewport(0, 0, 0, 0, 0.0), 0, 0).unwrap().numeric);
+    m.execute("formulas.convertToNumber".into(), "{}".into()).unwrap();
+    assert!(cell(&m.viewport(0, 0, 0, 0, 0.0), 0, 0).unwrap().numeric);
+    m.execute("edit.undo".into(), "{}".into()).unwrap();
+    assert!(!cell(&m.viewport(0, 0, 0, 0, 0.0), 0, 0).unwrap().numeric);
+}
+
+#[test]
+fn defined_names_can_be_listed_and_pasted_as_a_two_column_text_table() {
+    let m = MobileSession::new();
+    m.execute("formulas.defineName".into(), json!({"name":"Sales","refersTo":"=Sheet1!$B$2:$B$4"}).to_string()).unwrap();
+    let names: Json = serde_json::from_str(&m.execute("formulas.pasteName".into(), "{}".into()).unwrap()).unwrap();
+    assert_eq!(names["names"][0]["name"], "Sales");
+    assert_eq!(m.sheet_view().used_rows, 0, "opening the picker changes no cells");
+    m.execute("formulas.pasteName".into(), json!({"list":true}).to_string()).unwrap();
+    let view = m.viewport(0, 0, 0, 1, 0.0);
+    assert_eq!(cell(&view, 0, 0).unwrap().text, "Sales");
+    assert_eq!(cell(&view, 0, 1).unwrap().text, "=Sheet1!$B$2:$B$4");
+    assert!(!cell(&view, 0, 1).unwrap().numeric);
+}
+
+#[test]
+fn pivot_details_enablement_and_source_records_are_available_on_android() {
+    let m = MobileSession::new();
+    m.execute("range.setValues".into(), json!({"range":"A1","values":[["Region","Sales"],["East",10],["East",20],["West",5]]}).to_string()).unwrap();
+    m.execute("insert.pivotTable".into(), json!({"source":"Sheet1!A1:B4","rows":["Region"],"values":["Sales"]}).to_string()).unwrap();
+    let viewport = m.viewport(0, 0, 20, 5, 0.0);
+    let value = viewport.cells.iter().find(|c| c.numeric).unwrap();
+    m.select(value.row, value.col, false).unwrap();
+    assert!(m.pivot_info().unwrap().enable_show_details);
+    assert!(m.pivot_can_show_details());
+    m.execute("pivot.options".into(), json!({"enableShowDetails":false}).to_string()).unwrap();
+    assert!(!m.pivot_info().unwrap().enable_show_details);
+    assert!(!m.pivot_can_show_details());
+    m.execute("pivot.options".into(), json!({"enableShowDetails":true}).to_string()).unwrap();
+    let before = m.info().sheets.len();
+    let details: Json = serde_json::from_str(&m.execute("pivot.showDetails".into(), "{}".into()).unwrap()).unwrap();
+    assert!(details["records"].as_u64().unwrap() > 0);
+    assert_eq!(m.info().sheets.len(), before + 1);
+}
+
+#[test]
 fn typed_cells_show_in_the_viewport_with_their_look() {
     let m = MobileSession::new();
     m.commit("Name".into(), "down".into()).unwrap();
@@ -537,7 +610,7 @@ fn outline_groups_come_with_the_sheet_view() {
     m.execute("data.group".into(), json!({ "cols": "B:C" }).to_string()).unwrap();
     let v = m.sheet_view();
     assert_eq!((v.row_levels, v.col_levels), (2, 1));
-    let g = |level: u8, start: u32, end: u32, collapsed: bool| OutlineGroupView { level, start, end, collapsed };
+    let g = |level: u8, start: u32, end: u32, collapsed: bool| OutlineGroupView { level, start, end, collapsed, summary: Some(end + 1) };
     assert_eq!(v.row_groups, [g(2, 2, 3, false), g(1, 1, 4, false)]);
     assert_eq!(v.col_groups, [g(1, 1, 2, false)]);
     m.execute("data.hideDetail".into(), json!({ "rows": "2:5", "level": 1 }).to_string()).unwrap();
