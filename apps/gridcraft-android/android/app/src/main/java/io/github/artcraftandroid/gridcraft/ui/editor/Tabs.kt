@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 
 /** The titles of the palette's pages. */
 internal val PANEL_TITLES = mapOf(
+    "pasteName" to "Paste Names",
     "font" to "Font",
     "size" to "Font Size",
     "borders" to "Borders",
@@ -418,6 +419,7 @@ internal fun PanelBody(vm: AppViewModel, panel: String) {
         return
     }
     when (panel) {
+        "pasteName" -> DefinedNamesPanel(vm)
         "font" -> Scrolling {
             LaunchedEffect(Unit) { vm.loadThemeFonts() }
             // the workbook theme's fonts first, headings then body (named as such)

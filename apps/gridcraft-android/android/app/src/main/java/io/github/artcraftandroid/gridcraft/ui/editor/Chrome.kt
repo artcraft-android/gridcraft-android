@@ -682,7 +682,6 @@ fun CommentCard(vm: AppViewModel) {
 @Composable
 fun EditorDialog(vm: AppViewModel) {
     when (vm.dialog) {
-        "pasteName" -> DefinedNamesSheet(vm)
         "pickDateTime" -> DateTimePicker(vm)
         "customSort" -> CustomSortDialog(vm)
         "entryAlert" -> {

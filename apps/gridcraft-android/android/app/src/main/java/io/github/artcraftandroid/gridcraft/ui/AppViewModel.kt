@@ -1305,7 +1305,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val item = result.getJSONObject(i)
             item.getString("name") to item.getString("refersTo")
         }
-        dialog = "pasteName"
+        if (paletteOpen) pushPanel("pasteName") else showPanel("Formulas", "pasteName")
     }
 
     fun pasteDefinedName(name: String) {
@@ -1322,6 +1322,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (editing || definedNames.isEmpty()) return
         dialog = null
         command("formulas.pasteName", "{\"list\":true}")
+        popPanel()
     }
 
     var pivotDetailsAvailable by mutableStateOf(false)
