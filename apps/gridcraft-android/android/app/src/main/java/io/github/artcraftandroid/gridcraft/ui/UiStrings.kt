@@ -9,6 +9,14 @@ import io.github.artcraftandroid.gridcraft.R
 
 /** Only application-owned labels belong here; workbook data must be displayed verbatim. */
 internal val UI_LABELS: Map<String, Int> = mapOf(
+    "Rectangles" to R.string.ui_rectangles,
+    "Basic Shapes" to R.string.ui_basic_shapes,
+    "Block Arrows" to R.string.ui_block_arrows,
+    "Equation Shapes" to R.string.ui_equation_shapes,
+    "Flowchart" to R.string.ui_flowchart,
+    "Stars and Banners" to R.string.ui_stars_and_banners,
+    "Callouts" to R.string.ui_callouts,
+    "Language" to R.string.ui_language,
     "Home" to R.string.ui_home,
     "New" to R.string.ui_new,
     "Open" to R.string.ui_open,

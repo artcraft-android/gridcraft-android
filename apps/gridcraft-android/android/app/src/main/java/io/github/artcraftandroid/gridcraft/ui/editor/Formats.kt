@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -175,25 +176,28 @@ internal fun CellStylesPanel(vm: AppViewModel) {
         val e = vm.engine ?: return@LaunchedEffect
         tiles = e.view { cellStyleTiles(CELL_STYLE_GROUPS.flatMap { it.second }) }.associateBy { it.name }
     }
-    Scrolling {
-        for ((title, names) in CELL_STYLE_GROUPS) {
-            SectionBand(title)
-            Column(Modifier.padding(horizontal = 18.dp, vertical = 9.dp)) {
-                for (row in names.chunked(6)) {
-                    Row(Modifier.fillMaxWidth().height(52.dp)) {
-                        for (name in row) {
-                            val t = tiles[name]
-                            Box(
-                                Modifier.weight(1f).fillMaxHeight().padding(2.dp)
-                                    // the active cell's style sits in a band
-                                    .background(if (t?.chosen == true) GridColors.ChosenBand else Color.Transparent)
-                                    .clickable { vm.command("home.cellStyle", json("name" to name)) }.uiDescription(name),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (t != null) StyleTileBox(t, tileLabel(name))
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val columns = galleryColumns((maxWidth - 36.dp).value, 6, 56f)
+        Scrolling {
+            for ((title, names) in CELL_STYLE_GROUPS) {
+                SectionBand(title)
+                Column(Modifier.padding(horizontal = 18.dp, vertical = 9.dp)) {
+                    for (row in names.chunked(columns)) {
+                        Row(Modifier.fillMaxWidth().height(52.dp)) {
+                            for (name in row) {
+                                val t = tiles[name]
+                                Box(
+                                    Modifier.weight(1f).fillMaxHeight().padding(2.dp)
+                                        // the active cell's style sits in a band
+                                        .background(if (t?.chosen == true) GridColors.ChosenBand else Color.Transparent)
+                                        .clickable { vm.command("home.cellStyle", json("name" to name)) }.uiDescription(name),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    if (t != null) StyleTileBox(t, tileLabel(name))
+                                }
                             }
+                            repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        repeat(6 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -816,8 +820,13 @@ internal fun ShapeStylesPanel(vm: AppViewModel) {
     // row spread across, 4 dp apart
     @Composable
     fun Rows(rows: List<List<String>>) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            for (keys in rows) StyleRow(keys, ::look) { vm.applyShapeStyle(it) }
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 18.dp)) {
+            val columns = galleryColumns(maxWidth.value, 7, 44f, 4f)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (keys in rows) {
+                    for (row in keys.chunked(columns)) StyleRow(row, columns, ::look) { vm.applyShapeStyle(it) }
+                }
+            }
         }
     }
     Scrolling {
@@ -832,12 +841,12 @@ internal fun ShapeStylesPanel(vm: AppViewModel) {
 
 /** A row of seven style tiles: a rounded square in the style's fill and outline, "Abc" in its text colour. */
 @Composable
-private fun StyleRow(keys: List<String>, look: (String) -> TileLook, onPick: (String) -> Unit) {
+private fun StyleRow(keys: List<String>, columns: Int, look: (String) -> TileLook, onPick: (String) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         for (key in keys) {
             val l = look(key)
             Box(Modifier.weight(1f).height(52.dp).clickable { onPick(key) }.uiDescription(styleName(key)), contentAlignment = Alignment.Center) {
-                Canvas(Modifier.size(44.dp)) {
+                Canvas(Modifier.size(44.dp).padding(2.dp)) {
                     val r = androidx.compose.ui.geometry.CornerRadius(7.dp.toPx())
                     if (l.fill == null || l.fill.alpha < 1f) {
                         // a checkerboard: what shows through
@@ -861,6 +870,7 @@ private fun StyleRow(keys: List<String>, look: (String) -> TileLook, onPick: (St
                 Text("Abc", color = l.text, fontSize = 17.sp)
             }
         }
+        repeat((columns - keys.size).coerceAtLeast(0)) { Spacer(Modifier.weight(1f)) }
     }
 }
 
@@ -882,20 +892,22 @@ internal fun ShapesPanel(vm: AppViewModel, change: Boolean = false) {
     val label = bands.flatMap { it.shapes }.associate { it.kind to it.label } + RECENT_LABELS
     val recent = vm.recentShapes.mapNotNull { k -> label[k]?.let { it to k } }
     val all = listOf("Recent Shapes" to recent) + bands.map { b -> b.name to b.shapes.map { it.label to it.kind } }
-    val perRow = if (change) 5 else 8
-    Scrolling {
-        for ((band, tiles) in all) {
-            SectionBand(band)
-            Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
-                for (row in tiles.chunked(perRow)) {
-                    Row(Modifier.fillMaxWidth().height(57.dp)) {
-                        for ((label, kind) in row) {
-                            Box(
-                                Modifier.weight(1f).fillMaxHeight().clickable { if (change) vm.changeShape(kind) else vm.insertShape(kind) }.uiDescription(label),
-                                contentAlignment = Alignment.Center,
-                            ) { ShapeTile(vm, kind) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val perRow = galleryColumns((maxWidth - 36.dp).value, if (change) 5 else 8, 44f)
+        Scrolling {
+            for ((band, tiles) in all) {
+                SectionBand(band)
+                Column(Modifier.padding(horizontal = 18.dp, vertical = 14.dp)) {
+                    for (row in tiles.chunked(perRow)) {
+                        Row(Modifier.fillMaxWidth().height(57.dp)) {
+                            for ((label, kind) in row) {
+                                Box(
+                                    Modifier.weight(1f).fillMaxHeight().clickable { if (change) vm.changeShape(kind) else vm.insertShape(kind) }.uiDescription(label),
+                                    contentAlignment = Alignment.Center,
+                                ) { ShapeTile(vm, kind) }
+                            }
+                            repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -907,12 +919,12 @@ internal fun ShapesPanel(vm: AppViewModel, change: Boolean = false) {
 @Composable
 private fun ShapeTile(vm: AppViewModel, kind: String) {
     if (kind == "textBox") {
-        Canvas(Modifier.size(40.dp)) { textBoxSample(GridColors.ShapeTileFill) }
+        Canvas(Modifier.size(40.dp).padding(2.dp)) { textBoxSample(GridColors.ShapeTileFill) }
         return
     }
     var pieces by remember(kind) { mutableStateOf<List<io.github.artcraftandroid.gridcraft.core.ShapePiece>>(emptyList()) }
     LaunchedEffect(kind) { pieces = vm.shapePreview(kind) }
-    Canvas(Modifier.size(44.dp)) {
+    Canvas(Modifier.size(44.dp).padding(2.dp)) {
         val k = size.width / io.github.artcraftandroid.gridcraft.ui.SHAPE_TILE
         drawPieces(pieces, 0f, 0f, k, k, GridColors.ShapeTileFill, GridColors.ShapeTileLine, 1.3f * density, openInk = GridColors.ShapeTileFill)
     }

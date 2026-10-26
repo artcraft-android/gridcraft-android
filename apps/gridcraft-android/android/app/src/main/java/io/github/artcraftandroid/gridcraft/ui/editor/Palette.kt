@@ -14,6 +14,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -23,6 +27,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -52,8 +58,7 @@ import io.github.artcraftandroid.gridcraft.ui.Motion
 import kotlin.math.roundToInt
 import org.json.JSONObject
 
-/** The palette's height, its rows (47 dp and a 1 dp line), list rows and group bands. */
-val PALETTE_HEIGHT = 419.dp
+/** Palette rows (47 dp and a 1 dp line) and group bands; height follows the viewport. */
 internal val ROW = 47.dp
 internal val BAND = 8.dp
 
@@ -138,7 +143,8 @@ private object CentredOnAnchor : androidx.compose.ui.window.PopupPositionProvide
 /** The tab switcher's list: every tab (and the selected object's), the current one marked. */
 @Composable
 fun TabSwitcher(vm: AppViewModel, modifier: Modifier = Modifier) {
-    Column(modifier.width(IntrinsicSize.Max).widthIn(min = 112.dp).shadow(6.dp)) {
+    val maximumHeight = LocalConfiguration.current.screenHeightDp.dp * 0.8f
+    Column(modifier.width(IntrinsicSize.Max).widthIn(min = 112.dp).heightIn(max = maximumHeight).shadow(6.dp).verticalScroll(rememberScrollState())) {
         for (tab in PALETTE_TABS + listOfNotNull(vm.contextTab)) {
             val current = tab == vm.paletteTab
             Box(
@@ -279,7 +285,21 @@ internal val LocalTabScroll = androidx.compose.runtime.compositionLocalOf<androi
 
 @Composable
 internal fun Scrolling(content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(LocalTabScroll.current ?: rememberScrollState()), content = content)
+    val scroll = LocalTabScroll.current ?: rememberScrollState()
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(bottom = 16.dp), content = content)
+        // A visible thumb makes the remaining rows discoverable; the last row has bottom padding.
+        if (scroll.maxValue > 0 && scroll.maxValue < Int.MAX_VALUE) {
+            val overflow = with(density) { scroll.maxValue.toDp() }
+            val thumb = (maxHeight * (maxHeight / (maxHeight + overflow))).coerceAtLeast(24.dp).coerceAtMost(maxHeight)
+            val travel = (maxHeight - thumb).coerceAtLeast(0.dp)
+            Box(
+                Modifier.align(Alignment.TopEnd).offset(y = travel * (scroll.value.toFloat() / scroll.maxValue))
+                    .width(3.dp).height(thumb).background(GridColors.SettingsValue.copy(alpha = 0.6f), RoundedCornerShape(2.dp)),
+            )
+        }
+    }
 }
 
 internal fun json(vararg pairs: Pair<String, Any>): String = JSONObject().apply { for ((k, v) in pairs) put(k, v) }.toString()
@@ -303,15 +323,17 @@ internal fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit, tr
 
 /** A grid of colour swatches, [perRow] across the width with hairline gaps, each with a thin edge, as the phone app draws them. */
 @Composable
-internal fun SwatchGrid(swatches: List<Swatch>, perRow: Int, @Suppress("UNUSED_PARAMETER") cellW: Dp, onPick: (Swatch) -> Unit) {
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
-        for (row in swatches.chunked(perRow)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
-                for (s in row) {
-                    Box(Modifier.weight(1f).height(40.dp).background(Color(s.argb)).border(1.dp, GridColors.SwatchEdge).clickable { onPick(s) })
+internal fun SwatchGrid(swatches: List<Swatch>, perRow: Int, cellW: Dp, onPick: (Swatch) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        val columns = galleryColumns(maxWidth.value, perRow, cellW.value, 2f)
+        Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
+            for (row in swatches.chunked(columns)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp)) {
+                    for (s in row) {
+                        Box(Modifier.weight(1f).aspectRatio(1f).background(Color(s.argb)).border(1.dp, GridColors.SwatchEdge).clickable { onPick(s) })
+                    }
+                    repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                 }
-                // a short last row keeps the cells' width
-                repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
     }

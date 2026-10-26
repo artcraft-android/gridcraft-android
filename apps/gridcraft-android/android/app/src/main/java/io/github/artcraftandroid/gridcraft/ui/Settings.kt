@@ -31,15 +31,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.artcraftandroid.gridcraft.ui.editor.BarButton
 import io.github.artcraftandroid.gridcraft.ui.editor.glyph
+import io.github.artcraftandroid.gridcraft.AppLanguages
 
 /** The themes Settings offers. */
 private val THEMES = linkedMapOf("system" to "System Default", "light" to "Light", "dark" to "Dark")
+
+private val LANGUAGES = linkedMapOf("system" to "System Default", "ar" to "العربية", "en" to "English")
 
 /** What GridCraft ships with that others made, and their licences. */
 private val OPEN_MATERIAL = listOf(
@@ -57,6 +61,9 @@ private val OPEN_MATERIAL = listOf(
 fun SettingsScreen(vm: AppViewModel, engineVersion: String) {
     BackHandler { vm.closeSettings() }
     var picking by remember { mutableStateOf(false) }
+    var pickingLanguage by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val languageChoice = AppLanguages.choice(context)
     Column(Modifier.fillMaxSize().background(GridColors.StatusBand).statusBarsPadding().background(GridColors.SettingsBack).navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().height(56.dp).background(GridColors.Bar), verticalAlignment = Alignment.CenterVertically) {
             BarButton(LucideIcons.ArrowLeft.glyph(), GridColors.OnBar, { vm.closeSettings() }, width = 56.dp, height = 56.dp, label = "Back")
@@ -65,6 +72,7 @@ fun SettingsScreen(vm: AppViewModel, engineVersion: String) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             SettingsSection("Display Preferences")
             SettingsItem("Theme", THEMES[vm.themeChoice] ?: "System Default") { picking = true }
+            SettingsItem("Language", LANGUAGES[languageChoice] ?: "System Default") { pickingLanguage = true }
             SettingsLine()
             SettingsSection("General")
             SettingsSwitch("AutoSave", "Automatically save files", vm.autoSaveOn, vm::chooseAutoSave)
@@ -79,6 +87,36 @@ fun SettingsScreen(vm: AppViewModel, engineVersion: String) {
             SettingsItem("Open material", OPEN_MATERIAL.joinToString("\n"))
             Spacer(Modifier.height(24.dp))
         }
+    }
+    if (pickingLanguage) {
+        AlertDialog(
+            onDismissRequest = { pickingLanguage = false },
+            title = { Text(uiText("Language")) },
+            text = {
+                Column {
+                    for ((key, label) in LANGUAGES) {
+                        val select = {
+                            pickingLanguage = false
+                            AppLanguages.choose(context, key)
+                        }
+                        Row(
+                            Modifier.fillMaxWidth().height(48.dp).clickable(onClick = select),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = languageChoice == key,
+                                onClick = select,
+                                colors = RadioButtonDefaults.colors(selectedColor = GridColors.Accent),
+                            )
+                            Text(uiText(label), color = GridColors.OnSurface, fontSize = 16.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { pickingLanguage = false }) { Text(uiText("Cancel")) } },
+            containerColor = GridColors.Surface,
+            titleContentColor = GridColors.OnSurface,
+        )
     }
     if (picking) {
         AlertDialog(

@@ -70,19 +70,20 @@ fun EditorScreen(vm: AppViewModel) {
         EditorDialog(vm)
         vm.renaming?.let { RenameDialog(vm, it) }
         if (vm.moreOpen) {
-            MoreSheet(vm)
+            MoreSheet(vm, Modifier.weight(3f))
         } else if (vm.editing && vm.keypad) {
             FormulaBar(vm)
             Keypad(vm)
         } else if (vm.pickingList) {
-            ValidationSheet(vm)
+            ValidationSheet(vm, Modifier.weight(3f))
         } else if (vm.filterAt != null) {
-            FilterSheet(vm)
+            FilterSheet(vm, Modifier.weight(3f))
         } else if (vm.commentsOpen && !vm.paletteOpen) {
-            CommentsPane(vm)
+            CommentsPane(vm, Modifier.weight(3f))
         } else if (vm.paletteOpen) {
             if (formulaBar) FormulaBar(vm)
-            PaletteSheet(vm, Modifier.fillMaxWidth().height(PALETTE_HEIGHT))
+            // Share the available space with the grid, including landscape and split-screen.
+            PaletteSheet(vm, Modifier.fillMaxWidth().weight(3f))
         } else {
             if (vm.comment != null && !vm.editing) CommentCard(vm) else if (!vm.editing) InputMessage(vm)
             AggregateBar(vm)

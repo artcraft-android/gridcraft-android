@@ -925,7 +925,7 @@ private fun labelPositions(kind: String): List<Pair<String, String>> = when (kin
 private fun TableStyleGallery(vm: AppViewModel, current: String?, apply: (String) -> Unit) {
     LaunchedEffect(Unit) { vm.loadTableStyles() }
     androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
-        columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(3),
+        columns = androidx.compose.foundation.lazy.grid.GridCells.Adaptive(104.dp),
         modifier = Modifier.fillMaxSize().padding(8.dp),
     ) {
         items(vm.tableStyles.size) { i ->

@@ -139,7 +139,7 @@ fun EditorHeader(vm: AppViewModel) {
 
 /** The header's ⋯: a sheet from the bottom with Draw with Pen, Share as PDF, Save, Save As, Print, then Settings. */
 @Composable
-fun MoreSheet(vm: AppViewModel) {
+fun MoreSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
     val top = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
     @Composable
     fun item(label: String, glyph: Glyph, action: () -> Unit) {
@@ -155,7 +155,7 @@ fun MoreSheet(vm: AppViewModel) {
             Text(uiText(label), color = GridColors.OnSettings, fontSize = 16.sp)
         }
     }
-    Column(Modifier.fillMaxWidth().shadow(8.dp, top).background(GridColors.Sheet, top)) {
+    Column(modifier.fillMaxWidth().shadow(8.dp, top).background(GridColors.Sheet, top).verticalScroll(rememberScrollState())) {
         Box(Modifier.fillMaxWidth().height(32.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.size(36.dp, 4.dp).background(GridColors.Handle, RoundedCornerShape(2.dp)))
         }
@@ -927,7 +927,7 @@ private fun Picker(label: String, options: List<Pair<String, String>>, value: St
  * the column's cells have fills, Color.
  */
 @Composable
-fun FilterSheet(vm: AppViewModel) {
+fun FilterSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
     val values = vm.filterValues
     val at = vm.filterAt
     val filtered = values.any { !it.shown } || vm.viewport?.cells?.any { it.row == at?.first && it.col == at.second && it.filtered } == true
@@ -943,7 +943,7 @@ fun FilterSheet(vm: AppViewModel) {
     val card = RoundedCornerShape(8.dp)
     val top = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
     // one height whichever tab is up, as the phone app's sheet
-    Column(Modifier.fillMaxWidth().height(540.dp).shadow(8.dp, top).background(GridColors.Sheet, top)) {
+    Column(modifier.fillMaxWidth().shadow(8.dp, top).background(GridColors.Sheet, top).verticalScroll(rememberScrollState())) {
         Box(Modifier.fillMaxWidth().height(24.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.size(36.dp, 4.dp).background(GridColors.Handle, RoundedCornerShape(2.dp)))
         }
@@ -988,7 +988,7 @@ fun FilterSheet(vm: AppViewModel) {
             }
             Spacer(Modifier.height(4.dp))
             val list = values.filter { query.isBlank() || it.text.contains(query.trim(), ignoreCase = true) }
-            androidx.compose.foundation.lazy.LazyColumn(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().background(GridColors.Card, card)) {
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().heightIn(max = 320.dp).background(GridColors.Card, card)) {
                 items(list.size) { k ->
                     val v = list[k]
                     FilterRow(v.text, v.text in ticked) { pick(if (v.text in ticked) ticked - v.text else ticked + v.text) }
@@ -1067,7 +1067,7 @@ private fun FilterRules(vm: AppViewModel, numeric: Boolean) {
     var open by remember { mutableStateOf<String?>(null) }
     var first by remember { mutableStateOf("") }
     var second by remember { mutableStateOf("") }
-    androidx.compose.foundation.lazy.LazyColumn(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().background(GridColors.Card, RoundedCornerShape(8.dp))) {
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().heightIn(max = 320.dp).background(GridColors.Card, RoundedCornerShape(8.dp))) {
         items(rules.size) { k ->
             val (label, rule) = rules[k]
             Column(Modifier.fillMaxWidth()) {
@@ -1202,9 +1202,9 @@ fun AggregateBar(vm: AppViewModel) {
 
 /** A validation list to pick the active cell's value from. */
 @Composable
-fun ValidationSheet(vm: AppViewModel) {
+fun ValidationSheet(vm: AppViewModel, modifier: Modifier = Modifier) {
     val items = vm.validation?.items.orEmpty()
-    Column(Modifier.fillMaxWidth().heightIn(max = 400.dp).background(GridColors.Sheet).topEdge(GridColors.BarEdge)) {
+    Column(modifier.fillMaxWidth().background(GridColors.Sheet).topEdge(GridColors.BarEdge)) {
         Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(vm.validation?.title?.ifBlank { null } ?: "Choose a value", color = GridColors.OnSettings, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             TextButton(onClick = { vm.pickingList = false }) { Text(uiText("Cancel"), color = GridColors.Accent) }
@@ -1235,10 +1235,10 @@ fun InputMessage(vm: AppViewModel) {
  * Next, Delete Comment and Comment over the list. A comment picked goes to its cell.
  */
 @Composable
-fun CommentsPane(vm: AppViewModel) {
+fun CommentsPane(vm: AppViewModel, modifier: Modifier = Modifier) {
     val sel = vm.selection
     val here = vm.commentList.any { it.row == sel?.activeRow && it.col == sel.activeCol }
-    Column(Modifier.fillMaxWidth().heightIn(max = 360.dp).background(GridColors.Sheet).topEdge(GridColors.BarEdge)) {
+    Column(modifier.fillMaxWidth().background(GridColors.Sheet).topEdge(GridColors.BarEdge)) {
         Row(Modifier.fillMaxWidth().height(48.dp).padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(uiText("Comments"), color = GridColors.OnSettings, fontSize = 17.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
             BarButton(LucideIcons.ChevronUp.glyph(), GridColors.OnBar, { vm.goToComment(false) }, enabled = vm.commentList.isNotEmpty(), width = 44.dp, height = 48.dp, label = "Previous Comment")

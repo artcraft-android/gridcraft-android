@@ -1,6 +1,7 @@
 package io.github.artcraftandroid.gridcraft.ui
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -34,12 +35,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.artcraftandroid.gridcraft.engine.RecentFile
+import io.github.artcraftandroid.gridcraft.R
 import io.github.artcraftandroid.gridcraft.ui.editor.bottomEdge
 import io.github.artcraftandroid.gridcraft.ui.editor.topEdge
 import java.util.Calendar
@@ -57,11 +60,6 @@ fun StartScreen(vm: AppViewModel, onOpen: () -> Unit) {
     Box(Modifier.fillMaxSize().background(GridColors.SettingsBack).statusBarsPadding().navigationBarsPadding()) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().height(64.dp).padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(36.dp).clip(CircleShape).background(GridColors.Avatar).clickable { vm.openSettings() },
-                    contentAlignment = Alignment.Center,
-                ) { Icon(LucideIcons.UserRound, contentDescription = uiText("Settings"), tint = GridColors.OnAvatar, modifier = Modifier.size(22.dp)) }
-                Spacer(Modifier.width(14.dp))
                 if (searching) {
                     BasicTextField(
                         value = query,
@@ -71,15 +69,26 @@ fun StartScreen(vm: AppViewModel, onOpen: () -> Unit) {
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(GridColors.Accent),
                         modifier = Modifier.weight(1f),
                     )
-                    StartIcon(LucideIcons.X) {
+                    StartIcon(LucideIcons.X, label = "Close Find") {
                         searching = false
                         query = ""
                     }
                 } else {
+                    Image(
+                        painter = painterResource(R.drawable.ic_launcher_tile),
+                        contentDescription = null,
+                        modifier = Modifier.size(36.dp),
+                    )
+                    Spacer(Modifier.width(10.dp))
                     Text("GridCraft", color = GridColors.Accent, fontSize = 24.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    StartIcon(LucideIcons.Search) {
+                    StartIcon(LucideIcons.Search, label = "Search") {
                         tab = "Home"
                         searching = true
+                    }
+                }
+                Box(Modifier.size(48.dp).clickable { vm.openSettings() }, contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(36.dp).clip(CircleShape).background(GridColors.Avatar), contentAlignment = Alignment.Center) {
+                        Icon(LucideIcons.UserRound, contentDescription = uiText("Settings"), tint = GridColors.OnAvatar, modifier = Modifier.size(22.dp))
                     }
                 }
             }
@@ -113,9 +122,9 @@ fun StartScreen(vm: AppViewModel, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun StartIcon(icon: ImageVector, onClick: () -> Unit) {
+private fun StartIcon(icon: ImageVector, label: String? = null, onClick: () -> Unit) {
     Box(Modifier.size(48.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Icon(icon, contentDescription = null, tint = GridColors.OnBar)
+        Icon(icon, contentDescription = label?.let { uiText(it) }, tint = GridColors.OnBar)
     }
 }
 
