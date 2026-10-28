@@ -434,6 +434,7 @@ fn sample() -> Workbook {
             kind: None,
             smooth: false,
             trendlines: Vec::new(),
+            totals: vec![],
         }],
         legend: LegendPos::Bottom,
         data_labels: true,
@@ -485,7 +486,7 @@ fn sample() -> Workbook {
         ..base_chart.series[0].clone()
     });
     s.charts.push(combo);
-    s.charts.push(Chart { kind: ChartKind::Waterfall, legend: LegendPos::None, title: None, ..base_chart.clone() });
+    s.charts.push(Chart { kind: ChartKind::Waterfall, legend: LegendPos::None, title: Some(String::new()), ..base_chart.clone() });
     // 3-D charts, surfaces (which have no data labels) and a Pareto chart
     for (kind, depth) in [
         (ChartKind::ColumnClustered, Depth::Raised),

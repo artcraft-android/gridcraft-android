@@ -19,6 +19,7 @@ mod shape_text_rtl;
 mod sheet_names;
 mod smooth_roundtrip;
 mod trendline_roundtrip;
+mod waterfall_roundtrip;
 mod xls_tests;
 mod xlsb_tests;
 

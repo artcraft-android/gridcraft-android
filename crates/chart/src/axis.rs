@@ -57,17 +57,32 @@ pub fn nice_scale(lo: f64, hi: f64, force_zero: bool) -> Scale {
 /// [`nice_scale`] with at most `room` steps (1 to 8): a short axis takes fewer, wider steps,
 /// as the reference picks the finest step that leaves its gridlines far enough apart.
 pub fn nice_scale_within(lo: f64, hi: f64, force_zero: bool, room: f64) -> Scale {
-    scale_of(lo, hi, force_zero, room, true)
+    scale_of(lo, hi, force_zero, room, true, 8.0)
+}
+
+/// [`nice_scale_within`] for a histogram's counts: from zero, up to 10 steps.
+pub fn nice_scale_counts(lo: f64, hi: f64, room: f64) -> Scale {
+    nice_scale_ten(lo, hi, true, room)
+}
+
+/// [`nice_scale_within`] with up to 10 steps, as the newer kinds (box plots, histograms) take.
+pub fn nice_scale_ten(lo: f64, hi: f64, force_zero: bool, room: f64) -> Scale {
+    scale_of(lo, hi, force_zero, room, true, 10.0)
+}
+
+/// [`nice_scale_within`] for a 3-D plot: no headroom over the values, and up to 10 steps.
+pub fn nice_scale_deep(lo: f64, hi: f64, force_zero: bool, room: f64) -> Scale {
+    scale_of(lo, hi, force_zero, room, false, 10.0)
 }
 
 /// [`nice_scale_within`] from zero without headroom over the values: a radar chart's, whose
 /// outer ring is the top value's when it falls on a step.
 pub fn nice_scale_tight(lo: f64, hi: f64, room: f64) -> Scale {
-    scale_of(lo, hi, true, room, false)
+    scale_of(lo, hi, true, room, false, 8.0)
 }
 
-fn scale_of(lo: f64, hi: f64, force_zero: bool, room: f64, headroom: bool) -> Scale {
-    let room = if room.is_finite() { room.clamp(1.0, 8.0) } else { 8.0 };
+fn scale_of(lo: f64, hi: f64, force_zero: bool, room: f64, headroom: bool, cap: f64) -> Scale {
+    let room = if room.is_finite() { room.clamp(1.0, cap) } else { cap };
     let (mut lo, mut hi) = (clean(lo), clean(hi));
     if lo > hi {
         std::mem::swap(&mut lo, &mut hi);
@@ -167,11 +182,14 @@ fn general_text(v: f64, step: Option<f64>) -> String {
     }
     match step {
         Some(s) if s.is_finite() && s > 0.0 && v.abs() < 1e11 && v.abs() >= 1e-9 => {
+            // to the step's decimals, then as short as it goes: 0.5, 1, 1.5 as the reference has them
             let d = (-s.log10().floor()).clamp(0.0, 10.0) as usize;
             let t = format!("{:.*}", d, v);
+            let t = if t.contains('.') { t.trim_end_matches('0').trim_end_matches('.').to_string() } else { t };
             if t.trim_start_matches('-').chars().all(|c| c == '0' || c == '.') { "0".into() } else { t }
         }
-        _ => number_to_text(v),
+        // as the reference writes a General number in a chart: eleven characters at most
+        _ => gridcraft_numfmt::format_general_fit(v, 11).unwrap_or_else(|| number_to_text(v)),
     }
 }
 

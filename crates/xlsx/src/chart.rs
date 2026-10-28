@@ -160,6 +160,7 @@ fn read_series(s: &El) -> Series {
         kind: None,
         smooth: bool_val(s, "smooth"),
         trendlines: s.kids("trendline").filter_map(read_trendline).collect(),
+        totals: vec![],
     }
 }
 
@@ -331,6 +332,7 @@ pub fn read_chart(root: &El) -> Option<Chart> {
         drop_lines: groups.iter().any(|(g, _)| g.child("dropLines").is_some()),
         // a stock chart always has its high-low lines; only a line chart's are a choice
         high_low_lines: groups.iter().any(|(g, k)| *k != ChartKind::Stock && g.child("hiLowLines").is_some()),
+        no_hi_lo: groups.iter().any(|(g, k)| *k == ChartKind::Stock && g.child("hiLowLines").is_none()),
         data_table: plot.child("dTable").is_some(),
         last_point_labels,
         label_text,
@@ -347,6 +349,11 @@ pub fn read_chart(root: &El) -> Option<Chart> {
             .map(|v| v.clamp(10, 90)),
         hide_cat_axis: x_ax.is_some_and(|a| bool_val(a, "delete")),
         no_cat_ticks: x_ax.and_then(|a| a.child_val("majorTickMark")).is_some_and(|v| v == "none"),
+        no_connectors: false,
+        box_mean_line: false,
+        box_no_mean_marker: false,
+        val_ticks: false,
+        parent_banner: false,
         hide_val_axis: y_ax.is_some_and(|a| bool_val(a, "delete")),
         cat_gridlines: x_ax.is_some_and(|a| a.child("majorGridlines").is_some()),
         minor_cat_gridlines: x_ax.is_some_and(|a| a.child("minorGridlines").is_some()),
@@ -695,6 +702,8 @@ fn series_xml(
     let line_like = matches!(g, G::Line { .. } | G::Radar { filled: false, .. } | G::Scatter { lines: true, .. });
     let styled = look.filter(|_| matches!(g, G::Bar { .. } | G::Bar3D { .. } | G::Area { .. }));
     match (&color, line_like) {
+        // a stock chart's series are unlined and unmarked: its high-low lines show the prices
+        _ if g == G::Stock => x.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr>"),
         (Some(c), false) if styled.is_some() => {
             if let Some(st) = styled {
                 x.push_str(&crate::chart_look::series(st, c));
@@ -721,9 +730,7 @@ fn series_xml(
         (Some(c), false) => {
             let _ = write!(x, "<c:spPr><a:solidFill>{c}</a:solidFill></c:spPr>");
         }
-        (None, _) if matches!(g, G::Scatter { lines: false, .. }) || g == G::Stock => {
-            x.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr>")
-        }
+        (None, _) if matches!(g, G::Scatter { lines: false, .. }) => x.push_str("<c:spPr><a:ln w=\"19050\"><a:noFill/></a:ln></c:spPr>"),
         _ => {}
     }
     // a style's markers on a line
@@ -752,7 +759,7 @@ fn series_xml(
         _ => {}
     }
     // a pie's slices in the style, each in its colour from the palette
-    if let Some(st) = look.filter(|_| matches!(g, G::Pie | G::Doughnut | G::OfPie { .. })) {
+    if let Some(st) = look.filter(|_| matches!(g, G::Pie | G::Pie3D | G::Doughnut | G::OfPie { .. })) {
         let n =
             if s.values.trim().starts_with('{') { s.values.split([',', ';']).count() } else { ref_values(wb, si, &s.values).map_or(0, |v| v.len()) };
         let palette = if palette == 0 { gridcraft_model::chart_palette::AUTOMATIC } else { palette };
@@ -990,7 +997,12 @@ fn group_xml(g: G, series: &[(usize, &Series)], ch: &Chart, axes: (u32, u32), wb
             if filled { "filled" } else { "marker" }
         ),
         G::Stock => format!(
-            "<c:stockChart>{sers}{dl}{drop}<c:hiLowLines/>{}{ax}</c:stockChart>",
+            "<c:stockChart>{sers}{dl}{drop}{}{}{ax}</c:stockChart>",
+            if el.no_hi_lo {
+                String::new()
+            } else {
+                format!("<c:hiLowLines>{}</c:hiLowLines>", look.map(crate::chart_look::hi_lo).unwrap_or_default())
+            },
             if el.up_down_bars { "<c:upDownBars><c:gapWidth val=\"150\"/><c:upBars/><c:downBars/></c:upDownBars>" } else { "" }
         ),
         G::Bar3D { bar, grouping, .. } => format!(
@@ -1222,8 +1234,11 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
             ticks: true,
         }));
     }
-    // a data table sits after the axes; a pie has none
-    if el.data_table && !matches!(primary_g, G::Pie | G::OfPie { .. } | G::Doughnut) && !primary_g.deep() {
+    // a data table sits after the axes; a pie has none, nor a 3-D chart but for raised columns
+    if el.data_table
+        && !matches!(primary_g, G::Pie | G::OfPie { .. } | G::Doughnut)
+        && (!primary_g.deep() || matches!(primary_g, G::Bar3D { rows: false, .. }))
+    {
         let _ = write!(
             s,
             "<c:dTable><c:showHorzBorder val=\"1\"/><c:showVertBorder val=\"1\"/><c:showOutline val=\"1\"/><c:showKeys val=\"{}\"/></c:dTable>",
@@ -1247,7 +1262,8 @@ pub fn write_chart(wb: &Workbook, si: usize, ch: &Chart) -> String {
     }
     s.push_str("<c:plotVisOnly val=\"1\"/><c:dispBlanksAs val=\"gap\"/></c:chart>");
     if let Some(st) = look {
-        s.push_str(&crate::chart_look::area(st));
+        let first = ch.series.first().and_then(|r| r.color.as_ref()).and_then(|c| srgb(c, &wb.theme));
+        s.push_str(&crate::chart_look::area(st, first.as_deref().unwrap_or("<a:schemeClr val=\"accent1\"/>")));
     }
     s.push_str("</c:chartSpace>");
     s

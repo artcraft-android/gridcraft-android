@@ -280,11 +280,12 @@ pub fn read_drawing(cx: &mut Ctx<'_>, part: &str, sheet: &mut Sheet) -> Result<(
                                         ch.elements.palette = id;
                                     }
                                     // the Style page's style, from the style part
-                                    if !chartex
-                                        && let Some(style) = cx.pkg.rels(&target)?.into_iter().find(|r| r.kind == "chartStyle")
+                                    if let Some(style) = cx.pkg.rels(&target)?.into_iter().find(|r| r.kind == "chartStyle")
                                         && let Some(c) = cx.optional_xml(&style.target)?
                                         && let Some(id) = c.attr_u32("id").and_then(|v| u16::try_from(v).ok())
                                         && gridcraft_model::chart_style::by_id(id).is_some()
+                                        // a chartex part's only from its kind's own page (older files name 201)
+                                        && (!chartex || gridcraft_model::chart_style::styles_for(ch.kind).iter().any(|s| s.id == id))
                                     {
                                         ch.elements.style = id;
                                     }

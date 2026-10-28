@@ -363,6 +363,17 @@ fn add_element(s: &mut Session, p: &Json) -> Result<Json> {
                 };
             }
             "upDownBars" => c.elements.up_down_bars = on,
+            // a stock chart's high-low lines are its own: they go and come back with these
+            "lines" if c.kind == ChartKind::Stock => {
+                let kind = if on { str_param(p, "type").unwrap_or("highLow") } else { "none" };
+                (c.elements.drop_lines, c.elements.no_hi_lo) = match kind {
+                    "drop" => (true, true),
+                    "highLow" => (false, false),
+                    "dropHighLow" => (true, false),
+                    "none" => (false, true),
+                    other => return Err(bad("chart.addElement", format!("unknown lines `{other}`"))),
+                };
+            }
             "lines" => {
                 let kind = if on { str_param(p, "type").unwrap_or("drop") } else { "none" };
                 (c.elements.drop_lines, c.elements.high_low_lines) = match kind {
@@ -480,6 +491,13 @@ enum Family {
     Line,
     Pie,
     Radar,
+    Histogram,
+    Waterfall,
+    BoxWhisker,
+    Funnel,
+    Treemap,
+    Sunburst,
+    Stock,
 }
 
 fn family(kind: ChartKind) -> Family {
@@ -495,15 +513,23 @@ fn family(kind: ChartKind) -> Family {
         | ChartKind::LineStacked100Markers => Family::Line,
         ChartKind::Pie | ChartKind::PieOfPie | ChartKind::BarOfPie | ChartKind::Doughnut => Family::Pie,
         ChartKind::Radar | ChartKind::RadarMarkers => Family::Radar,
+        ChartKind::Histogram => Family::Histogram,
+        ChartKind::Waterfall => Family::Waterfall,
+        ChartKind::BoxWhisker => Family::BoxWhisker,
+        ChartKind::Funnel => Family::Funnel,
+        ChartKind::Treemap => Family::Treemap,
+        ChartKind::Sunburst => Family::Sunburst,
+        ChartKind::Stock => Family::Stock,
         _ => Family::Column,
     }
 }
 
 /// How many layouts the Layout gallery offers a chart of this kind: the reference's sets for
 /// column and other charts with axes (11), bar charts (10), area charts (8), scatter charts (11),
-/// line charts (12), pie charts (7) and radar charts (4).
-pub fn quick_layouts(kind: ChartKind) -> u32 {
+/// line charts (12), pie charts (7) and radar charts (4); 3-D columns (10).
+pub fn quick_layouts(kind: ChartKind, depth: Depth) -> u32 {
     match family(kind) {
+        Family::Column if column3d(kind, depth) => 10,
         Family::Column => 11,
         Family::Bar => 10,
         Family::Area => 8,
@@ -511,13 +537,20 @@ pub fn quick_layouts(kind: ChartKind) -> u32 {
         Family::Line => 12,
         Family::Pie => 7,
         Family::Radar => 4,
+        Family::Histogram => 3,
+        Family::Waterfall => 5,
+        Family::BoxWhisker => 5,
+        Family::Funnel => 4,
+        Family::Treemap => 7,
+        Family::Sunburst => 6,
+        Family::Stock => 7,
     }
 }
 
 fn quick_layout(s: &mut Session, p: &Json) -> Result<Json> {
     let n = u32_param(p, "layout").unwrap_or(1);
     with_chart(s, p, |c| {
-        let count = quick_layouts(c.kind);
+        let count = quick_layouts(c.kind, c.depth);
         if !(1..=count).contains(&n) {
             return Err(bad("chart.quickLayout", format!("this chart's layouts are numbered 1 to {count}")));
         }
@@ -534,11 +567,28 @@ fn quick_layout(s: &mut Session, p: &Json) -> Result<Json> {
             }
             Family::Area => area_layout(c, n),
             Family::Scatter => scatter_layout(c, n),
+            // 3-D columns' are the column ones without the overlapping one, the columns kept apart
+            Family::Column if column3d(c.kind, c.depth) => {
+                column_layout(c, if n >= 10 { n + 1 } else { n });
+                c.elements.overlap = None;
+            }
             Family::Column => column_layout(c, n),
             Family::Radar => radar_layout(c, n),
+            Family::Histogram => histogram_layout(c, n),
+            Family::Waterfall => waterfall_layout(c, n),
+            Family::BoxWhisker => box_layout(c, n),
+            Family::Funnel => funnel_layout(c, n),
+            Family::Treemap => treemap_layout(c, n),
+            Family::Sunburst => sunburst_layout(c, n),
+            Family::Stock => stock_layout(c, n),
         }
         Ok(())
     })
+}
+
+/// A 3-D clustered, stacked or 100% stacked column chart (with a Style page and layouts of its own).
+fn column3d(kind: ChartKind, depth: Depth) -> bool {
+    matches!(kind, ChartKind::ColumnClustered | ChartKind::ColumnStacked | ChartKind::ColumnStacked100) && depth != Depth::Flat
 }
 
 /// The title as a layout has it: kept (or the placeholder) when shown, gone when not.
@@ -719,6 +769,173 @@ fn radar_layout(c: &mut Chart, n: u32) {
     e.minor_val_gridlines = minor;
 }
 
+/// The reference's three histogram layouts: gridlines; the counts over the bins, without a value
+/// axis; the counts inside the bins' ends. The last two have tick marks.
+fn histogram_layout(c: &mut Chart, n: u32) {
+    layout_title(c, true);
+    c.legend = LegendPos::None;
+    c.data_labels = n > 1;
+    c.gridlines = n == 1;
+    let e = &mut c.elements;
+    e.label_pos = match n {
+        2 => LabelPos::OutsideEnd,
+        3 => LabelPos::InsideEnd,
+        _ => LabelPos::Auto,
+    };
+    e.hide_val_axis = n == 2;
+    e.no_cat_ticks = n == 1;
+    e.val_ticks = n > 1;
+    e.last_point_labels = false;
+    e.label_text = LabelText::default();
+}
+
+/// The reference's five waterfall layouts.
+fn waterfall_layout(c: &mut Chart, n: u32) {
+    // (title, legend, labels, connectors, value gridlines, axis titles, value axis, ticks, gap)
+    let (title, legend, labels, lines, grid, titles, axis, ticks, gap) = match n {
+        2 => (true, LegendPos::Top, false, true, true, true, true, false, 50),
+        3 => (true, LegendPos::None, true, false, false, false, false, false, 50),
+        4 => (true, LegendPos::Bottom, false, true, false, false, true, true, 50),
+        5 => (false, LegendPos::Top, true, false, false, true, true, false, 20),
+        _ => (true, LegendPos::Top, true, true, false, false, true, false, 50),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels;
+    c.gridlines = grid;
+    let keep = |t: &Option<String>| titles.then(|| t.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| "Axis Title".into()));
+    c.x_title = keep(&c.x_title);
+    c.y_title = keep(&c.y_title);
+    let e = &mut c.elements;
+    e.label_pos = if labels { LabelPos::OutsideEnd } else { LabelPos::Auto };
+    e.no_connectors = !lines;
+    e.hide_val_axis = !axis;
+    e.no_cat_ticks = !ticks;
+    e.val_ticks = ticks;
+    e.cat_gridlines = false;
+    e.gap_width = Some(gap);
+    e.last_point_labels = false;
+    e.label_text = LabelText::default();
+}
+
+/// The reference's five box and whisker layouts.
+fn box_layout(c: &mut Chart, n: u32) {
+    // (title, legend, labels, gridlines, minor gridlines, axis titles, value axis, value ticks, gap)
+    let (title, legend, labels, grid, minor, titles, axis, ticks, gap) = match n {
+        2 => (false, LegendPos::None, true, false, false, false, true, false, 150),
+        3 => (true, LegendPos::None, false, true, false, false, false, true, 150),
+        4 => (true, LegendPos::None, false, true, true, true, true, true, 150),
+        5 => (false, LegendPos::Right, false, true, false, false, true, true, 150),
+        _ => (true, LegendPos::None, false, true, false, false, true, false, 100),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels;
+    c.gridlines = grid;
+    let keep = |t: &Option<String>| titles.then(|| t.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| "Axis Title".into()));
+    c.x_title = keep(&c.x_title);
+    c.y_title = keep(&c.y_title);
+    let e = &mut c.elements;
+    e.label_pos = if labels { LabelPos::Right } else { LabelPos::Auto };
+    e.minor_val_gridlines = minor;
+    e.hide_val_axis = !axis;
+    e.val_ticks = ticks;
+    e.gap_width = (gap != 150).then_some(gap);
+    e.last_point_labels = false;
+    e.label_text = LabelText::default();
+}
+
+/// The reference's four funnel layouts.
+fn funnel_layout(c: &mut Chart, n: u32) {
+    // (labels, category axis title, category axis, gap)
+    let (labels, titled, axis, gap) = match n {
+        2 => (false, true, true, 6),
+        3 => (true, false, false, 6),
+        4 => (false, true, false, 30),
+        _ => (true, false, true, 6),
+    };
+    layout_title(c, true);
+    c.legend = LegendPos::None;
+    c.data_labels = labels;
+    c.x_title = titled.then(|| c.x_title.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| "Axis Title".into()));
+    let e = &mut c.elements;
+    e.label_pos = if labels { LabelPos::Center } else { LabelPos::Auto };
+    e.hide_cat_axis = !axis;
+    e.gap_width = Some(gap);
+    e.last_point_labels = false;
+    e.label_text = LabelText::default();
+}
+
+/// The reference's seven treemap layouts.
+fn treemap_layout(c: &mut Chart, n: u32) {
+    // (title, legend, names, parents' names in banners)
+    let (title, legend, names, banner) = match n {
+        2 => (true, LegendPos::None, true, true),
+        3 => (false, LegendPos::Bottom, false, false),
+        4 => (false, LegendPos::None, true, false),
+        5 => (true, LegendPos::None, true, false),
+        6 => (true, LegendPos::Right, true, true),
+        7 => (false, LegendPos::Right, false, false),
+        _ => (true, LegendPos::Top, true, false),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = names;
+    let e = &mut c.elements;
+    e.label_pos = LabelPos::InsideEnd;
+    e.label_text = LabelText::of(false, true, false, false);
+    e.parent_banner = banner;
+    e.last_point_labels = false;
+}
+
+/// The reference's seven stock chart layouts.
+fn stock_layout(c: &mut Chart, n: u32) {
+    // (title, legend, labels, gridlines, minor gridlines, axis titles, tick marks, data table)
+    let (title, legend, labels, grid, minor, titles, ticks, table) = match n {
+        2 => (false, LegendPos::None, true, false, false, false, false, false),
+        4 => (true, LegendPos::None, false, true, false, false, false, true),
+        5 => (false, LegendPos::None, false, true, true, true, true, false),
+        6 => (true, LegendPos::None, true, true, false, true, true, false),
+        7 => (false, LegendPos::Right, false, true, false, false, false, false),
+        _ => (true, LegendPos::None, false, true, false, false, false, false),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels;
+    c.gridlines = grid;
+    let keep = |t: &Option<String>| titles.then(|| t.clone().filter(|t| !t.is_empty()).unwrap_or_else(|| "Axis Title".into()));
+    c.x_title = keep(&c.x_title);
+    c.y_title = keep(&c.y_title);
+    let e = &mut c.elements;
+    e.label_pos = if labels { LabelPos::Right } else { LabelPos::Auto };
+    e.last_point_labels = n == 6;
+    e.label_text = LabelText::default();
+    e.minor_val_gridlines = minor;
+    e.no_cat_ticks = !ticks;
+    e.data_table = table;
+    e.data_table_no_keys = false;
+}
+
+/// The reference's six sunburst layouts.
+fn sunburst_layout(c: &mut Chart, n: u32) {
+    // (title, legend, labels: none, names, or names and values)
+    let (title, legend, labels) = match n {
+        2 => (true, LegendPos::None, Some(true)),
+        3 => (true, LegendPos::Top, Some(true)),
+        4 => (false, LegendPos::Bottom, None),
+        5 => (false, LegendPos::None, Some(true)),
+        6 => (true, LegendPos::Right, Some(false)),
+        _ => (true, LegendPos::None, Some(false)),
+    };
+    layout_title(c, title);
+    c.legend = legend;
+    c.data_labels = labels.is_some();
+    let e = &mut c.elements;
+    e.label_pos = if n == 3 { LabelPos::Auto } else { LabelPos::Center };
+    e.label_text = LabelText::of(labels == Some(true), true, false, false);
+    e.last_point_labels = false;
+}
+
 fn pie_layout(c: &mut Chart, n: u32) {
     let (title, legend, labels) = match n {
         2 => (true, LegendPos::Top, Some(LabelText::of(false, false, false, true))),
@@ -743,7 +960,7 @@ fn pie_layout(c: &mut Chart, n: u32) {
 fn chart_style(s: &mut Session, p: &Json) -> Result<Json> {
     let n = u32_param(p, "style").unwrap_or(1);
     with_chart(s, p, |c| {
-        let page = gridcraft_model::chart_style::styles_for(c.kind);
+        let page = gridcraft_model::chart_style::styles_of(c.kind, c.depth);
         let st = n
             .checked_sub(1)
             .and_then(|i| page.get(i as usize))
@@ -780,6 +997,30 @@ pub(super) fn put_style(c: &mut Chart, st: &gridcraft_model::chart_style::ChartS
     }
     if let Some(say) = st.labels_say {
         c.elements.label_text = say;
+    }
+    // a histogram's or waterfall's style says whether it has labels; a waterfall's, its lines
+    // and a category axis title
+    if matches!(
+        c.kind,
+        ChartKind::Histogram | ChartKind::Waterfall | ChartKind::BoxWhisker | ChartKind::Funnel | ChartKind::Treemap | ChartKind::Sunburst
+    ) {
+        c.data_labels = st.labels_at.is_some();
+    }
+    if c.kind == ChartKind::Treemap {
+        c.elements.parent_banner = st.banner;
+    }
+    if c.kind == ChartKind::Waterfall {
+        c.elements.no_connectors = !st.connectors;
+    }
+    if matches!(c.kind, ChartKind::Waterfall | ChartKind::Funnel) && st.cat_title && c.x_title.as_deref().is_none_or(str::is_empty) {
+        c.x_title = Some("Axis Title".into());
+    }
+    if c.kind == ChartKind::BoxWhisker {
+        c.elements.box_mean_line = st.mean_line;
+        c.elements.box_no_mean_marker = !st.mean_marker;
+    }
+    if st.title_off {
+        c.title = Some(String::new());
     }
 }
 

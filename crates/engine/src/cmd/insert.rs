@@ -772,6 +772,7 @@ pub fn series_from_range(sh: &Sheet, r: RangeRef, by_rows: bool) -> Vec<Series> 
                 kind: None,
                 smooth: false,
                 trendlines: Vec::new(),
+                totals: Vec::new(),
             });
         }
     } else {
@@ -787,6 +788,7 @@ pub fn series_from_range(sh: &Sheet, r: RangeRef, by_rows: bool) -> Vec<Series> 
                 kind: None,
                 smooth: false,
                 trendlines: Vec::new(),
+                totals: Vec::new(),
             });
         }
     }
@@ -975,11 +977,15 @@ pub fn build_chart(s: &Session, p: &Json) -> Result<(usize, Chart)> {
     if let Some(st) = first_style(kind, depth) {
         super::extra::put_style(&mut chart, st);
     }
+    // a Pareto chart comes without tick marks, like a histogram
+    if kind == ChartKind::Pareto {
+        chart.elements.no_cat_ticks = true;
+    }
     Ok((sheet, chart))
 }
 
-/// A new chart's style: Style 1 of a 2-D column, bar, line, pie, doughnut, area, scatter or radar
-/// chart.
+/// A new chart's style: Style 1 of a 2-D column, bar, line, pie, doughnut, area, scatter, radar,
+/// combo or histogram chart, or a 3-D column one.
 fn first_style(kind: ChartKind, depth: Depth) -> Option<&'static gridcraft_model::chart_style::ChartStyle> {
     use ChartKind::*;
     let own = matches!(
@@ -1006,8 +1012,18 @@ fn first_style(kind: ChartKind, depth: Depth) -> Option<&'static gridcraft_model
             | ScatterLinesNoMarkers
             | Radar
             | RadarMarkers
+            | Combo
+            | Histogram
+            | Waterfall
+            | BoxWhisker
+            | Funnel
+            | Treemap
+            | Sunburst
+            | Stock
     );
-    if own && depth == Depth::Flat { gridcraft_model::chart_style::styles_for(kind).first() } else { None }
+    // 3-D columns and lines have pages of their own; other 3-D kinds keep the plain look
+    let page3d = matches!(kind, ColumnClustered | ColumnStacked | ColumnStacked100 | Line | LineMarkers | Pie);
+    if own && (depth == Depth::Flat || page3d) { gridcraft_model::chart_style::styles_of(kind, depth).first() } else { None }
 }
 
 fn insert_chart(s: &mut Session, p: &Json) -> Result<Json> {

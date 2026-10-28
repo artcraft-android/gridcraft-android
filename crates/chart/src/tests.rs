@@ -80,6 +80,7 @@ fn series(name: &str, values: &[f64], color: Rgba, kind: ChartKind) -> SeriesDat
         secondary: false,
         smooth: false,
         trendlines: Vec::new(),
+        totals: vec![],
         number_format: "$#,##0".into(),
     }
 }
@@ -214,6 +215,10 @@ fn axis_labels_use_number_format() {
     assert_eq!(format_number(40000.0, "$#,##0", Some(10000.0)), "$40,000");
     assert_eq!(format_number(0.30000000000000004, "General", Some(0.1)), "0.3");
     assert_eq!(format_number(1e-17, "General", Some(0.2)), "0");
+    assert_eq!(format_number(1.0, "General", Some(0.5)), "1");
+    assert_eq!(format_number(1.5, "General", Some(0.5)), "1.5");
+    // a label without a step: eleven characters, as the reference has them
+    assert_eq!(format_number(178.0 / 3.0, "General", None), "59.33333333");
     let c = chart(ChartKind::ColumnClustered);
     let prims = render(&c, &sample(ChartKind::ColumnClustered), 640.0, 400.0, &ApproxMeasure);
     let t = texts(&prims);
@@ -249,6 +254,7 @@ fn resolve_from_workbook() {
             kind: None,
             smooth: false,
             trendlines: Vec::new(),
+            totals: vec![],
         },
         Series {
             name: None,
@@ -260,6 +266,7 @@ fn resolve_from_workbook() {
             kind: None,
             smooth: false,
             trendlines: Vec::new(),
+            totals: vec![],
         },
         Series {
             name: Some("Literal".into()),
@@ -271,6 +278,7 @@ fn resolve_from_workbook() {
             kind: None,
             smooth: false,
             trendlines: Vec::new(),
+            totals: vec![],
         },
     ];
     let d = resolve(&wb, 0, &c);
@@ -309,6 +317,7 @@ fn resolve_from_workbook() {
             kind: None,
             smooth: false,
             trendlines: Vec::new(),
+            totals: vec![],
         },
         Series {
             name: None,
@@ -320,6 +329,7 @@ fn resolve_from_workbook() {
             kind: None,
             smooth: false,
             trendlines: Vec::new(),
+            totals: vec![],
         },
     ];
     let d = resolve(&wb, 0, &c);
@@ -336,6 +346,7 @@ fn resolve_from_workbook() {
         kind: None,
         smooth: false,
         trendlines: Vec::new(),
+        totals: vec![],
     }];
     let d = resolve(&wb, 0, &c);
     assert_eq!(d.series[0].x.as_ref().map(|x| x.len()), Some(3));
@@ -353,6 +364,7 @@ fn resolve_from_workbook() {
         kind: None,
         smooth: false,
         trendlines: Vec::new(),
+        totals: vec![],
     }];
     let d = resolve(&wb, 7, &c);
     assert_eq!(d.series.len(), 1);
@@ -667,6 +679,7 @@ fn fuzz_random_data_and_sizes() {
                     })
                     .collect(),
                 number_format: ["General", "$#,##0", "0.00%", "yyyy-mm-dd", "#,##0.0;[Red]-#,##0.0", "@"][(r.next() % 6) as usize].into(),
+                totals: if r.next().is_multiple_of(2) { vec![(r.next() % 8) as usize, usize::MAX] } else { vec![] },
             })
             .collect();
         let ncat = (r.next() % 50) as usize;
@@ -944,35 +957,25 @@ fn treemap_and_histogram_shapes() {
     };
     let prims = render(&Chart { legend: LegendPos::None, ..chart(ChartKind::Histogram) }, &d, 600.0, 400.0, &ApproxMeasure);
     let bins = prims.iter().filter(|p| matches!(p, Prim::Rect { fill: Some([10, 20, 30, 255]), .. })).count();
-    assert_eq!(bins, 10);
+    // Scott's rule: 3.49 × 29.0 / ∛100 ≈ 21.8 wide, five bins over 0..99
+    assert_eq!(bins, 5);
 }
 
 #[test]
 fn histogram_boundary_values_match_interval_labels() {
-    let heights = |vals: &[f64]| -> Vec<f32> {
-        let d = ChartData {
-            palette: vec![],
-            style: 0,
-            theme: vec![],
-            categories: vec![],
-            series: vec![series("h", vals, [10, 20, 30, 255], ChartKind::Histogram)],
-        };
-        let prims = render(&Chart { legend: LegendPos::None, ..chart(ChartKind::Histogram) }, &d, 600.0, 400.0, &ApproxMeasure);
-        prims.iter().filter_map(|p| if let Prim::Rect { h, fill: Some([10, 20, 30, 255]), .. } = p { Some(*h) } else { None }).collect()
-    };
-    // Labels are "[0, 7.5]" and "(7.5, 15.0]": 7.5 belongs to the first bar, so the counts are 2 and 1.
-    let h = heights(&[0.0, 7.5, 15.0]);
-    assert_eq!(h.len(), 2);
-    assert!((h[0] / h[1] - 2.0).abs() < 0.01, "{h:?}");
-    let h = heights(&[-15.0, -7.5, 0.0]);
-    assert!((h[0] / h[1] - 2.0).abs() < 0.01, "{h:?}");
-    // A value off the boundary still goes right: [0, 7.5] holds 1, (7.5, 15.0] holds 2.
-    let h = heights(&[0.0, 7.75, 15.0]);
-    assert!((h[1] / h[0] - 2.0).abs() < 0.01, "{h:?}");
-    // Five values, three bins [0,5] (5,10] (10,15]: counts 3, 1, 1.
-    let h = heights(&[0.0, 5.0, 5.0, 10.0, 15.0]);
-    assert_eq!(h.len(), 3);
-    assert!((h[0] / h[1] - 3.0).abs() < 0.01 && (h[1] - h[2]).abs() < 0.01, "{h:?}");
+    let counts = |vals: &[f64], lo: f64, width: f64, bins: usize| crate::render::bin_counts(vals, lo, width, bins).1;
+    // "[0, 7.5]" and "(7.5, 15]": 7.5 belongs to the first bin
+    assert_eq!(counts(&[0.0, 7.5, 15.0], 0.0, 7.5, 2), [2, 1]);
+    assert_eq!(counts(&[-15.0, -7.5, 0.0], -15.0, 7.5, 2), [2, 1]);
+    // a value off the edge still goes right
+    assert_eq!(counts(&[0.0, 7.75, 15.0], 0.0, 7.5, 2), [1, 2]);
+    assert_eq!(counts(&[0.0, 5.0, 5.0, 10.0, 15.0], 0.0, 5.0, 3), [3, 1, 1]);
+    // the reference's bins for twenty scores: 24.9 wide from 12, labelled as it labels them
+    let scores = [12.0, 15.0, 22.0, 25.0, 27.0, 31.0, 33.0, 34.0, 38.0, 41.0, 42.0, 44.0, 47.0, 51.0, 55.0, 58.0, 63.0, 67.0, 72.0, 85.0];
+    let s = SeriesData { number_format: "General".into(), ..series("s", &scores, [10, 20, 30, 255], ChartKind::Histogram) };
+    let (labels, counts) = crate::render::bins(&s).unwrap();
+    assert_eq!(counts, [8, 8, 4]);
+    assert_eq!(labels, ["[12, 37]", "(37, 62]", "(62, 87]"]);
 }
 
 #[test]
@@ -1063,6 +1066,7 @@ fn pie_points_follow_workbook_theme() {
         kind: None,
         smooth: false,
         trendlines: Vec::new(),
+        totals: vec![],
     }];
     let d = resolve(&wb, 0, &c);
     let expected = vec![series_color(&wb.theme, 0), series_color(&wb.theme, 1)];
@@ -1130,6 +1134,12 @@ fn all_elements() -> gridcraft_model::ChartElements {
         palette: 0,
         hide_cat_axis: false,
         no_cat_ticks: true,
+        no_connectors: false,
+        box_mean_line: false,
+        box_no_mean_marker: false,
+        val_ticks: false,
+        parent_banner: false,
+        no_hi_lo: false,
         hide_val_axis: false,
         cat_gridlines: true,
         minor_val_gridlines: true,
@@ -1586,4 +1596,177 @@ fn a_short_value_axis_takes_fewer_wider_steps() {
         let t = small(w, h);
         assert!(t.contains(&"$1".to_string()) && t.contains(&"$6".to_string()), "{w}x{h}: {t:?}");
     }
+}
+
+/// A 3-D column plot's value axis stops at the top value and takes finer steps when it has room
+/// for them, its columns standing back from the front plane.
+#[test]
+fn deep_columns_tight_axis() {
+    let steps = |legend: LegendPos| {
+        let mut c = chart(ChartKind::ColumnClustered);
+        c.depth = Depth::Raised;
+        (c.legend, c.x_title, c.y_title, c.data_labels) = (legend, None, None, false);
+        let s = |n: &str, v: &[f64]| SeriesData { number_format: "General".into(), ..series(n, v, [20, 96, 130, 255], ChartKind::ColumnClustered) };
+        let d = ChartData {
+            palette: vec![],
+            style: 0,
+            theme: vec![],
+            categories: ["C1", "C2", "C3", "C4"].iter().map(|s| s.to_string()).collect(),
+            series: vec![s("S1", &[4.0, 3.0, 5.0, 2.0]), s("S2", &[2.0, 5.0, 3.0, 4.0]), s("S3", &[3.0, 2.0, 4.0, 5.0])],
+        };
+        let prims = render(&c, &d, 480.0, 288.0, &ApproxMeasure);
+        prims.iter().filter_map(|p| if let Prim::Text { text, .. } = p { text.parse::<f64>().ok() } else { None }).collect::<Vec<_>>()
+    };
+    let bottom = steps(LegendPos::Bottom);
+    assert_eq!(bottom.iter().copied().fold(0.0, f64::max), 5.0, "{bottom:?}");
+    assert!(bottom.contains(&4.5), "{bottom:?}");
+    let top = steps(LegendPos::Top);
+    assert_eq!(top.iter().copied().fold(0.0, f64::max), 5.0, "{top:?}");
+}
+
+/// A box chart puts each category's points in a box per series, side by side; a funnel's bars
+/// fill their slots less the gap.
+#[test]
+fn box_groups_by_category_and_funnel_gap() {
+    let red = [200, 0, 0, 255];
+    let s = series("S", &[1.0, 10.0, 2.0, 11.0, 3.0, 12.0, 4.0, 13.0], red, ChartKind::BoxWhisker);
+    let d = ChartData {
+        palette: vec![],
+        style: 0,
+        theme: vec![],
+        categories: ["A", "B", "A", "B", "A", "B", "A", "B"].iter().map(|c| c.to_string()).collect(),
+        series: vec![s],
+    };
+    let mut c = chart(ChartKind::BoxWhisker);
+    c.series = vec![Series { values: "x".into(), categories: Some("c".into()), ..Default::default() }];
+    (c.legend, c.data_labels) = (LegendPos::None, false);
+    let prims = render(&c, &d, 480.0, 288.0, &ApproxMeasure);
+    let boxes = prims.iter().filter(|p| matches!(p, Prim::Rect { fill: Some(f), .. } if *f == red)).count();
+    assert_eq!(boxes, 2, "a box for A and one for B");
+    let texts: Vec<String> = prims.iter().filter_map(|p| if let Prim::Text { text, .. } = p { Some(text.clone()) } else { None }).collect();
+    assert!(texts.contains(&"A".to_string()) && texts.contains(&"B".to_string()), "{texts:?}");
+
+    let s = series("F", &[100.0, 50.0], red, ChartKind::Funnel);
+    let d = ChartData { palette: vec![], style: 0, theme: vec![], categories: vec!["a".into(), "b".into()], series: vec![s] };
+    let mut c = chart(ChartKind::Funnel);
+    (c.legend, c.data_labels, c.title, c.x_title, c.y_title) = (LegendPos::None, false, Some(String::new()), None, None);
+    c.elements.gap_width = Some(100);
+    let prims = render(&c, &d, 480.0, 288.0, &ApproxMeasure);
+    let bars: Vec<(f32, f32)> =
+        prims.iter().filter_map(|p| if let Prim::Rect { fill: Some(f), y, h, .. } = p { (*f == red).then_some((*y, *h)) } else { None }).collect();
+    assert_eq!(bars.len(), 2);
+    // a gap as wide as a bar: each bar half its slot
+    let slot = bars[1].0 - bars[0].0;
+    assert!((bars[0].1 / slot - 0.5).abs() < 0.02, "{bars:?}");
+}
+
+/// A waterfall's totals stand from zero at their own value; its increases, decreases and totals
+/// take the palette's first three colours; it adds no total of its own.
+#[test]
+fn waterfall_totals_and_colours() {
+    let up = [10, 20, 30, 255];
+    let mut s = series("Cash", &[100.0, 20.0, -15.0, 120.0], up, ChartKind::Waterfall);
+    s.totals = vec![3];
+    let d = ChartData {
+        palette: vec![up, [200, 100, 0, 255], [0, 150, 0, 255]],
+        style: 0,
+        theme: vec![],
+        categories: ["Start", "Up", "Down", "End"].iter().map(|c| c.to_string()).collect(),
+        series: vec![s],
+    };
+    let mut c = chart(ChartKind::Waterfall);
+    (c.legend, c.data_labels) = (LegendPos::None, false);
+    let prims = render(&c, &d, 480.0, 288.0, &ApproxMeasure);
+    let bars: Vec<(Rgba, f32)> = prims
+        .iter()
+        .filter_map(|p| {
+            if let Prim::Rect { fill: Some(f), h, w, .. } = p {
+                (*w < 100.0 && f[3] == 255 && *f != [255, 255, 255, 255]).then_some((*f, *h))
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(bars.len(), 4, "{bars:?}");
+    assert_eq!(bars.iter().map(|b| b.0).collect::<Vec<_>>(), [up, up, [200, 100, 0, 255], [0, 150, 0, 255]]);
+    // the total from zero to 120: six times the 20 up
+    assert!((bars[3].1 / bars[1].1 - 6.0).abs() < 0.05, "{bars:?}");
+}
+
+/// A sunburst's one ring has a hole half its radius and its names along the radius; a
+/// treemap's names sit at its boxes' bottom left, and only when it has labels.
+#[test]
+fn sunburst_ring_and_treemap_names() {
+    let names = ["Apples", "Pears", "Plums"].map(String::from).to_vec();
+    let s = series("Sales", &[42.0, 28.0, 18.0], [1, 2, 3, 255], ChartKind::Sunburst);
+    let d = ChartData { palette: vec![], style: 381, theme: vec![], categories: names.clone(), series: vec![s] };
+    let mut c = chart(ChartKind::Sunburst);
+    (c.legend, c.data_labels, c.title, c.x_title, c.y_title) = (LegendPos::None, true, Some(String::new()), None, None);
+    c.elements.style = 381;
+    c.elements.label_text = gridcraft_model::LabelText::of(true, true, false, false);
+    let prims = render(&c, &d, 480.0, 288.0, &ApproxMeasure);
+    let ring = prims.iter().find_map(|p| if let Prim::Wedge { r_outer, r_inner, .. } = p { Some((*r_outer, *r_inner)) } else { None }).unwrap();
+    assert!((ring.1 / ring.0 - 0.5).abs() < 0.01, "{ring:?}");
+    let turned: Vec<(String, f32)> =
+        prims.iter().filter_map(|p| if let Prim::Text { text, rotation, .. } = p { Some((text.clone(), *rotation)) } else { None }).collect();
+    assert!(turned.iter().any(|(t, r)| t.starts_with("Apples, ") && *r < 0.0), "{turned:?}");
+
+    let s = series("Sales", &[42.0, 28.0, 18.0], [1, 2, 3, 255], ChartKind::Treemap);
+    let d = ChartData { palette: vec![], style: 0, theme: vec![], categories: names, series: vec![s] };
+    let mut c = chart(ChartKind::Treemap);
+    (c.legend, c.data_labels, c.title, c.x_title, c.y_title) = (LegendPos::None, false, Some(String::new()), None, None);
+    let texts = |c: &Chart| {
+        render(c, &d, 480.0, 288.0, &ApproxMeasure)
+            .into_iter()
+            .filter_map(|p| if let Prim::Text { text, y, .. } = p { Some((text, y)) } else { None })
+            .collect::<Vec<_>>()
+    };
+    assert!(texts(&c).is_empty(), "no names without labels");
+    c.data_labels = true;
+    c.elements.label_text = gridcraft_model::LabelText::of(false, true, false, false);
+    c.elements.label_pos = gridcraft_model::LabelPos::InsideEnd;
+    let t = texts(&c);
+    assert!(t.iter().any(|(s, y)| s == "Apples" && *y > 200.0), "{t:?}");
+}
+
+/// A stock chart's high-low lines take its style's stroke and its legend names the series with
+/// keys that don't show; a 3-D pie's labels say what the style says.
+#[test]
+fn stock_lines_and_3d_pie_labels() {
+    let red = [200, 0, 0, 255];
+    let cats: Vec<String> = ["Mon", "Tue"].map(String::from).to_vec();
+    let d = ChartData {
+        palette: vec![],
+        style: 329,
+        theme: vec![],
+        categories: cats.clone(),
+        series: vec![
+            series("High", &[44.0, 50.0], red, ChartKind::Stock),
+            series("Low", &[25.0, 31.0], red, ChartKind::Stock),
+            series("Close", &[38.0, 42.0], red, ChartKind::Stock),
+        ],
+    };
+    let mut c = chart(ChartKind::Stock);
+    (c.legend, c.data_labels, c.x_title, c.y_title) = (LegendPos::Bottom, false, None, None);
+    c.elements.style = 329;
+    let prims = render(&c, &d, 480.0, 288.0, &ApproxMeasure);
+    // Style 8's high-low lines are 2 pt: 2 / 0.75 px
+    let widths: Vec<f32> = prims
+        .iter()
+        .filter_map(|p| if let Prim::Line { pts, width, .. } = p { (pts.len() == 2 && pts[0][0] == pts[1][0]).then_some(*width) } else { None })
+        .collect();
+    assert!(widths.iter().any(|w| (w - 2.0 / 0.75).abs() < 0.05), "{widths:?}");
+    let texts: Vec<String> = prims.iter().filter_map(|p| if let Prim::Text { text, .. } = p { Some(text.clone()) } else { None }).collect();
+    assert!(["High", "Low", "Close"].iter().all(|n| texts.iter().any(|t| t == n)), "{texts:?}");
+
+    let s = series("Sales", &[3.0, 1.0], red, ChartKind::Pie);
+    let d = ChartData { palette: vec![], style: 0, theme: vec![], categories: cats, series: vec![s] };
+    let mut c = Chart { depth: Depth::Raised, ..chart(ChartKind::Pie) };
+    (c.legend, c.data_labels) = (LegendPos::None, true);
+    c.elements.label_text = gridcraft_model::LabelText::of(false, true, false, true);
+    let texts: Vec<String> = render(&c, &d, 480.0, 288.0, &ApproxMeasure)
+        .into_iter()
+        .filter_map(|p| if let Prim::Text { text, .. } = p { Some(text) } else { None })
+        .collect();
+    assert!(texts.contains(&"Mon".to_string()) && texts.contains(&"75%".to_string()), "{texts:?}");
 }

@@ -925,6 +925,8 @@ pub struct ChartInfo {
     /// value axis). A scatter chart's X axis counts as its category axis.
     pub has_axes: bool,
     pub horizontal: bool,
+    /// Drawn in 3-D.
+    pub deep: bool,
     /// Each axis shown, and with a title.
     pub cat_axis: bool,
     pub val_axis: bool,
@@ -1019,11 +1021,72 @@ impl MobileSession {
         s.new_workbook();
         // made in the chart's family (whose layouts these are); a pie's show the shares of four quarters
         let three = || json!([["", "Series1", "Series2", "Series3"], ["Category 1", 4.2, 2.5, 1.9], ["Category 2", 2.6, 4.3, 2.1]]);
-        let (values, range, kind) = match gridcraft_engine::cmd::extra::quick_layouts(own.kind) {
-            7 => (json!([["", "Sales"], ["Q1", 7.8], ["Q2", 3.5], ["Q3", 1.6], ["Q4", 1.1]]), "A1:B5", "pie"),
-            12 => (three(), "A1:D3", "line"),
+        use gridcraft_engine::model::ChartKind as K;
+        let (values, range, kind) = match own.kind {
+            K::Pie | K::PieOfPie | K::BarOfPie | K::Doughnut => {
+                (json!([["", "Sales"], ["Q1", 7.8], ["Q2", 3.5], ["Q3", 1.6], ["Q4", 1.1]]), "A1:B5", "pie")
+            }
+            K::Line | K::LineMarkers | K::LineStacked | K::LineStackedMarkers | K::LineStacked100 | K::LineStacked100Markers => {
+                (three(), "A1:D3", "line")
+            }
+            // a stock's highs, lows and closes
+            K::Stock => (
+                json!([["", "High", "Low", "Close"], ["Day 1", 44, 25, 38], ["Day 2", 50, 31, 42], ["Day 3", 41, 28, 33], ["Day 4", 47, 30, 45]]),
+                "A1:D5",
+                "stock",
+            ),
+            // a treemap's or sunburst's shares
+            K::Treemap | K::Sunburst => (json!([["", "Series1"], ["A", 42], ["B", 28], ["C", 18], ["D", 12]]), "A1:B5", "treemap"),
+            // a funnel's narrowing stages
+            K::Funnel => (json!([["", "Series1"], ["Stage 1", 100], ["Stage 2", 75], ["Stage 3", 50], ["Stage 4", 25]]), "A1:B5", "funnel"),
+            // a box and whisker chart's scores in two groups
+            K::BoxWhisker => (
+                json!([
+                    ["", "Series1", "Series2"],
+                    ["A", 42, 60],
+                    ["B", 55, 52],
+                    ["A", 61, 48],
+                    ["B", 38, 71],
+                    ["A", 70, 66],
+                    ["B", 49, 59],
+                    ["A", 53, 63],
+                    ["B", 66, 44]
+                ]),
+                "A1:C9",
+                "boxWhisker",
+            ),
+            // a waterfall's start, ups and downs
+            K::Waterfall => (json!([["", "Series1"], ["Start", 100], ["Q1", 20], ["Q2", -15], ["Q3", 30], ["Q4", -10]]), "A1:B6", "waterfall"),
+            // a histogram's twenty scores in three bins
+            K::Histogram => (
+                json!([
+                    ["Series1"],
+                    [12],
+                    [15],
+                    [22],
+                    [25],
+                    [27],
+                    [31],
+                    [33],
+                    [34],
+                    [38],
+                    [41],
+                    [42],
+                    [44],
+                    [47],
+                    [51],
+                    [55],
+                    [58],
+                    [63],
+                    [67],
+                    [72],
+                    [85]
+                ]),
+                "A1:A21",
+                "histogram",
+            ),
             // a radar's round five categories
-            4 => (
+            K::Radar | K::RadarMarkers | K::RadarFilled => (
                 json!([
                     ["", "Series1", "Series2"],
                     ["Category 1", 4.3, 2.4],
@@ -2104,7 +2167,14 @@ impl MobileSession {
             }
             .into(),
             up_down_bars: ch.elements.up_down_bars,
-            lines: if ch.elements.high_low_lines {
+            lines: if ch.kind == ChartKind::Stock {
+                match (ch.elements.drop_lines, ch.elements.no_hi_lo) {
+                    (true, false) => "dropHighLow",
+                    (false, false) => "highLow",
+                    (true, true) => "drop",
+                    (false, true) => "none",
+                }
+            } else if ch.elements.high_low_lines {
                 "highLow"
             } else if ch.elements.drop_lines {
                 "drop"
@@ -2120,6 +2190,7 @@ impl MobileSession {
                 ChartKind::Pie | ChartKind::PieOfPie | ChartKind::BarOfPie | ChartKind::Doughnut | ChartKind::Treemap | ChartKind::Sunburst
             ),
             horizontal: matches!(ch.kind, ChartKind::BarClustered | ChartKind::BarStacked | ChartKind::BarStacked100),
+            deep: ch.depth != gridcraft_engine::model::Depth::Flat,
             cat_axis: !ch.elements.hide_cat_axis,
             val_axis: !ch.elements.hide_val_axis,
             cat_axis_title: ch.x_title.is_some(),
@@ -2128,12 +2199,12 @@ impl MobileSession {
             minor_val_gridlines: ch.elements.minor_val_gridlines,
             minor_cat_gridlines: ch.elements.minor_cat_gridlines,
             data_table_keys: !ch.elements.data_table_no_keys,
-            layouts: gridcraft_engine::cmd::extra::quick_layouts(ch.kind),
-            style: gridcraft_engine::model::chart_style::styles_for(ch.kind)
+            layouts: gridcraft_engine::cmd::extra::quick_layouts(ch.kind, ch.depth),
+            style: gridcraft_engine::model::chart_style::styles_of(ch.kind, ch.depth)
                 .iter()
                 .position(|st| st.id == ch.elements.style)
                 .map_or(0, |i| i as u32 + 1),
-            styles: gridcraft_engine::model::chart_style::styles_for(ch.kind).len() as u32,
+            styles: gridcraft_engine::model::chart_style::styles_of(ch.kind, ch.depth).len() as u32,
         })
     }
 

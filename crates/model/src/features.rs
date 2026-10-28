@@ -451,6 +451,9 @@ pub struct Series {
     /// Trendlines fitted to this series (Excel allows several per series).
     #[serde(default)]
     pub trendlines: Vec<Trendline>,
+    /// Waterfalls: the points set as totals, from zero (`cx:subtotals`); the rest go up or down.
+    #[serde(default)]
+    pub totals: Vec<u32>,
 }
 
 /// Regression a trendline fits (`c:trendlineType`).
@@ -620,6 +623,25 @@ pub struct ChartElements {
     /// The category axis without tick marks (`c:majorTickMark none`); outward ones otherwise.
     #[serde(default)]
     pub no_cat_ticks: bool,
+    /// Waterfalls: no lines joining each bar's end to the next (`connectorLines="0"`).
+    #[serde(default)]
+    pub no_connectors: bool,
+    /// Box and whisker charts: a line joining the boxes' means, and no mean markers
+    /// (`meanLine`, `meanMarker` 0).
+    #[serde(default)]
+    pub box_mean_line: bool,
+    #[serde(default)]
+    pub box_no_mean_marker: bool,
+    /// The newer kinds' value axis with outward tick marks (`cx:majorTickMarks`).
+    #[serde(default)]
+    pub val_ticks: bool,
+    /// Stock charts: no high-low lines (`c:hiLowLines` left out); they have them otherwise.
+    #[serde(default)]
+    pub no_hi_lo: bool,
+    /// Treemaps: a parent's name in a banner over its boxes, not over them
+    /// (`cx:parentLabelLayout banner`).
+    #[serde(default)]
+    pub parent_banner: bool,
     #[serde(default)]
     pub hide_val_axis: bool,
     /// Gridlines across the categories, and minor gridlines on either axis (the value axis's

@@ -513,7 +513,15 @@ pub fn write_sheet(wb: &Workbook, si: usize, selected: bool, out: &mut Out) -> (
                 let xml = crate::chartex::write_chartex(wb, si, ch, &mut out.chart_names);
                 out.part(&format!("xl/charts/chartEx{n}.xml"), Some(crate::chartex::CT_CHARTEX), xml.into_bytes());
                 // Excel expects a chartex part's style and colour parts.
-                out.part(&format!("xl/charts/style{n}.xml"), Some(crate::chartex::CT_STYLE), crate::chartex::style_xml(201).into_bytes());
+                let look = (ch.elements.style != 0).then(|| gridcraft_model::chart_style::by_id_for(ch.kind, ch.elements.style)).flatten();
+                let style = look.map_or(201, |st| st.id);
+                use gridcraft_model::ChartKind as K;
+                let by_point = matches!(ch.kind, K::Waterfall | K::Treemap | K::Sunburst) && ch.series.first().is_some_and(|s| s.color.is_none());
+                out.part(
+                    &format!("xl/charts/style{n}.xml"),
+                    Some(crate::chartex::CT_STYLE),
+                    crate::chartex::style_xml(style, look, by_point, true).into_bytes(),
+                );
                 out.part(&format!("xl/charts/colors{n}.xml"), Some(crate::chartex::CT_COLORS), crate::chartex::colors_xml().into_bytes());
                 let mut crels = Rels::default();
                 crels.add_uri(crate::chartex::REL_STYLE, &format!("style{n}.xml"));
@@ -531,7 +539,7 @@ pub fn write_sheet(wb: &Workbook, si: usize, selected: bool, out: &mut Out) -> (
                     out.part(
                         &format!("xl/charts/style{n}.xml"),
                         Some(crate::chartex::CT_STYLE),
-                        crate::chartex::style_xml(ch.elements.style).into_bytes(),
+                        crate::chartex::style_xml(ch.elements.style, None, false, false).into_bytes(),
                     );
                     crels.add_uri(crate::chartex::REL_STYLE, &format!("style{n}.xml"));
                 }

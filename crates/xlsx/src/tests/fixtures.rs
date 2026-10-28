@@ -497,9 +497,13 @@ fn chartex_parts_as_excel_expects_them() {
     // Data through hidden `_xlchart` names, with style and colour parts.
     let cx = part("xl/charts/chartEx1.xml");
     assert!(cx.contains("<cx:f>_xlchart.v1.2</cx:f>") && !cx.contains("Data!"), "{cx}");
-    // Fills are spelled out, not left to the style part.
-    assert!(cx.contains(r#"<cx:spPr><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></cx:spPr>"#), "{cx}");
+    // A waterfall's bars are left to the style part, which colours its ups, downs and totals
+    // from the palette; the chart area is spelled out. Its automatic title is the series' name.
+    assert!(!cx.contains(r#"<cx:spPr><a:solidFill><a:schemeClr val="accent1"/>"#), "{cx}");
     assert!(cx.contains(r#"</cx:chart><cx:spPr><a:solidFill><a:schemeClr val="bg1"/>"#), "{cx}");
+    assert!(cx.contains("<cx:title pos=\"t\" align=\"ctr\" overlay=\"0\"><cx:tx><cx:txData><cx:f>"), "{cx}");
+    let style = part("xl/charts/style1.xml");
+    assert!(style.contains(r#"<cs:fillRef idx="0"><cs:styleClr val="auto"/></cs:fillRef>"#), "{style}");
     let book = part("xl/workbook.xml");
     assert!(book.contains(r#"<definedName name="_xlchart.v1.1" hidden="1">Data!$B$2:$B$5</definedName>"#), "{book}");
     let rels = part("xl/charts/_rels/chartEx1.xml.rels");

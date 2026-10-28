@@ -851,23 +851,46 @@ private fun ChartElementsMenu(vm: AppViewModel) {
     val kind = ci?.kind.orEmpty()
     val axes = ci?.hasAxes != false
     val lineLike = kind.startsWith("Line")
+    val deep = ci?.deep == true
     Scrolling {
         fun row(label: String, glyph: Glyph, key: String) = @Composable { PaletteRow(label, glyph, onClick = { vm.pushPanel(CHART_ELEMENT + key) }, chevron = true) }
-        val rows = buildList {
-            if (axes) add(row("Axes", LucideIcons.Axis3d.glyph(), "axes"))
-            if (axes) add(row("Axis Titles", LucideIcons.Type.glyph(), "axisTitles"))
-            add(row("Chart Title", LucideIcons.Heading.glyph(), "title"))
-            add(row("Data Labels", LucideIcons.Tag.glyph(), "labels"))
-            // as the phone app's: a data table for column, bar, line and area charts; error bars
-            // for those and scatter charts; a trendline for all with axes but area charts
-            val area = kind.startsWith("Area")
-            if (kind.startsWith("Column") || kind.startsWith("Bar") || lineLike || area) add(row("Data Table", LucideIcons.Table2.glyph(), "table"))
-            if (kind.startsWith("Column") || kind.startsWith("Bar") || lineLike || area || kind.startsWith("Scatter")) add(row("Error Bars", LucideIcons.ChartCandlestick.glyph(), "errorBars"))
-            if (axes) add(row("Gridlines", LucideIcons.Grid3x3.glyph(), "gridlines"))
-            add(row("Legend", LucideIcons.List.glyph(), "legend"))
-            if (lineLike || area) add(row("Lines", LucideIcons.ChartLine.glyph(), "lines"))
-            if (axes && !area) add(row("Trendline", LucideIcons.TrendingUp.glyph(), "trendline"))
-            if (lineLike) add(row("Up/Down Bars", LucideIcons.ChartCandlestick.glyph(), "upDownBars"))
+        val axesRow = row("Axes", LucideIcons.Axis3d.glyph(), "axes")
+        val axisTitlesRow = row("Axis Titles", LucideIcons.Type.glyph(), "axisTitles")
+        val titleRow = row("Chart Title", LucideIcons.Heading.glyph(), "title")
+        val labelsRow = row("Data Labels", LucideIcons.Tag.glyph(), "labels")
+        val tableRow = row("Data Table", LucideIcons.Table2.glyph(), "table")
+        val errorBarsRow = row("Error Bars", LucideIcons.ChartCandlestick.glyph(), "errorBars")
+        val gridlinesRow = row("Gridlines", LucideIcons.Grid3x3.glyph(), "gridlines")
+        val legendRow = row("Legend", LucideIcons.List.glyph(), "legend")
+        val linesRow = row("Lines", LucideIcons.ChartLine.glyph(), "lines")
+        val trendlineRow = row("Trendline", LucideIcons.TrendingUp.glyph(), "trendline")
+        val upDownRow = row("Up/Down Bars", LucideIcons.ChartCandlestick.glyph(), "upDownBars")
+        // as the phone app's menu for each kind of chart
+        val rows = when {
+            kind == "Treemap" || kind == "Sunburst" || (kind == "Pie" && deep) -> listOf(titleRow, labelsRow, legendRow)
+            kind == "Funnel" -> listOf(axesRow, axisTitlesRow, titleRow, labelsRow, legendRow)
+            kind == "Histogram" || kind == "Pareto" || kind == "Waterfall" || kind == "BoxWhisker" ->
+                listOf(axesRow, axisTitlesRow, titleRow, labelsRow, gridlinesRow, legendRow)
+            kind == "Stock" ->
+                listOf(axesRow, axisTitlesRow, titleRow, labelsRow, tableRow, errorBarsRow, gridlinesRow, legendRow, linesRow, trendlineRow, upDownRow)
+            deep && lineLike -> listOf(axesRow, axisTitlesRow, titleRow, labelsRow, tableRow, gridlinesRow, legendRow, linesRow)
+            deep && kind.startsWith("Column") -> listOf(axesRow, axisTitlesRow, titleRow, labelsRow, tableRow, gridlinesRow, legendRow)
+            else -> buildList {
+                if (axes) add(axesRow)
+                if (axes) add(axisTitlesRow)
+                add(titleRow)
+                add(labelsRow)
+                // a data table for column, bar, line and area charts; error bars for those and
+                // scatter charts (not in 3-D); a trendline for all with axes but area charts
+                val area = kind.startsWith("Area")
+                if (kind.startsWith("Column") || kind.startsWith("Bar") || lineLike || area) add(tableRow)
+                if (!deep && (kind.startsWith("Column") || kind.startsWith("Bar") || lineLike || area || kind.startsWith("Scatter"))) add(errorBarsRow)
+                if (axes) add(gridlinesRow)
+                add(legendRow)
+                if (lineLike || area) add(linesRow)
+                if (axes && !area && !deep) add(trendlineRow)
+                if (lineLike) add(upDownRow)
+            }
         }
         for (r in rows) r()
     }
@@ -891,11 +914,16 @@ private fun ChartElementPanel(vm: AppViewModel, which: String) {
     val none = LucideIcons.X.glyph()
     Scrolling {
         when (which) {
-            "axes" -> {
+            // a funnel's one axis runs down its stages
+            "axes" -> if (kind == "Funnel") {
+                choice("Primary Vertical", LucideIcons.MoveVertical.glyph(), shown("category")) { set("axis", !shown("category")) { put("which", "category") } }
+            } else {
                 choice("Primary Horizontal", LucideIcons.MoveHorizontal.glyph(), shown(hAxis)) { set("axis", !shown(hAxis)) { put("which", hAxis) } }
                 choice("Primary Vertical", LucideIcons.MoveVertical.glyph(), shown(vAxis)) { set("axis", !shown(vAxis)) { put("which", vAxis) } }
             }
-            "axisTitles" -> {
+            "axisTitles" -> if (kind == "Funnel") {
+                choice("Primary Vertical", LucideIcons.MoveVertical.glyph(), titled("category")) { set("axisTitles", !titled("category")) { put("which", "category") } }
+            } else {
                 choice("Primary Horizontal", LucideIcons.MoveHorizontal.glyph(), titled(hAxis)) { set("axisTitles", !titled(hAxis)) { put("which", hAxis) } }
                 choice("Primary Vertical", LucideIcons.MoveVertical.glyph(), titled(vAxis)) { set("axisTitles", !titled(vAxis)) { put("which", vAxis) } }
             }
@@ -906,7 +934,7 @@ private fun ChartElementPanel(vm: AppViewModel, which: String) {
             }
             "labels" -> {
                 choice("None", none, ci?.dataLabels == false) { set("dataLabels", false) }
-                val positions = labelPositions(kind)
+                val positions = labelPositions(kind, ci?.deep == true)
                 if (positions.isEmpty()) {
                     choice("Show", LucideIcons.Tag.glyph(), ci?.dataLabels == true) { set("dataLabels", true) }
                 } else {
@@ -953,7 +981,12 @@ private fun ChartElementPanel(vm: AppViewModel, which: String) {
                 choice(label, glyph, ci?.legend == pos) { if (pos == "none") set("legend", false) else set("legend", true) { put("position", pos) } }
             }
             "lines" -> {
-                val lines = listOf("None" to "none", "Drop Lines" to "drop") + if (kind.startsWith("Line")) listOf("High-Low Lines" to "highLow") else emptyList()
+                // a stock chart's high-low lines are its own; a 3-D line has drop lines only
+                val lines = listOf("None" to "none", "Drop Lines" to "drop") + when {
+                    kind == "Stock" -> listOf("High-Low Lines" to "highLow", "Drop & High-Low Lines" to "dropHighLow")
+                    kind.startsWith("Line") && ci?.deep != true -> listOf("High-Low Lines" to "highLow")
+                    else -> emptyList()
+                }
                 for ((label, type) in lines) {
                     choice(label, if (type == "none") none else LucideIcons.ChartLine.glyph(), ci?.lines == type) {
                         if (type == "none") set("lines", false) else set("lines", true) { put("type", type) }
@@ -980,18 +1013,27 @@ private fun ChartElementPanel(vm: AppViewModel, which: String) {
 }
 
 /** Data label positions a chart of this kind offers, in the phone app's order; none for a kind without. */
-private fun labelPositions(kind: String): List<Pair<String, String>> = when (kind) {
-    "ColumnClustered", "BarClustered" -> listOf("Center" to "center", "Inside End" to "insideEnd", "Inside Base" to "insideBase", "Outside End" to "outsideEnd")
+private fun labelPositions(kind: String, deep: Boolean): List<Pair<String, String>> = when {
+    // a 3-D chart's labels are only shown or not (a 3-D pie's have the pie's places)
+    deep && kind != "Pie" -> emptyList()
+    else -> when (kind) {
+    "ColumnClustered", "BarClustered", "Histogram", "Pareto", "Waterfall" ->
+        listOf("Center" to "center", "Inside End" to "insideEnd", "Inside Base" to "insideBase", "Outside End" to "outsideEnd")
+    "BoxWhisker" -> listOf("Left" to "left", "Right" to "right", "Top" to "above", "Bottom" to "below")
+    "Funnel", "Sunburst" -> listOf("Center" to "center")
     "ColumnStacked", "ColumnStacked100", "BarStacked", "BarStacked100" -> listOf("Center" to "center", "Inside End" to "insideEnd", "Inside Base" to "insideBase")
     "Line", "LineMarkers", "LineStacked", "Scatter", "ScatterLines", "Bubble" ->
         listOf("Center" to "center", "Left" to "left", "Right" to "right", "Above" to "above", "Below" to "below")
     "Pie" -> listOf("Center" to "center", "Inside End" to "insideEnd", "Outside End" to "outsideEnd", "Best Fit" to "bestFit")
     else -> emptyList()
+    }
 }
 
 /** Where a kind's labels go when no position is set: lit as that choice. */
 private fun autoLabelPosition(kind: String): String = when (kind) {
-    "ColumnClustered", "BarClustered" -> "outsideEnd"
+    "ColumnClustered", "BarClustered", "Histogram", "Pareto", "Waterfall" -> "outsideEnd"
+    "BoxWhisker" -> "right"
+    "Funnel", "Sunburst" -> "center"
     "ColumnStacked", "ColumnStacked100", "BarStacked", "BarStacked100" -> "center"
     "Pie" -> "bestFit"
     else -> "above"

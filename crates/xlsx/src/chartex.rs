@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 
 use gridcraft_core::RangeRef;
 use gridcraft_formula::{Expr, SheetSel};
-use gridcraft_model::{Chart, ChartKind, LegendPos, Series, Workbook};
+use gridcraft_model::{Chart, ChartKind, LabelPos, LegendPos, Series, Workbook};
 
 use crate::drawing::{dml_color, srgb};
 use crate::xml::{El, esc, esc_attr};
@@ -98,6 +98,11 @@ pub fn read_chartex(root: &El) -> Option<Chart> {
     let mut kind = pareto.then_some(ChartKind::Pareto);
     let mut series = vec![];
     let mut data_labels = false;
+    let mut label_pos = LabelPos::Auto;
+    let mut no_connectors = false;
+    let mut banner = false;
+    let mut label_text = gridcraft_model::LabelText::default();
+    let (mut mean_line, mut no_mean_marker) = (false, false);
     for s in region.kids("series") {
         let layout = s.attr("layoutId").unwrap_or("");
         // A Pareto line belongs to its histogram.
@@ -108,12 +113,41 @@ pub fn read_chartex(root: &El) -> Option<Chart> {
         kind.get_or_insert(k);
         let id = s.child_val("dataId").unwrap_or("");
         let (cat, val) = data.iter().find(|(i, _, _)| i == id).map(|(_, c, v)| (c.clone(), v.clone())).unwrap_or_default();
-        data_labels |= s.path(&["dataLabels", "visibility"]).is_some_and(|v| v.flag("value", false));
+        // labels that say anything: the value, the category's or the series' name
+        data_labels |= s
+            .path(&["dataLabels", "visibility"])
+            .is_some_and(|v| v.flag("value", false) || v.flag("categoryName", false) || v.flag("seriesName", false));
+        no_connectors |= s.path(&["layoutPr", "visibility"]).is_some_and(|v| v.attr("connectorLines") == Some("0"));
+        banner |= s.path(&["layoutPr", "parentLabelLayout"]).is_some_and(|p| p.attr("val") == Some("banner"));
+        if let Some(v) = s.path(&["dataLabels", "visibility"]) {
+            label_text = gridcraft_model::LabelText::of(v.flag("value", false), v.flag("categoryName", false), v.flag("seriesName", false), false);
+        }
+        if let Some(v) = s.path(&["layoutPr", "visibility"]).filter(|_| layout == "boxWhisker") {
+            mean_line = v.attr("meanLine") == Some("1");
+            no_mean_marker = v.attr("meanMarker") == Some("0");
+        }
+        if let Some(pos) = s.child("dataLabels").and_then(|d| d.attr("pos")) {
+            label_pos = match pos {
+                "inEnd" => LabelPos::InsideEnd,
+                "outEnd" => LabelPos::OutsideEnd,
+                "inBase" => LabelPos::InsideBase,
+                "ctr" => LabelPos::Center,
+                "r" => LabelPos::Right,
+                "l" => LabelPos::Left,
+                "t" => LabelPos::Above,
+                "b" => LabelPos::Below,
+                _ => label_pos,
+            };
+        }
         series.push(Series {
             name: s.child("tx").and_then(text),
             categories: cat,
             values: val.unwrap_or_default(),
             // The default colour (the series' theme accent, which the writer spells out) isn't kept.
+            totals: s
+                .path(&["layoutPr", "subtotals"])
+                .map(|t| t.kids("idx").filter_map(|i| i.attr("val")?.parse().ok()).take(10_000).collect())
+                .unwrap_or_default(),
             color: s
                 .path(&["spPr", "solidFill"])
                 .and_then(dml_color)
@@ -130,19 +164,59 @@ pub fn read_chartex(root: &El) -> Option<Chart> {
             _ => LegendPos::Right,
         },
     };
-    let axis_title = |id: &str| plot.kids("axis").find(|a| a.attr("id") == Some(id)).and_then(|a| a.path(&["title", "tx"])).and_then(text);
+    // an axis title without text of its own shows the placeholder
+    let axis_title = |id: &str| {
+        plot.kids("axis")
+            .find(|a| a.attr("id") == Some(id))
+            .and_then(|a| a.child("title"))
+            .map(|t| t.child("tx").and_then(text).unwrap_or_else(|| "Axis Title".into()))
+    };
+    let axis = |id: &str| plot.kids("axis").find(|a| a.attr("id") == Some(id));
+    let elements = gridcraft_model::ChartElements {
+        label_pos,
+        hide_val_axis: axis("1").is_some_and(|a| a.attr("hidden") == Some("1")),
+        hide_cat_axis: axis("0").is_some_and(|a| a.attr("hidden") == Some("1")),
+        cat_gridlines: axis("0").is_some_and(|a| a.child("majorGridlines").is_some()),
+        minor_val_gridlines: axis("1").is_some_and(|a| a.child("minorGridlines").is_some()),
+        val_ticks: axis("1").and_then(|a| a.child("majorTickMarks")).is_some_and(|t| t.attr("type") != Some("none")),
+        box_mean_line: mean_line,
+        parent_banner: banner,
+        label_text,
+        box_no_mean_marker: no_mean_marker,
+        no_connectors,
+        // a waterfall's, box chart's or funnel's gap, kept when not its usual one
+        gap_width: axis("0")
+            .and_then(|a| a.child("catScaling"))
+            .and_then(|c| c.attr("gapWidth"))
+            .and_then(|g| g.parse::<f64>().ok())
+            .filter(|g| g.is_finite())
+            .map(|g| (g * 100.0).round().clamp(0.0, 500.0) as u16)
+            .filter(|g| match kind {
+                Some(ChartKind::Waterfall) => *g != 50,
+                Some(ChartKind::BoxWhisker) => *g != 150,
+                Some(ChartKind::Funnel) => *g != 6,
+                _ => false,
+            }),
+        // the category axis's tick marks: none unless the part has them
+        no_cat_ticks: !axis("0").and_then(|a| a.child("majorTickMarks")).is_some_and(|t| t.attr("type") != Some("none")),
+        ..Default::default()
+    };
     Some(Chart {
         depth: Default::default(),
-        elements: Default::default(),
+        elements,
         alt: String::new(),
         id: 0,
         kind: kind?,
         anchor: Default::default(),
-        title: chart.path(&["title", "tx"]).and_then(text),
+        // no title element: no title (a chartex part has no automatic one to fall back on)
+        title: match chart.child("title") {
+            None => Some(String::new()),
+            Some(t) => t.child("tx").and_then(text),
+        },
         series,
         legend,
         data_labels,
-        gridlines: plot.kids("axis").any(|a| a.child("majorGridlines").is_some()),
+        gridlines: axis("1").is_some_and(|a| a.child("majorGridlines").is_some()),
         style: 2,
         x_title: axis_title("0"),
         y_title: axis_title("1"),
@@ -189,8 +263,13 @@ fn tx_xml(t: &str, wb: &Workbook, si: usize, names: &mut Vec<String>) -> String 
 }
 
 /// The chart style part a chart comes with, naming its style `id` (201 for a chartex part):
-/// every element at its plain default, the chart part itself saying how each looks.
-pub fn style_xml(id: u16) -> String {
+/// every element at its plain default, the chart part itself saying how each looks, but for a
+/// chartex part's title, which takes `look`'s from here, and the points of a chart coloured by
+/// point (`by_point`: a waterfall's), which take the palette's colours in `look`'s fill.
+pub fn style_xml(id: u16, look: Option<&gridcraft_model::chart_style::ChartStyle>, by_point: bool, chartex: bool) -> String {
+    use crate::chart_look::{axis_text, style_text};
+    // a chartex part's text: the style's, or the plain look's
+    let text = if chartex { look.or_else(|| gridcraft_model::chart_style::by_id(201)) } else { None };
     let mut s = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<cs:chartStyle xmlns:cs=\"http://schemas.microsoft.com/office/drawing/2012/chartStyle\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" id=\"{id}\">",
     );
@@ -229,6 +308,23 @@ pub fn style_xml(id: u16) -> String {
     ] {
         if e == "dataPointMarkerLayout" {
             s.push_str("<cs:dataPointMarkerLayout symbol=\"circle\" size=\"5\"/>");
+        } else if by_point && e == "dataPoint" {
+            let fill = match look {
+                Some(st) => crate::chart_look::series(st, "<a:schemeClr val=\"phClr\"/>").replace("c:spPr>", "cs:spPr>"),
+                None => "<cs:spPr><a:solidFill><a:schemeClr val=\"phClr\"/></a:solidFill></cs:spPr>".into(),
+            };
+            let _ = write!(
+                s,
+                "<cs:dataPoint><cs:lnRef idx=\"0\"/><cs:fillRef idx=\"0\"><cs:styleClr val=\"auto\"/></cs:fillRef><cs:effectRef idx=\"0\"/><cs:fontRef idx=\"minor\"><a:schemeClr val=\"tx1\"/></cs:fontRef>{fill}</cs:dataPoint>"
+            );
+        } else if let Some(st) = text.filter(|_| matches!(e, "title" | "categoryAxis" | "valueAxis" | "dataLabel" | "legend" | "axisTitle")) {
+            let ty = match e {
+                "title" => st.title,
+                "categoryAxis" => axis_text(st, true),
+                "dataLabel" => st.labels,
+                _ => axis_text(st, false),
+            };
+            let _ = write!(s, "<cs:{e}><cs:lnRef idx=\"0\"/><cs:fillRef idx=\"0\"/><cs:effectRef idx=\"0\"/>{}</cs:{e}>", style_text(&ty));
         } else {
             let _ = write!(
                 s,
@@ -281,8 +377,25 @@ pub fn write_chartex(wb: &Workbook, si: usize, ch: &Chart, names: &mut Vec<Strin
         s.push_str("</cx:data>");
     }
     s.push_str("</cx:chartData><cx:chart>");
-    if let Some(t) = ch.title.as_deref().filter(|t| !t.is_empty()) {
-        let _ = write!(s, "<cx:title pos=\"t\" align=\"ctr\" overlay=\"0\"><cx:tx><cx:txData><cx:v>{}</cx:v></cx:txData></cx:tx></cx:title>", esc(t));
+    // a Style page style's looks are written out: the style part stays plain
+    let look = (ch.elements.style != 0).then(|| gridcraft_model::chart_style::by_id_for(ch.kind, ch.elements.style)).flatten();
+    let ex = |xml: String| crate::chart_look::ex(xml);
+    // (the title's look goes in the style part: the reference leaves out a title with a txPr)
+    match ch.title.as_deref() {
+        Some(t) if !t.is_empty() => {
+            let _ =
+                write!(s, "<cx:title pos=\"t\" align=\"ctr\" overlay=\"0\"><cx:tx><cx:txData><cx:v>{}</cx:v></cx:txData></cx:tx></cx:title>", esc(t));
+        }
+        // the automatic title spelled out (a chartex part has none of its own): the one series'
+        // name, linked to its cell, or the placeholder
+        None => {
+            let tx = match (ch.series.len(), ch.series.first().and_then(|r| r.name.as_deref())) {
+                (1, Some(n)) => tx_xml(n, wb, si, names),
+                _ => "<cx:tx><cx:txData><cx:v>Chart Title</cx:v></cx:txData></cx:tx>".to_string(),
+            };
+            let _ = write!(s, "<cx:title pos=\"t\" align=\"ctr\" overlay=\"0\">{tx}</cx:title>");
+        }
+        _ => {}
     }
     s.push_str("<cx:plotArea><cx:plotAreaRegion>");
     let layout = match ch.kind {
@@ -302,25 +415,34 @@ pub fn write_chartex(wb: &Workbook, si: usize, ch: &Chart, names: &mut Vec<Strin
         // Fills are written out: they don't come from the style part. Waterfall decreases and
         // treemap/sunburst boxes get their own colours.
         let color = ser.color.as_ref().and_then(|c| srgb(c, &wb.theme)).unwrap_or_else(|| accent(i));
-        s.push_str(&fill_xml(&color, ch.kind == ChartKind::BoxWhisker));
-        let points = || crate::chart::ref_values(wb, si, &ser.values).unwrap_or_default().into_iter().take(10_000).enumerate();
-        match ch.kind {
-            ChartKind::Waterfall => {
-                for (j, v) in points() {
-                    if v.as_f64().is_some_and(|n| n < 0.0) {
-                        let _ = write!(s, "<cx:dataPt idx=\"{j}\">{}</cx:dataPt>", fill_xml(&accent(i + 1), false));
-                    }
-                }
-            }
-            ChartKind::Treemap | ChartKind::Sunburst if ser.color.is_none() => {
-                for (j, _) in points() {
-                    let _ = write!(s, "<cx:dataPt idx=\"{j}\">{}</cx:dataPt>", fill_xml(&accent(j), false));
-                }
-            }
-            _ => {}
+        // a waterfall's increases, decreases and totals, and a treemap's or sunburst's boxes, take
+        // the palette's colours through the style part, unless the series has a colour of its own
+        let by_point = matches!(ch.kind, ChartKind::Waterfall | ChartKind::Treemap | ChartKind::Sunburst) && ser.color.is_none();
+        match look {
+            _ if by_point => {}
+            Some(st) => s.push_str(&ex(crate::chart_look::series(st, &color))),
+            None => s.push_str(&fill_xml(&color, ch.kind == ChartKind::BoxWhisker)),
         }
         if ch.data_labels {
-            s.push_str("<cx:dataLabels><cx:visibility seriesName=\"0\" categoryName=\"0\" value=\"1\"/></cx:dataLabels>");
+            let pos = match ch.elements.label_pos {
+                LabelPos::InsideEnd => " pos=\"inEnd\"",
+                LabelPos::OutsideEnd => " pos=\"outEnd\"",
+                LabelPos::InsideBase => " pos=\"inBase\"",
+                LabelPos::Center => " pos=\"ctr\"",
+                LabelPos::Right => " pos=\"r\"",
+                LabelPos::Left => " pos=\"l\"",
+                LabelPos::Above => " pos=\"t\"",
+                LabelPos::Below => " pos=\"b\"",
+                _ => "",
+            };
+            let _ = write!(
+                s,
+                "<cx:dataLabels{pos}>{}<cx:visibility seriesName=\"{}\" categoryName=\"{}\" value=\"{}\"/></cx:dataLabels>",
+                look.map(|st| ex(crate::chart_look::labels(st))).unwrap_or_default(),
+                u8::from(ch.elements.label_text.series),
+                u8::from(ch.elements.label_text.category),
+                u8::from(ch.elements.label_text.value)
+            );
         }
         let _ = write!(s, "<cx:dataId val=\"{i}\"/>");
         match ch.kind {
@@ -328,10 +450,29 @@ pub fn write_chartex(wb: &Workbook, si: usize, ch: &Chart, names: &mut Vec<Strin
             // categories are added up; plain numbers are put in bins
             ChartKind::Pareto if ser.categories.is_some() => s.push_str("<cx:layoutPr><cx:aggregation/></cx:layoutPr><cx:axisId val=\"1\"/>"),
             ChartKind::Pareto => s.push_str("<cx:layoutPr><cx:binning intervalClosed=\"r\"/></cx:layoutPr><cx:axisId val=\"1\"/>"),
-            ChartKind::BoxWhisker => s.push_str(
-                "<cx:layoutPr><cx:visibility meanLine=\"0\" meanMarker=\"1\" nonoutliers=\"0\" outliers=\"1\"/><cx:statistics quartileMethod=\"exclusive\"/></cx:layoutPr>",
-            ),
-            ChartKind::Treemap => s.push_str("<cx:layoutPr><cx:parentLabelLayout val=\"overlapping\"/></cx:layoutPr>"),
+            ChartKind::BoxWhisker => {
+                let _ = write!(
+                    s,
+                    "<cx:layoutPr><cx:visibility meanLine=\"{}\" meanMarker=\"{}\" nonoutliers=\"0\" outliers=\"1\"/><cx:statistics quartileMethod=\"exclusive\"/></cx:layoutPr>",
+                    u8::from(ch.elements.box_mean_line),
+                    u8::from(!ch.elements.box_no_mean_marker)
+                );
+            }
+            ChartKind::Treemap => {
+                let layout = if ch.elements.parent_banner { "banner" } else { "overlapping" };
+                let _ = write!(s, "<cx:layoutPr><cx:parentLabelLayout val=\"{layout}\"/></cx:layoutPr>");
+            }
+            ChartKind::Waterfall => {
+                s.push_str("<cx:layoutPr>");
+                if ch.elements.no_connectors {
+                    s.push_str("<cx:visibility connectorLines=\"0\"/>");
+                }
+                s.push_str("<cx:subtotals>");
+                for t in ser.totals.iter().take(10_000) {
+                    let _ = write!(s, "<cx:idx val=\"{t}\"/>");
+                }
+                s.push_str("</cx:subtotals></cx:layoutPr>");
+            }
             _ => {}
         }
         s.push_str("</cx:series>");
@@ -346,11 +487,14 @@ pub fn write_chartex(wb: &Workbook, si: usize, ch: &Chart, names: &mut Vec<Strin
         }
     }
     s.push_str("</cx:plotAreaRegion>");
+    // a waterfall's, box chart's or funnel's gap from its style or layout (a fraction of a bar)
+    let fraction = |default: u16| format!("{}", f64::from(ch.elements.gap_width.unwrap_or(default).min(500)) / 100.0);
+    let (waterfall_gap, box_gap, funnel_gap) = (fraction(50), fraction(150), fraction(6));
     let gap = match ch.kind {
         ChartKind::Histogram | ChartKind::Pareto => Some("0"),
-        ChartKind::BoxWhisker => Some("1"),
-        ChartKind::Waterfall => Some("0.5"),
-        ChartKind::Funnel => Some("0.06"),
+        ChartKind::BoxWhisker => Some(box_gap.as_str()),
+        ChartKind::Waterfall => Some(waterfall_gap.as_str()),
+        ChartKind::Funnel => Some(funnel_gap.as_str()),
         _ => None,
     };
     let title = |t: Option<&str>| {
@@ -359,18 +503,34 @@ pub fn write_chartex(wb: &Workbook, si: usize, ch: &Chart, names: &mut Vec<Strin
             .unwrap_or_default()
     };
     if let Some(gap) = gap {
-        let _ =
-            write!(s, "<cx:axis id=\"0\"><cx:catScaling gapWidth=\"{}\"/>{}<cx:tickLabels/></cx:axis>", esc_attr(gap), title(ch.x_title.as_deref()));
+        let axis_look = |category: bool| look.map(|st| ex(crate::chart_look::axis(st, category))).unwrap_or_default();
+        // tick marks out from an axis: a histogram's or waterfall's category axis, any value axis
+        let out = "<cx:majorTickMarks type=\"out\"/>";
+        let cat_ticks =
+            if matches!(ch.kind, ChartKind::Histogram | ChartKind::Pareto | ChartKind::Waterfall) && !ch.elements.no_cat_ticks { out } else { "" };
+        let val_ticks = if ch.elements.val_ticks { out } else { "" };
+        let grid = |minor: bool| match look {
+            Some(st) => ex(crate::chart_look::gridlines(st, minor)),
+            None => format!("<cx:spPr><a:ln w=\"9525\"><a:solidFill>{GREY}</a:solidFill></a:ln></cx:spPr>"),
+        };
+        let _ = write!(
+            s,
+            "<cx:axis id=\"0\"{}><cx:catScaling gapWidth=\"{}\"/>{}{}{cat_ticks}<cx:tickLabels/>{}</cx:axis>",
+            if ch.elements.hide_cat_axis { " hidden=\"1\"" } else { "" },
+            esc_attr(gap),
+            title(ch.x_title.as_deref()),
+            if ch.elements.cat_gridlines { format!("<cx:majorGridlines>{}</cx:majorGridlines>", grid(false)) } else { String::new() },
+            axis_look(true)
+        );
         if ch.kind != ChartKind::Funnel {
             let _ = write!(
                 s,
-                "<cx:axis id=\"1\"><cx:valScaling/>{}{}<cx:tickLabels/></cx:axis>",
+                "<cx:axis id=\"1\"{}><cx:valScaling/>{}{}{}{val_ticks}<cx:tickLabels/>{}</cx:axis>",
+                if ch.elements.hide_val_axis { " hidden=\"1\"" } else { "" },
                 title(ch.y_title.as_deref()),
-                if ch.gridlines {
-                    format!("<cx:majorGridlines><cx:spPr><a:ln w=\"9525\"><a:solidFill>{GREY}</a:solidFill></a:ln></cx:spPr></cx:majorGridlines>")
-                } else {
-                    String::new()
-                }
+                if ch.gridlines { format!("<cx:majorGridlines>{}</cx:majorGridlines>", grid(false)) } else { String::new() },
+                if ch.elements.minor_val_gridlines { format!("<cx:minorGridlines>{}</cx:minorGridlines>", grid(true)) } else { String::new() },
+                axis_look(false)
             );
         }
         if pareto {
@@ -388,10 +548,19 @@ pub fn write_chartex(wb: &Workbook, si: usize, ch: &Chart, names: &mut Vec<Strin
     if let Some(p) = pos {
         let _ = write!(s, "<cx:legend pos=\"{p}\" align=\"ctr\" overlay=\"0\"/>");
     }
-    // A white chart area with a light border, like other charts.
-    let _ = write!(
-        s,
-        "</cx:chart><cx:spPr><a:solidFill><a:schemeClr val=\"bg1\"/></a:solidFill><a:ln w=\"9525\"><a:solidFill>{GREY}</a:solidFill></a:ln></cx:spPr></cx:chartSpace>"
-    );
+    // the style's chart area, or a white one with a light border like other charts
+    match look {
+        Some(st) => {
+            // a chart area in the series' colour takes the first series'
+            let first = ch.series.first().and_then(|r| r.color.as_ref()).and_then(|c| srgb(c, &wb.theme)).unwrap_or_else(|| accent(0));
+            let _ = write!(s, "</cx:chart>{}</cx:chartSpace>", ex(crate::chart_look::area(st, &first)));
+        }
+        None => {
+            let _ = write!(
+                s,
+                "</cx:chart><cx:spPr><a:solidFill><a:schemeClr val=\"bg1\"/></a:solidFill><a:ln w=\"9525\"><a:solidFill>{GREY}</a:solidFill></a:ln></cx:spPr></cx:chartSpace>"
+            );
+        }
+    }
     s
 }

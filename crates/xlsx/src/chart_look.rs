@@ -119,10 +119,11 @@ fn body(st: &ChartStyle) -> Type {
     Type { size: 9.0, bold: false, caps: false, spacing: 0, color: st.text }
 }
 
-/// The chart area's spPr and txPr, after `c:chart`.
-pub(crate) fn area(st: &ChartStyle) -> String {
+/// The chart area's spPr and txPr, after `c:chart`; a chart area in the series' colour takes
+/// `series`, the first series'.
+pub(crate) fn area(st: &ChartStyle, series: &str) -> String {
     let edge = st.area_line.map(|c| Stroke { color: c, width: 0.75 });
-    format!("{}{}", sp_pr(&st.area, edge.as_ref(), Effect::None, ""), tx_pr(&body(st), false))
+    format!("{}{}", sp_pr(&st.area, edge.as_ref(), Effect::None, series), tx_pr(&body(st), false))
 }
 
 /// The plot area's spPr, last in `c:plotArea`.
@@ -169,6 +170,11 @@ pub(crate) fn labels(st: &ChartStyle) -> String {
     format!("<c:spPr>{fill}<a:ln><a:noFill/></a:ln></c:spPr>{}", tx_pr(&st.labels, st.label_turn))
 }
 
+/// A stock chart's high-low lines' spPr: the style's line stroke.
+pub(crate) fn hi_lo(st: &ChartStyle) -> String {
+    sp_pr(&Paint::None, Some(&st.line), Effect::None, "")
+}
+
 /// Gridlines' spPr: major or minor.
 pub(crate) fn gridlines(st: &ChartStyle, minor: bool) -> String {
     let c = if minor { st.minor_grid } else { st.grid };
@@ -188,6 +194,38 @@ pub(crate) fn axis(st: &ChartStyle, category: bool) -> String {
         }
     }
     format!("{}{}", sp_pr(&Paint::None, line.as_ref(), Effect::None, ""), tx_pr(&ty, false))
+}
+
+/// Text in `ty` as a style part's element keeps it: its colour and run properties (a chartex
+/// part's text takes its look from there, not from a `cx:txPr`).
+pub(crate) fn style_text(ty: &Type) -> String {
+    let mut a = format!("sz=\"{}\" b=\"{}\"", (ty.size * 100.0).round() as i64, u8::from(ty.bold));
+    if ty.caps {
+        a.push_str(" cap=\"all\"");
+    }
+    if ty.spacing != 0 {
+        let _ = write!(a, " spc=\"{}\"", ty.spacing);
+    }
+    format!("<cs:fontRef idx=\"minor\">{}</cs:fontRef><cs:defRPr {a}/>", color(&ty.color, ""))
+}
+
+/// The axis labels' type ([`body`], the category labels at the style's size).
+pub(crate) fn axis_text(st: &ChartStyle, category: bool) -> Type {
+    let mut ty = body(st);
+    if category {
+        ty.size = st.category_size;
+    }
+    ty
+}
+
+/// Any of these as a chartex part has it: its `cx:spPr` (text properties are left to the style
+/// part, as the reference reads them).
+pub(crate) fn ex(xml: String) -> String {
+    let xml = xml.replace("<c:", "<cx:").replace("</c:", "</cx:");
+    match (xml.find("<cx:txPr>"), xml.find("</cx:txPr>")) {
+        (Some(a), Some(b)) if b > a => format!("{}{}", &xml[..a], &xml[b + "</cx:txPr>".len()..]),
+        _ => xml,
+    }
 }
 
 /// The legend's spPr and txPr.

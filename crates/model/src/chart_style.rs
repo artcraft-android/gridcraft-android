@@ -155,6 +155,16 @@ pub struct ChartStyle {
     pub labels_say: Option<LabelText>,
     pub gap: u16,
     pub overlap: i8,
+    /// Waterfalls: lines joining the bars; a category axis title brought in.
+    pub connectors: bool,
+    pub cat_title: bool,
+    /// Box and whisker charts: a line through the means, and the means marked.
+    pub mean_line: bool,
+    pub mean_marker: bool,
+    /// The style takes the chart's title away.
+    pub title_off: bool,
+    /// Treemaps: parents' names in banners.
+    pub banner: bool,
 }
 
 const LT1: usize = 0;
@@ -229,6 +239,12 @@ const LIGHT: ChartStyle = ChartStyle {
     labels_say: None,
     gap: 219,
     overlap: -27,
+    connectors: true,
+    cat_title: false,
+    mean_line: false,
+    mean_marker: true,
+    title_off: false,
+    banner: false,
 };
 
 /// The Style page in order, Style 1 to Style 14.
@@ -514,6 +530,513 @@ pub const RADAR_STYLES: [ChartStyle; 8] = [
     ChartStyle { legend: LegendPos::Top, ..line_style(351, STYLES[13], 2.75) },
 ];
 
+/// The Style page for 3-D column charts, Style 1 to Style 11: the column page's looks again under
+/// their own ids, some changed, and their spacing (the views they turn to aren't kept).
+pub const COLUMN3D_STYLES: [ChartStyle; 11] = [
+    ChartStyle { id: 286, gap: 150, overlap: 0, ..LIGHT },
+    ChartStyle {
+        id: 287,
+        title: Type { size: 18.0, bold: true, caps: true, spacing: 150, color: grey(50) },
+        series: Paint::Pattern {
+            preset: Pattern::LightDownwardDiagonal,
+            fg: series(&[]),
+            bg: series(&[ColorMod::LumMod(20000), ColorMod::LumOff(80000)]),
+        },
+        series_line: Some(Stroke { color: series(&[]), width: 0.75 }),
+        legend: LegendPos::Top,
+        value_lines: false,
+        gap: 160,
+        overlap: 0,
+        ..LIGHT
+    },
+    ChartStyle {
+        id: 288,
+        area: Paint::Gradient { stops: &[(0, WHITE), (39000, WHITE), (100_000, theme(LT1, &[ColorMod::LumMod(75000)]))], from: None },
+        area_line: Some(grey(25)),
+        title: ty(18.0, true, grey(75)),
+        text: grey(75),
+        labels: ty(9.0, false, grey(75)),
+        category_caps: Some(0),
+        series: Paint::Solid(series(&[ColorMod::Alpha(85000)])),
+        series_line: Some(Stroke { color: series(&[ColorMod::LumMod(75000)]), width: 0.75 }),
+        axis_line: Some(Stroke { color: grey(75), width: 1.5 }),
+        gap: 65,
+        overlap: 0,
+        ..LIGHT
+    },
+    ChartStyle { id: 289, gap: 150, overlap: 0, ..STYLES[4] },
+    ChartStyle { id: 290, gap: 150, overlap: 0, ..STYLES[5] },
+    ChartStyle {
+        id: 291,
+        area: Paint::Solid(grey(75)),
+        area_line: Some(theme(DK1, &[ColorMod::Tint(75000)])),
+        title: Type { size: 18.0, bold: false, caps: true, spacing: 0, color: WHITE },
+        text: theme(LT1, &[ColorMod::LumMod(75000)]),
+        labels: ty(9.0, false, theme(LT1, &[ColorMod::LumMod(75000)])),
+        series: Paint::Solid(series(&[ColorMod::Alpha(88000)])),
+        series_line: Some(Stroke { color: series(&[ColorMod::LumMod(50000)]), width: 0.75 }),
+        legend: LegendPos::Top,
+        value_axis: false,
+        value_lines: false,
+        gap: 84,
+        overlap: 0,
+        ..LIGHT
+    },
+    ChartStyle {
+        id: 292,
+        title: Type { size: 16.0, bold: false, caps: false, spacing: 50, color: grey(65) },
+        text: grey(50),
+        labels: ty(9.0, false, grey(50)),
+        series_line: Some(Stroke { color: series(&[ColorMod::LumMod(75000)]), width: 0.75 }),
+        grid: grey(5),
+        gap: 150,
+        overlap: 0,
+        ..LIGHT
+    },
+    ChartStyle {
+        id: 293,
+        title: Type { size: 18.0, bold: true, caps: true, spacing: 50, color: grey(65) },
+        series: Paint::Gradient { stops: &[(50000, series(&[])), (100_000, series(&[ColorMod::Alpha(0)]))], from: None },
+        grid: grey(5),
+        gap: 150,
+        overlap: 0,
+        ..LIGHT
+    },
+    ChartStyle { id: 294, grid: grey(50), gap: 150, overlap: 0, ..STYLES[7] },
+    ChartStyle { id: 296, legend: LegendPos::Bottom, gap: 150, overlap: 0, ..STYLES[10] },
+    ChartStyle { id: 347, gap: 150, overlap: 0, ..STYLES[13] },
+];
+
+/// A histogram's style: no legend, its bins' labels inside their ends when it has them.
+const fn histogram_style(id: u16, look: ChartStyle, labels: bool) -> ChartStyle {
+    ChartStyle {
+        id,
+        legend: LegendPos::None,
+        labels_at: if labels { Some(LabelPos::InsideEnd) } else { None },
+        labels_say: None,
+        title_on: false,
+        gap: 150,
+        overlap: 0,
+        ..look
+    }
+}
+
+/// The Style page for histograms, Style 1 to Style 6: the column page's looks, each bin filled
+/// its way, most with the counts inside the bins' ends.
+pub const HISTOGRAM_STYLES: [ChartStyle; 6] = [
+    histogram_style(366, ChartStyle { labels: ty(9.0, false, grey(65)), ..LIGHT }, false),
+    histogram_style(
+        367,
+        ChartStyle {
+            grid: grey(25),
+            labels: ty(9.0, false, grey(75)),
+            text: grey(65),
+            title: Type { color: grey(50), ..STYLES[2].title },
+            ..STYLES[2]
+        },
+        false,
+    ),
+    histogram_style(
+        368,
+        ChartStyle {
+            labels: ty(9.0, false, theme(DK1, &[])),
+            category_caps: None,
+            series: PLAIN_SERIES,
+            series_line: None,
+            value_axis: false,
+            ..STYLES[3]
+        },
+        true,
+    ),
+    histogram_style(
+        369,
+        ChartStyle {
+            title: Type { size: 14.0, bold: false, caps: false, spacing: 20, color: grey(50) },
+            text: grey(50),
+            labels: ty(9.0, false, grey(50)),
+            series: Paint::Gradient {
+                stops: &[
+                    (0, series(&[ColorMod::LumMod(110_000), ColorMod::SatMod(105_000), ColorMod::Tint(67000)])),
+                    (50000, series(&[ColorMod::LumMod(105_000), ColorMod::SatMod(103_000), ColorMod::Tint(73000)])),
+                    (100_000, series(&[ColorMod::LumMod(105_000), ColorMod::SatMod(109_000), ColorMod::Tint(81000)])),
+                ],
+                from: None,
+            },
+            series_line: Some(Stroke { color: series(&[ColorMod::Alpha(50000)]), width: 0.75 }),
+            ..LIGHT
+        },
+        true,
+    ),
+    histogram_style(
+        370,
+        ChartStyle {
+            text: theme(LT1, &[ColorMod::LumMod(95000)]),
+            labels: ty(9.0, false, theme(LT1, &[ColorMod::LumMod(95000)])),
+            series: Paint::Gradient {
+                stops: &[
+                    (0, series(&[ColorMod::SatMod(103_000), ColorMod::LumMod(102_000), ColorMod::Tint(94000)])),
+                    (50000, series(&[ColorMod::SatMod(110_000)])),
+                    (100_000, series(&[ColorMod::LumMod(99000), ColorMod::SatMod(120_000), ColorMod::Shade(78000)])),
+                ],
+                from: None,
+            },
+            series_line: Some(Stroke { color: theme(DK1, &[]), width: 0.75 }),
+            ..STYLES[7]
+        },
+        true,
+    ),
+    histogram_style(
+        371,
+        ChartStyle {
+            area: Paint::Solid(series(&[])),
+            area_line: Some(series(&[])),
+            title: Type { size: 15.0, bold: true, caps: true, spacing: 100, color: WHITE },
+            text: WHITE,
+            category_size: 8.0,
+            labels: ty(9.0, false, theme(DK1, &[])),
+            label_box: Some(series(&[ColorMod::Alpha(70000)])),
+            series: Paint::Pattern { preset: Pattern::LightUpwardDiagonal, fg: series(&[]), bg: WHITE },
+            series_line: Some(Stroke { color: theme(DK1, &[]), width: 0.75 }),
+            grid: theme(LT1, &[ColorMod::Alpha(25000)]),
+            axis_line: Some(Stroke { color: series(&[ColorMod::LumMod(60000), ColorMod::LumOff(40000)]), width: 0.25 }),
+            ..LIGHT
+        },
+        true,
+    ),
+];
+
+/// A waterfall's style: its labels, its bars this far apart (percent of a bar), with or without
+/// connecting lines, its legend.
+const fn waterfall_style(id: u16, look: ChartStyle, labels: Option<LabelPos>, gap: u16, connectors: bool, legend: LegendPos) -> ChartStyle {
+    ChartStyle { id, labels_at: labels, labels_say: None, title_on: false, gap, overlap: 0, connectors, legend, ..look }
+}
+
+/// The Style page for waterfalls, Style 1 to Style 8: the column page's looks with their
+/// increases, decreases and totals in the palette's first three colours.
+pub const WATERFALL_STYLES: [ChartStyle; 8] = [
+    waterfall_style(395, ChartStyle { labels: ty(9.0, false, grey(65)), ..LIGHT }, Some(LabelPos::OutsideEnd), 50, true, LegendPos::Top),
+    waterfall_style(
+        396,
+        ChartStyle { grid: grey(25), labels: ty(9.0, false, grey(75)), text: grey(65), value_lines: true, cat_title: true, ..STYLES[2] },
+        Some(LabelPos::OutsideEnd),
+        50,
+        true,
+        LegendPos::Top,
+    ),
+    waterfall_style(397, HISTOGRAM_STYLES[2], Some(LabelPos::OutsideEnd), 25, false, LegendPos::Top),
+    waterfall_style(398, HISTOGRAM_STYLES[3], Some(LabelPos::InsideEnd), 50, false, LegendPos::Bottom),
+    waterfall_style(
+        399,
+        ChartStyle {
+            title: ty(16.0, true, theme(DK2, &[])),
+            series: HISTOGRAM_STYLES[4].series,
+            series_line: None,
+            text: theme(DK2, &[]),
+            labels: ty(9.0, false, theme(DK2, &[])),
+            ..STYLES[5]
+        },
+        None,
+        100,
+        false,
+        LegendPos::Top,
+    ),
+    waterfall_style(
+        400,
+        ChartStyle { value_lines: false, category_lines: true, labels: ty(9.0, false, grey(65)), ..LIGHT },
+        None,
+        50,
+        false,
+        LegendPos::None,
+    ),
+    waterfall_style(372, HISTOGRAM_STYLES[4], Some(LabelPos::InsideEnd), 50, false, LegendPos::Top),
+    waterfall_style(389, ChartStyle { title: ty(20.0, false, grey(65)), labels: ty(9.0, false, grey(75)), ..LIGHT }, None, 50, false, LegendPos::Top),
+];
+
+/// A box and whisker chart's style: its boxes filled and edged, or edged only, in the series'
+/// colour, this far apart (percent of a category's boxes), its means marked or joined.
+const fn box_style(id: u16, look: ChartStyle, filled: bool, gap: u16, mean_line: bool, mean_marker: bool, legend: LegendPos) -> ChartStyle {
+    ChartStyle {
+        id,
+        series: if filled { PLAIN_SERIES } else { Paint::None },
+        series_line: Some(Stroke { color: series(&[]), width: 0.75 }),
+        effect: Effect::None,
+        labels_at: None,
+        labels_say: None,
+        title_on: false,
+        gap,
+        overlap: 0,
+        mean_line,
+        mean_marker,
+        legend,
+        ..look
+    }
+}
+
+/// The Style page for box and whisker charts, Style 1 to Style 6.
+pub const BOX_STYLES: [ChartStyle; 6] = [
+    box_style(406, LIGHT, true, 100, false, true, LegendPos::None),
+    box_style(
+        407,
+        ChartStyle { grid: grey(25), labels: ty(9.0, false, grey(75)), text: grey(65), value_lines: true, ..STYLES[2] },
+        false,
+        110,
+        false,
+        false,
+        LegendPos::Top,
+    ),
+    box_style(408, ChartStyle { value_axis: true, ..HISTOGRAM_STYLES[2] }, true, 150, false, false, LegendPos::Bottom),
+    box_style(409, HISTOGRAM_STYLES[4], false, 150, true, true, LegendPos::Bottom),
+    box_style(373, LIGHT, true, 100, true, true, LegendPos::Bottom),
+    box_style(374, ChartStyle { title: ty(20.0, false, grey(65)), minor_lines: true, ..LIGHT }, true, 150, false, true, LegendPos::Top),
+];
+
+/// A funnel's style: its labels, its bars this far apart (percent of a bar), its legend.
+const fn funnel_style(id: u16, look: ChartStyle, labels: bool, gap: u16, legend: LegendPos) -> ChartStyle {
+    ChartStyle {
+        id,
+        labels_at: if labels { Some(LabelPos::Center) } else { None },
+        labels_say: None,
+        title_on: false,
+        gap,
+        overlap: 0,
+        legend,
+        ..look
+    }
+}
+
+/// The Style page for funnels, Style 1 to Style 9.
+pub const FUNNEL_STYLES: [ChartStyle; 9] = [
+    funnel_style(419, LIGHT, true, 6, LegendPos::None),
+    funnel_style(423, ChartStyle { cat_title: true, ..WATERFALL_STYLES[1] }, false, 20, LegendPos::None),
+    funnel_style(424, HISTOGRAM_STYLES[2], true, 15, LegendPos::None),
+    funnel_style(425, HISTOGRAM_STYLES[3], true, 50, LegendPos::None),
+    funnel_style(426, WATERFALL_STYLES[4], false, 40, LegendPos::Top),
+    funnel_style(427, HISTOGRAM_STYLES[4], true, 50, LegendPos::Top),
+    funnel_style(428, WATERFALL_STYLES[7], false, 3, LegendPos::Top),
+    funnel_style(429, HISTOGRAM_STYLES[5], false, 50, LegendPos::Top),
+    funnel_style(430, ChartStyle { title_off: true, ..LIGHT }, false, 10, LegendPos::None),
+];
+
+/// The names a treemap's or sunburst's labels give: the boxes' and rings' categories.
+const NAMES: LabelText = LabelText::of(false, true, false, false);
+
+/// A treemap's style: its boxes filled and edged its way, their names where it puts them.
+const fn treemap_style(id: u16, look: ChartStyle, edge: Stroke, labels: Type, at: LabelPos, legend: LegendPos) -> ChartStyle {
+    ChartStyle { id, series_line: Some(edge), labels, labels_at: Some(at), labels_say: Some(NAMES), title_on: false, legend, ..look }
+}
+
+/// A box's edge in the background colour, this wide.
+const fn white_edge(width: f32) -> Stroke {
+    Stroke { color: WHITE, width }
+}
+
+/// The Style page for treemaps, Style 1 to Style 9.
+pub const TREEMAP_STYLES: [ChartStyle; 9] = [
+    treemap_style(410, LIGHT, white_edge(1.5), ty(9.0, false, WHITE), LabelPos::InsideEnd, LegendPos::Top),
+    treemap_style(
+        411,
+        ChartStyle { series: PLAIN_SERIES, ..HISTOGRAM_STYLES[2] },
+        white_edge(0.75),
+        ty(9.0, false, WHITE),
+        LabelPos::Center,
+        LegendPos::Right,
+    ),
+    treemap_style(
+        412,
+        HISTOGRAM_STYLES[3],
+        Stroke { color: series(&[ColorMod::Alpha(50000)]), width: 0.75 },
+        ty(9.0, false, grey(50)),
+        LabelPos::InsideEnd,
+        LegendPos::Bottom,
+    ),
+    ChartStyle {
+        banner: true,
+        ..treemap_style(413, WATERFALL_STYLES[4], white_edge(0.75), ty(9.0, false, WHITE), LabelPos::InsideEnd, LegendPos::Bottom)
+    },
+    treemap_style(
+        414,
+        ChartStyle {
+            area: Paint::Pattern {
+                preset: Pattern::DarkDownwardDiagonal,
+                fg: WHITE,
+                bg: theme(DK1, &[ColorMod::LumMod(10000), ColorMod::LumOff(90000)]),
+            },
+            title: ty(16.0, true, grey(50)),
+            text: grey(50),
+            series: Paint::Gradient {
+                stops: &[(0, series(&[])), (100_000, series(&[ColorMod::LumMod(60000), ColorMod::LumOff(40000)]))],
+                from: None,
+            },
+            ..LIGHT
+        },
+        white_edge(0.75),
+        ty(9.0, false, grey(75)),
+        LabelPos::InsideEnd,
+        LegendPos::Right,
+    ),
+    treemap_style(
+        415,
+        HISTOGRAM_STYLES[4],
+        Stroke { color: theme(DK1, &[]), width: 0.75 },
+        ty(9.0, false, theme(LT1, &[ColorMod::LumMod(95000)])),
+        LabelPos::InsideEnd,
+        LegendPos::Bottom,
+    ),
+    treemap_style(
+        416,
+        ChartStyle { title: Type { size: 16.0, bold: true, caps: true, spacing: 0, color: grey(65) }, ..LIGHT },
+        white_edge(0.75),
+        ty(10.0, true, WHITE),
+        LabelPos::Center,
+        LegendPos::None,
+    ),
+    treemap_style(
+        417,
+        ChartStyle {
+            area: Paint::Pattern { preset: Pattern::DarkDownwardDiagonal, fg: theme(LT1, &[ColorMod::LumMod(95000)]), bg: WHITE },
+            title: ty(18.0, true, grey(65)),
+            ..LIGHT
+        },
+        white_edge(0.75),
+        ty(9.0, true, WHITE),
+        LabelPos::InsideEnd,
+        LegendPos::Top,
+    ),
+    treemap_style(
+        418,
+        ChartStyle {
+            title: Type { size: 18.0, bold: true, caps: true, spacing: 150, color: grey(50) },
+            series: Paint::Pattern {
+                preset: Pattern::LightUpwardDiagonal,
+                fg: series(&[]),
+                bg: series(&[ColorMod::LumMod(20000), ColorMod::LumOff(80000)]),
+            },
+            effect: Effect::InnerShadow,
+            ..LIGHT
+        },
+        white_edge(0.75),
+        ty(9.0, false, grey(75)),
+        LabelPos::InsideEnd,
+        LegendPos::Top,
+    ),
+];
+
+/// A sunburst's style: a treemap one's look, its rings' names in their middles.
+const fn sunburst_style(id: u16, look: ChartStyle, legend: LegendPos) -> ChartStyle {
+    ChartStyle { id, labels_at: Some(LabelPos::Center), banner: false, legend, ..look }
+}
+
+/// The Style page for sunbursts, Style 1 to Style 8.
+pub const SUNBURST_STYLES: [ChartStyle; 8] = [
+    sunburst_style(381, TREEMAP_STYLES[0], LegendPos::None),
+    sunburst_style(382, TREEMAP_STYLES[8], LegendPos::Top),
+    sunburst_style(383, TREEMAP_STYLES[1], LegendPos::Right),
+    sunburst_style(384, TREEMAP_STYLES[2], LegendPos::Bottom),
+    sunburst_style(385, TREEMAP_STYLES[3], LegendPos::Bottom),
+    sunburst_style(386, TREEMAP_STYLES[4], LegendPos::Right),
+    sunburst_style(387, TREEMAP_STYLES[5], LegendPos::Bottom),
+    sunburst_style(388, TREEMAP_STYLES[7], LegendPos::Bottom),
+];
+
+/// The Style page for 3-D line charts, Style 1 to Style 4: the column page's looks for its
+/// ribbons and walls.
+pub const LINE3D_STYLES: [ChartStyle; 4] = [
+    ChartStyle { id: 307, ..LIGHT },
+    ChartStyle { id: 311, ..STYLES[4] },
+    ChartStyle { id: 308, ..STYLES[5] },
+    ChartStyle {
+        id: 309,
+        grid: theme(DK1, &[ColorMod::LumMod(50000), ColorMod::LumOff(50000)]),
+        axis_line: Some(Stroke { color: theme(DK1, &[ColorMod::LumMod(50000), ColorMod::LumOff(50000)]), width: 0.75 }),
+        ..STYLES[7]
+    },
+];
+
+/// A stock chart's style: its look, its high-low lines (in the line's stroke), its legend.
+const fn stock_style(id: u16, look: ChartStyle, hi_lo: Stroke, legend: LegendPos) -> ChartStyle {
+    ChartStyle { id, line: hi_lo, legend, labels_at: None, labels_say: None, title_on: false, ..look }
+}
+
+/// High-low lines this grey and wide.
+const fn hi_lo(lighter: u32, width: f32) -> Stroke {
+    Stroke { color: grey(lighter), width }
+}
+
+/// The Style page for stock charts, Style 1 to Style 11: the series unmarked, their high-low
+/// lines drawn the style's way.
+pub const STOCK_STYLES: [ChartStyle; 11] = [
+    stock_style(322, LIGHT, hi_lo(75, 0.75), LegendPos::Bottom),
+    stock_style(323, ChartStyle { value_lines: true, grid: grey(15), ..STYLES[2] }, hi_lo(65, 1.25), LegendPos::Bottom),
+    stock_style(324, ChartStyle { value_axis: true, ..STYLES[3] }, hi_lo(65, 1.25), LegendPos::Bottom),
+    stock_style(325, STYLES[4], hi_lo(75, 0.75), LegendPos::Bottom),
+    stock_style(326, STYLES[5], hi_lo(75, 0.75), LegendPos::Bottom),
+    stock_style(327, ChartStyle { title: ty(16.0, true, grey(50)), category_lines: true, ..LIGHT }, hi_lo(50, 1.0), LegendPos::Bottom),
+    stock_style(328, STYLES[7], Stroke { color: WHITE, width: 0.75 }, LegendPos::Bottom),
+    stock_style(
+        329,
+        ChartStyle {
+            title: Type { size: 14.0, bold: true, caps: false, spacing: 20, color: grey(50) },
+            grid: grey(5),
+            axis_line: Some(Stroke { color: grey(25), width: 0.75 }),
+            ..LIGHT
+        },
+        hi_lo(65, 2.0),
+        LegendPos::Bottom,
+    ),
+    stock_style(
+        330,
+        ChartStyle {
+            area: Paint::Solid(theme(ACCENT1, &[])),
+            area_line: Some(theme(ACCENT1, &[])),
+            title: Type { size: 15.0, bold: true, caps: true, spacing: 100, color: WHITE },
+            text: WHITE,
+            category_size: 8.0,
+            category_caps: Some(150),
+            value_lines: false,
+            axis_line: None,
+            ..LIGHT
+        },
+        Stroke { color: WHITE, width: 1.25 },
+        LegendPos::Bottom,
+    ),
+    stock_style(
+        331,
+        ChartStyle {
+            title: ty(20.0, false, grey(65)),
+            minor_lines: true,
+            axis_line: Some(Stroke { color: theme(DK1, &[ColorMod::LumMod(35000), ColorMod::LumOff(65000)]), width: 0.75 }),
+            ..LIGHT
+        },
+        hi_lo(65, 2.0),
+        LegendPos::Top,
+    ),
+    stock_style(
+        352,
+        ChartStyle { title: ty(16.0, true, grey(65)), axis_line: Some(Stroke { color: grey(15), width: 1.0 }), ..LIGHT },
+        hi_lo(75, 0.75),
+        LegendPos::Bottom,
+    ),
+];
+
+/// A combo chart's style: a column or bar page's look for its columns, its line this wide, its
+/// columns this far apart (no overlap), the legend below.
+const fn combo_style(id: u16, look: ChartStyle, width: f32, gap: u16) -> ChartStyle {
+    ChartStyle { gap, overlap: 0, legend: LegendPos::Bottom, ..line_style(id, look, width) }
+}
+
+/// The Style page for combo charts (columns and a line), Style 1 to Style 8: two of them the bar
+/// page's ids.
+pub const COMBO_STYLES: [ChartStyle; 8] = [
+    combo_style(322, LIGHT, 2.25, 150),
+    combo_style(323, STYLES[2], 2.25, 150),
+    combo_style(325, STYLES[4], 1.25, 150),
+    combo_style(326, STYLES[5], 2.5, 150),
+    combo_style(221, BAR_STYLES[5], 1.75, 247),
+    combo_style(328, STYLES[7], 2.75, 247),
+    ChartStyle { legend: LegendPos::Top, ..combo_style(225, BAR_STYLES[9], 3.0, 269) },
+    combo_style(352, STYLES[13], 2.75, 269),
+];
+
 /// A pie style: a look of the column page's, its slices' fill, edge and effect, its legend, and
 /// the labels it brings in (what they say and where).
 const fn pie_style(id: u16, look: ChartStyle, edge: Option<Stroke>, legend: LegendPos, labels: Option<(LabelText, LabelPos)>) -> ChartStyle {
@@ -599,6 +1122,36 @@ pub const PIE_STYLES: [ChartStyle; 12] = [
         ..pie_style(261, LIGHT, None, LegendPos::Bottom, Some((NAME_AND_SHARE, LabelPos::InsideEnd)))
     },
     ChartStyle { title: ty(16.0, true, grey(65)), ..pie_style(344, LIGHT, None, LegendPos::Bottom, Some((NAME_AND_SHARE, LabelPos::InsideEnd))) },
+];
+
+/// The Style page for 3-D pie charts, Style 1 to Style 10: the pie page's looks, the slices'
+/// names with their shares in most.
+pub const PIE3D_STYLES: [ChartStyle; 10] = [
+    pie_style(262, LIGHT, Some(Stroke { color: WHITE, width: 2.0 }), LegendPos::Bottom, None),
+    ChartStyle {
+        title: Type { size: 18.0, bold: true, caps: true, spacing: 0, color: grey(65) },
+        series: Paint::Solid(series(&[ColorMod::Alpha(90000)])),
+        effect: Effect::InnerShadow,
+        ..pie_style(
+            263,
+            LIGHT,
+            Some(Stroke { color: series(&[ColorMod::LumMod(75000)]), width: 1.5 }),
+            LegendPos::None,
+            Some((LabelText::of(false, true, false, false), LabelPos::InsideEnd)),
+        )
+    },
+    ChartStyle {
+        effect: Effect::Shadow(20),
+        labels: ty(10.0, true, WHITE),
+        ..pie_style(264, STYLES[3], None, LegendPos::Right, Some((NAME_AND_SHARE, LabelPos::Center)))
+    },
+    ChartStyle { labels: ty(9.0, false, grey(65)), ..pie_style(265, STYLES[4], None, LegendPos::Bottom, Some((NAME_AND_SHARE, LabelPos::Center))) },
+    pie_style(266, STYLES[5], None, LegendPos::Bottom, Some((NAME_AND_SHARE, LabelPos::Center))),
+    ChartStyle { id: 267, series_line: Some(Stroke { color: WHITE, width: 4.0 }), labels_say: Some(NAME_AND_SHARE), ..PIE_STYLES[5] },
+    pie_style(268, STYLES[7], None, LegendPos::Bottom, Some((NAME_AND_SHARE, LabelPos::Center))),
+    ChartStyle { effect: Effect::Shadow(7), labels: ty(10.0, true, theme(DK1, &[])), ..PIE_STYLES[8] },
+    ChartStyle { effect: Effect::Shadow(7), ..PIE_STYLES[10] },
+    ChartStyle { id: 345, labels: ty(9.0, false, grey(75)), ..PIE_STYLES[11] },
 ];
 
 /// A bar style: a look of the column page's (the value axis kept), its spacing and switches.
@@ -772,6 +1325,17 @@ pub const DOUGHNUT_STYLES: [ChartStyle; 10] = [
     ChartStyle { hole: 70, ..PIE_STYLES[10] },
 ];
 
+/// [`styles_for`] a chart of this depth: 3-D columns have their own page.
+pub fn styles_of(kind: crate::features::ChartKind, depth: crate::features::Depth) -> &'static [ChartStyle] {
+    use crate::features::ChartKind as K;
+    match kind {
+        K::ColumnClustered | K::ColumnStacked | K::ColumnStacked100 if depth != crate::features::Depth::Flat => &COLUMN3D_STYLES,
+        K::Line | K::LineMarkers if depth != crate::features::Depth::Flat => &LINE3D_STYLES,
+        K::Pie if depth != crate::features::Depth::Flat => &PIE3D_STYLES,
+        _ => styles_for(kind),
+    }
+}
+
 /// The Style page for a chart of this kind: line and pie charts' own, the column page's for the
 /// rest.
 pub fn styles_for(kind: crate::features::ChartKind) -> &'static [ChartStyle] {
@@ -784,6 +1348,14 @@ pub fn styles_for(kind: crate::features::ChartKind) -> &'static [ChartStyle] {
         K::Area | K::AreaStacked | K::AreaStacked100 => &AREA_STYLES,
         K::Scatter | K::ScatterLines | K::ScatterLinesNoMarkers => &SCATTER_STYLES,
         K::Radar | K::RadarMarkers => &RADAR_STYLES,
+        K::Combo => &COMBO_STYLES,
+        K::Histogram => &HISTOGRAM_STYLES,
+        K::Waterfall => &WATERFALL_STYLES,
+        K::BoxWhisker => &BOX_STYLES,
+        K::Funnel => &FUNNEL_STYLES,
+        K::Treemap => &TREEMAP_STYLES,
+        K::Sunburst => &SUNBURST_STYLES,
+        K::Stock => &STOCK_STYLES,
         _ => &STYLES,
     }
 }
@@ -804,6 +1376,17 @@ pub fn by_id(id: u16) -> Option<&'static ChartStyle> {
         .chain(AREA_STYLES.iter())
         .chain(SCATTER_STYLES.iter())
         .chain(RADAR_STYLES.iter())
+        .chain(COMBO_STYLES.iter())
+        .chain(COLUMN3D_STYLES.iter())
+        .chain(HISTOGRAM_STYLES.iter())
+        .chain(WATERFALL_STYLES.iter())
+        .chain(BOX_STYLES.iter())
+        .chain(FUNNEL_STYLES.iter())
+        .chain(TREEMAP_STYLES.iter())
+        .chain(SUNBURST_STYLES.iter())
+        .chain(STOCK_STYLES.iter())
+        .chain(LINE3D_STYLES.iter())
+        .chain(PIE3D_STYLES.iter())
         .find(|s| s.id == id)
 }
 

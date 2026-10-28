@@ -2344,6 +2344,162 @@ fn chart_data(s: &mut Session) {
 }
 
 #[test]
+fn stock_and_3d_line_charts_have_their_styles_and_layouts() {
+    let mut s = s();
+    chart_data(&mut s);
+    s.execute("insert.chart", json!({"type": "stock", "range": "A1:D7"})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert_eq!((c.elements.style, c.legend), (322, gridcraft_model::LegendPos::Bottom));
+    assert_eq!(crate::cmd::extra::quick_layouts(c.kind, c.depth), 7);
+    // Style 8 draws its high-low lines 2 pt wide; Layout 4 brings in a data table
+    s.execute("chart.style", json!({"style": 8})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert_eq!(gridcraft_model::chart_style::by_id_for(c.kind, c.elements.style).map(|st| st.line.width), Some(2.0));
+    s.execute("chart.quickLayout", json!({"layout": 4})).unwrap();
+    assert!(s.doc().unwrap().wb.active().unwrap().charts[0].elements.data_table);
+    // its Lines: none takes its high-low lines away, drop and high-low brings both
+    s.execute("chart.addElement", json!({"element": "lines", "on": false})).unwrap();
+    assert!(s.doc().unwrap().wb.active().unwrap().charts[0].elements.no_hi_lo);
+    s.execute("chart.addElement", json!({"element": "lines", "type": "dropHighLow"})).unwrap();
+    let e = s.doc().unwrap().wb.active().unwrap().charts[0].elements;
+    assert!(e.drop_lines && !e.no_hi_lo);
+
+    s.execute("insert.chart", json!({"type": "line", "subtype": "3d", "range": "A1:C7"})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[1].clone();
+    assert_eq!(c.elements.style, 307, "the 3-D line page's Style 1");
+    s.execute("chart.style", json!({"style": 4})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().charts[1].elements.style, 309);
+}
+
+#[test]
+fn treemaps_and_sunbursts_have_their_styles_and_layouts() {
+    let mut s = s();
+    chart_data(&mut s);
+    s.execute("insert.chart", json!({"type": "treemap", "range": "A1:B7"})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    // Style 1: the boxes' names at their bottom left, the legend on top
+    assert_eq!((c.elements.style, c.legend), (410, gridcraft_model::LegendPos::Top));
+    assert!(c.data_labels && c.elements.label_text == gridcraft_model::LabelText::of(false, true, false, false));
+    assert_eq!(crate::cmd::extra::quick_layouts(c.kind, c.depth), 7);
+    // Style 4 puts parents' names in banners; Layout 3 takes the title and names away
+    s.execute("chart.style", json!({"style": 4})).unwrap();
+    assert!(s.doc().unwrap().wb.active().unwrap().charts[0].elements.parent_banner);
+    s.execute("chart.quickLayout", json!({"layout": 3})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(!c.data_labels && c.title.as_deref() == Some("") && !c.elements.parent_banner);
+
+    s.execute("insert.chart", json!({"type": "sunburst", "range": "A1:B7"})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[1].clone();
+    assert_eq!((c.elements.style, c.legend), (381, gridcraft_model::LegendPos::None));
+    assert_eq!(crate::cmd::extra::quick_layouts(c.kind, c.depth), 6);
+    // Layout 2: names and values
+    s.execute("chart.quickLayout", json!({"layout": 2})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[1].clone();
+    assert_eq!(c.elements.label_text, gridcraft_model::LabelText::of(true, true, false, false));
+}
+
+#[test]
+fn box_and_funnel_charts_have_their_styles_and_layouts() {
+    let mut s = s();
+    chart_data(&mut s);
+    s.execute("insert.chart", json!({"type": "boxWhisker", "range": "B1:D7"})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    // Style 1: the means marked, not joined; boxes a box apart; no legend
+    assert_eq!((c.elements.style, c.elements.gap_width, c.legend), (406, Some(100), gridcraft_model::LegendPos::None));
+    assert!(!c.elements.box_mean_line && !c.elements.box_no_mean_marker && !c.data_labels);
+    assert_eq!(crate::cmd::extra::quick_layouts(c.kind, c.depth), 5);
+    // Style 4: the means joined; Layout 2: the figures beside the boxes, no title or gridlines
+    s.execute("chart.style", json!({"style": 4})).unwrap();
+    assert!(s.doc().unwrap().wb.active().unwrap().charts[0].elements.box_mean_line);
+    s.execute("chart.quickLayout", json!({"layout": 2})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(c.data_labels && c.elements.label_pos == gridcraft_model::LabelPos::Right && !c.gridlines && c.title.as_deref() == Some(""));
+    // Layout 4: axis titles, minor gridlines, value axis tick marks
+    s.execute("chart.quickLayout", json!({"layout": 4})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(c.x_title.is_some() && c.elements.minor_val_gridlines && c.elements.val_ticks);
+
+    s.execute("insert.chart", json!({"type": "funnel", "range": "A1:B7"})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[1].clone();
+    assert_eq!((c.elements.style, c.elements.gap_width), (419, Some(6)));
+    assert!(c.data_labels);
+    assert_eq!(crate::cmd::extra::quick_layouts(c.kind, c.depth), 4);
+    // Style 9 takes the title away; Layout 4 hides the stages' axis and titles it, the bars further apart
+    s.execute("chart.style", json!({"style": 9})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().charts[1].title.as_deref(), Some(""));
+    s.execute("chart.quickLayout", json!({"layout": 4})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[1].clone();
+    assert!(c.elements.hide_cat_axis && c.x_title.is_some() && c.elements.gap_width == Some(30) && !c.data_labels);
+}
+
+#[test]
+fn a_waterfall_has_eight_styles_and_five_layouts() {
+    let mut s = s();
+    chart_data(&mut s);
+    s.execute("insert.chart", json!({"type": "waterfall", "range": "A1:B7"})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    // Style 1: values over the bars, lines between them, the legend on top, half a bar apart
+    assert_eq!((c.elements.style, c.legend, c.elements.gap_width), (395, gridcraft_model::LegendPos::Top, Some(50)));
+    assert!(c.data_labels && c.elements.label_pos == gridcraft_model::LabelPos::OutsideEnd && !c.elements.no_connectors);
+    assert_eq!(crate::cmd::extra::quick_layouts(c.kind, c.depth), 5);
+    // Style 3: no lines, a quarter of a bar apart, no value axis; Style 6: no labels, no legend
+    s.execute("chart.style", json!({"style": 3})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(c.elements.no_connectors && c.elements.hide_val_axis && c.elements.gap_width == Some(25));
+    s.execute("chart.style", json!({"style": 6})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(!c.data_labels && c.legend == gridcraft_model::LegendPos::None && c.elements.cat_gridlines && !c.gridlines);
+    // Style 2 brings in a category axis title
+    s.execute("chart.style", json!({"style": 2})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().charts[0].x_title.as_deref(), Some("Axis Title"));
+    // Layout 5: no title, axis titles, a fifth of a bar apart, no lines
+    s.execute("chart.quickLayout", json!({"layout": 5})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(c.title.as_deref() == Some("") && c.y_title.is_some() && c.elements.gap_width == Some(20) && c.elements.no_connectors);
+}
+
+#[test]
+fn a_histogram_has_six_styles_and_three_layouts() {
+    let mut s = s();
+    chart_data(&mut s);
+    s.execute("insert.chart", json!({"type": "histogram", "range": "B1:B7"})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert_eq!((c.elements.style, c.legend), (366, gridcraft_model::LegendPos::None));
+    assert!(c.elements.no_cat_ticks);
+    assert_eq!(crate::cmd::extra::quick_layouts(c.kind, c.depth), 3);
+    // Style 3: the counts inside the bins' ends, no value axis
+    s.execute("chart.style", json!({"style": 3})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(c.data_labels && c.elements.label_pos == gridcraft_model::LabelPos::InsideEnd && c.elements.hide_val_axis);
+    assert!(s.execute("chart.style", json!({"style": 7})).is_err());
+    // Layout 2: the counts over the bins, tick marks, no gridlines
+    s.execute("chart.quickLayout", json!({"layout": 2})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(c.data_labels && c.elements.label_pos == gridcraft_model::LabelPos::OutsideEnd && !c.gridlines && !c.elements.no_cat_ticks);
+}
+
+#[test]
+fn a_3d_column_chart_has_its_own_styles_and_ten_layouts() {
+    let mut s = s();
+    chart_data(&mut s);
+    s.execute("insert.chart", json!({"type": "column", "subtype": "3d", "range": "A1:D4"})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert_eq!(c.elements.style, 286, "the 3-D page's Style 1");
+    assert_eq!(crate::cmd::extra::quick_layouts(c.kind, c.depth), 10);
+    s.execute("chart.style", json!({"style": 11})).unwrap();
+    assert_eq!(s.doc().unwrap().wb.active().unwrap().charts[0].elements.style, 347);
+    // its Layout 10 is the column page's 11th (the overlapping one left out), and Layout 2 keeps
+    // the columns apart
+    s.execute("chart.quickLayout", json!({"layout": 10})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(c.title.as_deref() == Some("") && !c.data_labels && c.legend == gridcraft_model::LegendPos::Right);
+    s.execute("chart.quickLayout", json!({"layout": 2})).unwrap();
+    let c = s.doc().unwrap().wb.active().unwrap().charts[0].clone();
+    assert!(c.data_labels && c.elements.overlap.is_none());
+    assert!(s.execute("chart.quickLayout", json!({"layout": 11})).is_err());
+}
+
+#[test]
 fn a_new_chart_plots_a_block_as_wide_as_tall_by_rows_in_its_family_s_first_style() {
     let mut s = s();
     chart_data(&mut s);
@@ -2365,13 +2521,18 @@ fn a_new_chart_plots_a_block_as_wide_as_tall_by_rows_in_its_family_s_first_style
     s.execute("insert.chart", json!({"type": "radar", "range": "A1:E7"})).unwrap();
     let radar = s.doc().unwrap().wb.active().unwrap().charts[3].clone();
     assert_eq!((radar.elements.style, radar.legend), (317, gridcraft_model::LegendPos::Top));
-    assert_eq!(crate::cmd::extra::quick_layouts(radar.kind), 4);
+    assert_eq!(crate::cmd::extra::quick_layouts(radar.kind, radar.depth), 4);
     s.execute("chart.quickLayout", json!({"layout": 3})).unwrap();
     let radar = s.doc().unwrap().wb.active().unwrap().charts[3].clone();
     assert!(radar.data_labels && radar.elements.minor_val_gridlines && radar.legend == gridcraft_model::LegendPos::Top);
     // kinds without a Style page of their own keep the plain look
-    s.execute("insert.chart", json!({"type": "histogram", "range": "B1:B7"})).unwrap();
+    s.execute("insert.chart", json!({"type": "surface", "range": "B1:D7"})).unwrap();
     assert_eq!(s.doc().unwrap().wb.active().unwrap().charts[4].elements.style, 0);
+    // a combo chart's own page: its Style 1, eight in all
+    s.execute("insert.chart", json!({"type": "combo", "range": "A1:D7"})).unwrap();
+    let combo = s.doc().unwrap().wb.active().unwrap().charts[5].clone();
+    assert_eq!(combo.elements.style, 322);
+    assert_eq!(gridcraft_model::chart_style::styles_for(combo.kind).len(), 8);
 }
 
 #[test]

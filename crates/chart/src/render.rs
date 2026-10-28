@@ -6,7 +6,9 @@ use std::f32::consts::{PI, TAU};
 use gridcraft_model::chart_style::{self, ChartStyle, Effect, Paint, Pattern, Shade};
 use gridcraft_model::{Chart, ChartKind, Depth, ErrorAmount, LabelPos, LabelText, LegendPos, LineDash, Theme, TrendlineKind};
 
-use crate::axis::{Fmt, Scale, clean, fixed_scale, nice_scale, nice_scale_tight, nice_scale_within};
+use crate::axis::{
+    Fmt, Scale, clean, fixed_scale, nice_scale, nice_scale_counts, nice_scale_deep, nice_scale_ten, nice_scale_tight, nice_scale_within,
+};
 use crate::resolve::{MAX_POINTS, MAX_SERIES, MAX_TRENDLINES, series_color};
 use crate::trend::{auto_name, fit_trendline, moving_average};
 use crate::{ChartData, HAlign, Measure, Prim, Rgba, SeriesData, VAlign};
@@ -21,7 +23,6 @@ const AXIS: Rgba = [0xBF, 0xBF, 0xBF, 0xFE];
 const WHITE: Rgba = [0xFF, 0xFF, 0xFF, 0xFF];
 const BLACK: Rgba = [0, 0, 0, 0xFF];
 const STOCK: Rgba = [0x40, 0x40, 0x40, 0xFF];
-pub(crate) const UP: Rgba = [0x3E, 0x9B, 0x5F, 0xFF];
 pub(crate) const DOWN: Rgba = [0xD6, 0x4F, 0x45, 0xFF];
 
 const TITLE_SIZE: f32 = 14.0;
@@ -45,6 +46,8 @@ const MAX_TABLE_SERIES: usize = 20;
 /// the chart's width. Fitted to the steps the reference picks on charts 150 to 288 pixels tall
 /// and 300 to 480 wide: a short axis takes fewer, wider steps.
 const MIN_GRID_GAP: f32 = 10.5;
+/// How much further apart a 3-D plot's gridlines are kept.
+const DEEP_GRID_WIDER: f64 = 1.3;
 /// How far below the plot its category labels start (points), as the reference sets them.
 const CAT_LABEL_GAP: f32 = 7.0;
 /// How long a category axis's tick marks are (points).
@@ -89,6 +92,8 @@ struct Ctx<'a> {
     /// The chart's Style page style, and the theme colours it is made from.
     style: Option<&'static ChartStyle>,
     theme: Vec<[u8; 3]>,
+    /// How tall the chart is under its title (a 3-D plot's value axis takes its steps by it).
+    under_title: f32,
 }
 
 impl Ctx<'_> {
@@ -379,16 +384,19 @@ pub fn legend_entries(chart: &Chart, data: &ChartData) -> Vec<(String, Rgba, Swa
             let n = first_len(data).min(MAX_CATS);
             (0..n).map(|j| (cat_label(data, j), point_color(data, j), Swatch::Box)).collect()
         }
-        ChartKind::Funnel | ChartKind::Stock => vec![],
-        ChartKind::Histogram | ChartKind::Pareto => data.series.first().map(|s| vec![(s.name.clone(), s.color, Swatch::Box)]).unwrap_or_default(),
+        // a stock chart's series are unlined: their names with keys that don't show
+        ChartKind::Stock => data.series.iter().take(4).map(|s| (s.name.clone(), [0, 0, 0, 0], Swatch::Line)).collect(),
+        ChartKind::Histogram | ChartKind::Pareto | ChartKind::Funnel => {
+            data.series.first().map(|s| vec![(s.name.clone(), s.color, Swatch::Box)]).unwrap_or_default()
+        }
         ChartKind::Surface | ChartKind::Contour => surface_legend(data, false),
         ChartKind::SurfaceWireframe | ChartKind::ContourWireframe => surface_legend(data, true),
         ChartKind::Waterfall => {
             if data.series.is_empty() {
                 return vec![];
             }
-            let total = data.series.first().map(|s| s.color).unwrap_or(TEXT);
-            vec![("Increase".into(), UP, Swatch::Box), ("Decrease".into(), DOWN, Swatch::Box), ("Total".into(), total, Swatch::Box)]
+            let [up, down, total] = waterfall_colors(data);
+            vec![("Increase".into(), up, Swatch::Box), ("Decrease".into(), down, Swatch::Box), ("Total".into(), total, Swatch::Box)]
         }
         _ => {
             let series = data.series.iter().take(MAX_SERIES);
@@ -396,6 +404,8 @@ pub fn legend_entries(chart: &Chart, data: &ChartData) -> Vec<(String, Rgba, Swa
                 .clone()
                 .map(|s| {
                     let sw = match plot_kind(chart, s) {
+                        // a 3-D line's ribbons are keyed as boxes
+                        _ if chart.depth == Depth::Rows => Swatch::Box,
                         ChartKind::Line
                         | ChartKind::LineStacked
                         | ChartKind::LineStacked100
@@ -473,6 +483,7 @@ fn sanitize(d: &ChartData) -> ChartData {
                 smooth: s.smooth,
                 trendlines: s.trendlines.iter().take(MAX_TRENDLINES).cloned().collect(),
                 number_format: s.number_format.clone(),
+                totals: s.totals.iter().copied().filter(|t| *t < MAX_POINTS).take(MAX_POINTS).collect(),
             })
             .collect(),
     }
@@ -588,11 +599,13 @@ fn render_points(chart: &Chart, data: &ChartData, w: f32, h: f32, m: &dyn Measur
         Theme::default().colors.iter().map(|c| [(c >> 16) as u8, (c >> 8) as u8, *c as u8]).collect()
     };
     let style = (data.style != 0).then(|| chart_style::by_id_for(chart.kind, data.style)).flatten();
-    let mut ctx = Ctx { out: Vec::new(), m, style, theme };
+    let mut ctx = Ctx { out: Vec::new(), m, style, theme, under_title: 0.0 };
     match style {
         Some(st) => {
-            ctx.paint(Bx { x: 0.0, y: 0.0, w, h }, &st.area, BLACK);
-            if let Some(edge) = st.area_line.map(|c| ctx.shade(&c, BLACK)) {
+            // a chart area in the series' colour takes the first series'
+            let first = data.series.first().map_or(BLACK, |s| s.color);
+            ctx.paint(Bx { x: 0.0, y: 0.0, w, h }, &st.area, first);
+            if let Some(edge) = st.area_line.map(|c| ctx.shade(&c, first)) {
                 ctx.out.push(Prim::Rect { x: 0.0, y: 0.0, w, h, fill: None, stroke: Some((edge, 1.0)), radius: 0.0 });
             }
         }
@@ -632,9 +645,21 @@ fn render_points(chart: &Chart, data: &ChartData, w: f32, h: f32, m: &dyn Measur
             area.h -= used;
         }
     }
+    ctx.under_title = area.h;
     let entries = legend_entries(chart, &data);
     if !entries.is_empty() && area.ok() {
-        area = draw_legend(&mut ctx, &entries, chart.legend, area);
+        // the newer kinds' (waterfalls, box plots, treemaps…) have bigger keys
+        let big = matches!(
+            chart.kind,
+            ChartKind::Histogram
+                | ChartKind::Pareto
+                | ChartKind::Waterfall
+                | ChartKind::BoxWhisker
+                | ChartKind::Funnel
+                | ChartKind::Treemap
+                | ChartKind::Sunburst
+        );
+        area = draw_legend(&mut ctx, &entries, chart.legend, area, big);
     }
     if area.ok() && !data.series.is_empty() {
         draw_kind(&mut ctx, chart, &data, area);
@@ -665,9 +690,17 @@ fn draw_kind(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
         PieOfPie => of_pie(ctx, chart, data, area, false),
         BarOfPie => of_pie(ctx, chart, data, area, true),
         Doughnut => pie(ctx, chart, data, area, f32::from(chart.elements.hole_size.unwrap_or(50).clamp(10, 90)) / 100.0, false),
-        Sunburst => pie(ctx, chart, data, area, 0.2, true),
+        // a sunburst's one ring round a hole half its radius
+        Sunburst => pie(ctx, chart, data, area, 0.5, false),
         Treemap => treemap(ctx, chart, data, area),
-        Funnel => funnel(ctx, chart, data, area),
+        // a funnel's stages run down the left: their axis title goes there
+        Funnel => {
+            let turned = Chart { x_title: None, y_title: chart.x_title.clone(), ..chart.clone() };
+            let area = axis_titles(ctx, &turned, area);
+            if area.ok() {
+                funnel(ctx, chart, data, area);
+            }
+        }
         Radar | RadarMarkers | RadarFilled => radar(ctx, chart, data, area),
         _ => {
             let area = axis_titles(ctx, chart, area);
@@ -722,8 +755,10 @@ fn axis_titles(ctx: &mut Ctx, chart: &Chart, mut area: Bx) -> Bx {
 
 // ---------------------------------------------------------------- legend
 
-fn swatch_w(sw: Swatch, s: f32) -> f32 {
+/// A legend key's width; `wide`: the boxes as long as the lines' keys (a legend that has both).
+fn swatch_w(sw: Swatch, s: f32, wide: bool) -> f32 {
     match sw {
+        Swatch::Box if wide => LINE_KEY,
         Swatch::Box => s,
         Swatch::Line | Swatch::LineMarker => LINE_KEY,
         Swatch::Marker => s * 2.0,
@@ -733,14 +768,27 @@ fn swatch_w(sw: Swatch, s: f32) -> f32 {
 /// How long a line's legend key is (points), as the reference draws it.
 const LINE_KEY: f32 = 19.5;
 
-fn draw_swatch(ctx: &mut Ctx, sw: Swatch, x: f32, yc: f32, s: f32, color: Rgba) {
-    // a line's key is as long as the reference's, dotted when the style's line is
+fn draw_swatch(ctx: &mut Ctx, sw: Swatch, x: f32, yc: f32, s: f32, color: Rgba, wide: bool) {
+    // a line's key is as long as the reference's, as wide as the style's line and dotted when it is
     let line = |ctx: &mut Ctx| {
-        let dots = ctx.style.is_some_and(|st| st.line_dots);
-        ctx.out.push(Prim::Line { pts: vec![[x, yc], [x + LINE_KEY, yc]], color, width: 2.0, dash: dots });
+        let (width, dots) = ctx.style.map_or((2.25, false), |st| (st.line.width, st.line_dots));
+        ctx.out.push(Prim::Line { pts: vec![[x, yc], [x + LINE_KEY, yc]], color, width, dash: dots });
     };
     match sw {
-        Swatch::Box => ctx.rect(x, yc - s / 2.0, s, s, color, None),
+        // a box key filled and edged as the style fills and edges the series
+        Swatch::Box => {
+            let b = if wide { Bx { x, y: yc - s * 0.45, w: LINE_KEY, h: s * 0.9 } } else { Bx { x, y: yc - s / 2.0, w: s, h: s } };
+            match ctx.style {
+                Some(st) => {
+                    ctx.paint(b, &st.series, color);
+                    if let Some(l) = st.series_line {
+                        let edge = ctx.shade(&l.color, color);
+                        ctx.out.push(Prim::Rect { x: b.x, y: b.y, w: b.w, h: b.h, fill: None, stroke: Some((edge, l.width.min(1.0))), radius: 0.0 });
+                    }
+                }
+                None => ctx.rect(b.x, b.y, b.w, b.h, color, None),
+            }
+        }
         Swatch::Line => line(ctx),
         Swatch::LineMarker => {
             line(ctx);
@@ -750,14 +798,17 @@ fn draw_swatch(ctx: &mut Ctx, sw: Swatch, x: f32, yc: f32, s: f32, color: Rgba) 
     }
 }
 
-fn draw_legend(ctx: &mut Ctx, entries: &[(String, Rgba, Swatch)], pos: LegendPos, area: Bx) -> Bx {
-    // as the reference's: small keys close to their names, entries a little apart
+fn draw_legend(ctx: &mut Ctx, entries: &[(String, Rgba, Swatch)], pos: LegendPos, area: Bx, big: bool) -> Bx {
+    // as the reference's: small keys close to their names, entries a little apart (half as big
+    // again for the newer kinds)
     let size = LABEL_SIZE;
     let row_h = size * 1.6;
-    let s = size * 0.52;
-    let gap = 2.0;
+    let s = size * if big { 0.78 } else { 0.52 };
+    let gap = if big { 4.0 } else { 2.0 };
     let spacing = size * 0.65;
-    let item_w = |ctx: &Ctx, e: &(String, Rgba, Swatch)| swatch_w(e.2, s) + gap + ctx.tw(&e.0, size);
+    // columns and lines together (a combo chart): the columns' keys as long as the lines'
+    let wide = entries.iter().any(|e| e.2 == Swatch::Box) && entries.iter().any(|e| matches!(e.2, Swatch::Line | Swatch::LineMarker));
+    let item_w = |ctx: &Ctx, e: &(String, Rgba, Swatch)| swatch_w(e.2, s, wide) + gap + ctx.tw(&e.0, size);
     match pos {
         LegendPos::None => area,
         LegendPos::Top | LegendPos::Bottom => {
@@ -787,8 +838,8 @@ fn draw_legend(ctx: &mut Ctx, entries: &[(String, Rgba, Swatch)], pos: LegendPos
                 let yc = y0 + ri as f32 * row_h + row_h / 2.0;
                 for &(i, iw) in row {
                     if let Some(e) = entries.get(i) {
-                        draw_swatch(ctx, e.2, x, yc, s, e.1);
-                        let sx = swatch_w(e.2, s) + gap;
+                        draw_swatch(ctx, e.2, x, yc, s, e.1, wide);
+                        let sx = swatch_w(e.2, s, wide) + gap;
                         let t = ctx.fit(&e.0, size, (iw - sx).max(0.0) + 0.5);
                         ctx.text(x + sx, yc, &t, size, TEXT, HAlign::Left, VAlign::Middle);
                     }
@@ -807,8 +858,8 @@ fn draw_legend(ctx: &mut Ctx, entries: &[(String, Rgba, Swatch)], pos: LegendPos
             let x0 = if pos == LegendPos::Right { area.right() - colw } else { area.x };
             for (i, e) in entries.iter().take(n).enumerate() {
                 let yc = y0 + i as f32 * row_h + row_h / 2.0;
-                draw_swatch(ctx, e.2, x0, yc, s, e.1);
-                let sx = swatch_w(e.2, s) + gap;
+                draw_swatch(ctx, e.2, x0, yc, s, e.1, wide);
+                let sx = swatch_w(e.2, s, wide) + gap;
                 let t = ctx.fit(&e.0, size, (colw - sx).max(0.0) + 0.5);
                 ctx.text(x0 + sx, yc, &t, size, TEXT, HAlign::Left, VAlign::Middle);
             }
@@ -1492,6 +1543,10 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
     // Axis scales: an upright value axis takes as many steps as it has room for.
     let room = if horizontal {
         f64::from(area.w / MIN_GRID_GAP_ACROSS)
+    } else if deep {
+        // the reference sizes a 3-D plot's steps by the chart under its title, whatever the
+        // legend, axis titles or data table take
+        value_room(ctx.under_title - LABEL_SIZE * 1.4 * 1.5 - 1.0 - CAT_LABEL_GAP)
     } else {
         let table = if chart.elements.data_table { LABEL_SIZE * 1.6 * (data.series.len() + 1) as f32 } else { 0.0 };
         value_room(area.h - LABEL_SIZE * 1.4 * 1.5 - 1.0 - CAT_LABEL_GAP - table)
@@ -1513,7 +1568,12 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
             (fixed_scale(if lo < -1e-9 { -1.0 } else { 0.0 }, if hi > 1e-9 || lo >= -1e-9 { 1.0 } else { 0.0 }, 0.2), Fmt::new("0%"))
         } else {
             let code = members.first().and_then(|i| data.series.get(*i)).map(|s| s.number_format.as_str()).unwrap_or("General");
-            (nice_scale_within(lo, hi, force_zero, room.floor()), Fmt::new(code))
+            let scale = if deep {
+                nice_scale_deep(lo, hi, force_zero, (room / DEEP_GRID_WIDER).floor())
+            } else {
+                nice_scale_within(lo, hi, force_zero, room.floor())
+            };
+            (scale, Fmt::new(code))
         };
         axes.push((scale, fmt));
         if !axis && sec.iter().all(|s| !s) {
@@ -1533,7 +1593,9 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
         .fold(0.0, f64::max);
     let ncat_slots = ncat.saturating_add(fwd.ceil() as usize).min(MAX_CATS.max(ncat));
     let labels: Vec<String> = (0..ncat_slots).map(|j| if j < ncat { cat_label(data, j) } else { String::new() }).collect();
-    let table = !deep && chart.elements.data_table && ncat <= MAX_TABLE_CATS && data.series.len() <= MAX_TABLE_SERIES;
+    // 3-D columns keep a data table under their floor; other 3-D plots have none
+    let all_cols = fams.iter().all(|f| is_col(*f));
+    let table = (!deep || all_cols) && chart.elements.data_table && ncat <= MAX_TABLE_CATS && data.series.len() <= MAX_TABLE_SERIES;
     let row_h = LABEL_SIZE * 1.6;
     let table_h = if table { row_h * (data.series.len() + 1) as f32 } else { 0.0 };
     let blank = vec![String::new(); if table { ncat_slots } else { 0 }];
@@ -1554,8 +1616,15 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
     } else {
         area
     };
-    let d = if deep { depth_of(frame_area.w, 0.08) } else { [0.0, 0.0] };
-    let frame_area = if deep { Bx { y: frame_area.y + d[1], w: frame_area.w - d[0], h: frame_area.h - d[1], ..frame_area } } else { frame_area };
+    // columns go back a column's width, in the middle of a plot two and a half times as deep
+    let share = if all_cols { 0.045 } else { 0.08 };
+    let d = if deep { depth_of(frame_area.w, share) } else { [0.0, 0.0] };
+    // the reference keeps half a depth's room on the left of a 3-D plot and a depth on its right
+    let frame_area = if deep {
+        Bx { x: frame_area.x + d[0] * 0.5, y: frame_area.y + d[1], w: frame_area.w - d[0] * 2.5, h: frame_area.h - d[1] }
+    } else {
+        frame_area
+    };
     let plot = frame(
         ctx,
         frame_area,
@@ -1569,16 +1638,16 @@ fn cartesian(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, horizonta
         return;
     }
     if deep {
-        let ticks: Vec<f32> = y1
-            .scale
-            .ticks()
-            .into_iter()
-            .map(|v| if horizontal { plot.x + y1.scale.frac(v) * plot.w } else { plot.bottom() - y1.scale.frac(v) * plot.h })
-            .collect();
+        let at = |v: f64| if horizontal { plot.x + y1.scale.frac(v) * plot.w } else { plot.bottom() - y1.scale.frac(v) * plot.h };
+        if chart.elements.minor_val_gridlines {
+            let minor: Vec<f32> = minor_ticks(&y1.scale).into_iter().map(at).collect();
+            wall_lines(ctx, plot, d, &minor, horizontal, MINOR_GRID);
+        }
+        let ticks: Vec<f32> = y1.scale.ticks().into_iter().map(at).collect();
         walls(ctx, plot, d, &ticks, horizontal, chart.gridlines);
     }
     // 3-D columns stand back from the front plane, in the middle of the plot's depth
-    let (f0, dd) = ([d[0] * 0.25, d[1] * 0.25], [d[0] * 0.5, d[1] * 0.5]);
+    let (f0, dd) = ([d[0] * 0.3, d[1] * 0.3], [d[0] * 0.4, d[1] * 0.4]);
     let scale_of = |i: usize| -> Scale { if sec.get(i).copied().unwrap_or(false) { y2.as_ref().map(|a| a.scale).unwrap_or(*s1) } else { *s1 } };
     let cat_len = if horizontal { plot.h } else { plot.w };
     let cw = cat_len / ncat_slots as f32;
@@ -1822,16 +1891,39 @@ fn depth_of(w: f32, share: f32) -> [f32; 2] {
     [dx, dx * 0.65]
 }
 
-/// A box seen from the front at (`x`, `y`), `w`×`h`, its top and right side going back by `d`.
+/// A box seen from the front at (`x`, `y`), `w`×`h`, its top and right side going back by `d`:
+/// its face as a column of the chart's style, its sides that colour darkened.
 fn block(ctx: &mut Ctx, x: f32, y: f32, w: f32, h: f32, d: [f32; 2], fill: Rgba) {
     let [dx, dy] = d;
-    ctx.out.push(Prim::Polygon {
-        pts: vec![[x + w, y], [x + w + dx, y - dy], [x + w + dx, y + h - dy], [x + w, y + h]],
-        fill: shade(fill, 0.62),
-        stroke: None,
-    });
-    ctx.out.push(Prim::Polygon { pts: vec![[x, y], [x + dx, y - dy], [x + w + dx, y - dy], [x + w, y]], fill: shade(fill, 0.8), stroke: None });
-    ctx.rect(x, y, w, h, fill, None);
+    let (side, edge) = if ctx.style.is_some() { ctx.slice(fill) } else { (fill, None) };
+    // a gradient down the face runs down the side too, and the top takes its first colour
+    let fade: Option<Vec<(f32, Rgba)>> = match ctx.style.map(|st| &st.series) {
+        Some(Paint::Gradient { stops, from: None }) => Some(stops.iter().map(|(at, c)| (*at as f32 / 100_000.0, ctx.shade(c, fill))).collect()),
+        _ => None,
+    };
+    if dx > 0.0 {
+        match &fade {
+            Some(stops) if h > 2.0 => {
+                let n = ((h / 2.0) as usize).clamp(1, 48);
+                for k in 0..n {
+                    let (t0, t1) = (k as f32 / n as f32, (k + 1) as f32 / n as f32);
+                    let (y0, y1) = (y + h * t0, y + h * t1 + 0.5);
+                    let pts = vec![[x + w, y0], [x + w + dx, y0 - dy], [x + w + dx, y1 - dy], [x + w, y1]];
+                    ctx.out.push(Prim::Polygon { pts, fill: shade(gradient_at(stops, (t0 + t1) / 2.0), 0.62), stroke: None });
+                }
+            }
+            _ => ctx.out.push(Prim::Polygon {
+                pts: vec![[x + w, y], [x + w + dx, y - dy], [x + w + dx, y + h - dy], [x + w, y + h]],
+                fill: shade(side, 0.62),
+                stroke: edge,
+            }),
+        }
+    }
+    if dy > 0.0 {
+        let top = fade.as_ref().map_or(side, |stops| gradient_at(stops, 0.0));
+        ctx.out.push(Prim::Polygon { pts: vec![[x, y], [x + dx, y - dy], [x + w + dx, y - dy], [x + w, y]], fill: shade(top, 0.8), stroke: edge });
+    }
+    ctx.column(x, y, w, h, fill);
 }
 
 /// An area given depth: its top as a sloping roof, its right end, then its face, all `off` back
@@ -1857,23 +1949,30 @@ fn raised_area(ctx: &mut Ctx, top: &[[f32; 2]], base: &[[f32; 2]], off: [f32; 2]
 }
 
 /// The walls behind a 3-D plot whose front plane is `plot`: each gridline (at `ticks` along the
-/// value axis) runs back along the floor or side wall and across the back wall; then the walls'
-/// edges.
+/// value axis) runs back along the floor or side wall and across the back wall; then the floor's
+/// edges (the walls' upright edges aren't drawn).
 fn walls(ctx: &mut Ctx, plot: Bx, d: [f32; 2], ticks: &[f32], horizontal: bool, grid: bool) {
     let [dx, dy] = d;
     if grid {
-        for t in ticks {
-            let pts = if horizontal {
-                vec![[*t, plot.bottom()], [t + dx, plot.bottom() - dy], [t + dx, plot.y - dy]]
-            } else {
-                vec![[plot.x, *t], [plot.x + dx, t - dy], [plot.right() + dx, t - dy]]
-            };
-            ctx.line(pts, GRID, 0.75);
-        }
+        wall_lines(ctx, plot, d, ticks, horizontal, GRID);
     }
-    ctx.line(vec![[plot.x + dx, plot.y - dy], [plot.x + dx, plot.bottom() - dy], [plot.right() + dx, plot.bottom() - dy]], GRID, 0.75);
+    ctx.line(vec![[plot.x + dx, plot.bottom() - dy], [plot.right() + dx, plot.bottom() - dy]], GRID, 0.75);
     ctx.line(vec![[plot.x, plot.bottom()], [plot.x + dx, plot.bottom() - dy]], GRID, 0.75);
     ctx.line(vec![[plot.right(), plot.bottom()], [plot.right() + dx, plot.bottom() - dy]], GRID, 0.75);
+}
+
+/// Gridlines at `ticks` along a 3-D plot's value axis, back along the floor or side wall and
+/// across the back wall.
+fn wall_lines(ctx: &mut Ctx, plot: Bx, d: [f32; 2], ticks: &[f32], horizontal: bool, color: Rgba) {
+    let [dx, dy] = d;
+    for t in ticks {
+        let pts = if horizontal {
+            vec![[*t, plot.bottom()], [t + dx, plot.bottom() - dy], [t + dx, plot.y - dy]]
+        } else {
+            vec![[plot.x, *t], [plot.x + dx, t - dy], [plot.right() + dx, t - dy]]
+        };
+        ctx.line(pts, color, 0.75);
+    }
 }
 
 /// 3-D Column, 3-D Line and 3-D Area: each series in a row of its own going back from the front
@@ -1885,12 +1984,14 @@ fn rows3d(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, fam: Fam) {
         return;
     }
     let Some((lo, hi)) = value_range(data.series.iter().flat_map(|s| s.values.iter().take(ncat).flatten().copied())) else { return };
-    let scale = nice_scale(lo, hi, !is_line(fam));
     let fmt = Fmt::new(data.series.first().map(|s| s.number_format.as_str()).unwrap_or("General"));
     let labels: Vec<String> = (0..ncat).map(|j| cat_label(data, j)).collect();
     let names_w = data.series.iter().map(|s| ctx.tw(&s.name, LABEL_SIZE)).fold(0.0f32, f32::max).min(area.w * 0.25) + 6.0;
     let d = depth_of(area.w, (0.09 * nser as f32).min(0.36));
     let d = [d[0].min(area.w * 0.36), d[1].min(area.h * 0.4)];
+    // no headroom over the values, as many steps as its front edge has room for
+    let room = value_room(area.h - d[1] - LABEL_SIZE * 1.4 * 1.5 - 1.0 - CAT_LABEL_GAP);
+    let scale = nice_scale_deep(lo, hi, !is_line(fam), room.floor());
     let room = Bx { y: area.y + d[1], w: area.w - d[0] - names_w, h: area.h - d[1], ..area };
     if !room.ok() {
         return;
@@ -2256,26 +2357,24 @@ fn scatter(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
 // ---------------------------------------------------------------- histogram
 
 /// The bins a histogram sorts a series' values into: each bin's label and count.
-fn bins(s: &SeriesData) -> Option<(Vec<String>, Vec<usize>)> {
+pub(crate) fn bins(s: &SeriesData) -> Option<(Vec<String>, Vec<usize>)> {
     let vals: Vec<f64> = s.values.iter().flatten().copied().collect();
     let (lo, hi) = value_range(vals.iter().copied())?;
     let n = vals.len();
     let span = hi - lo;
-    let mut bins = ((n as f64).sqrt().ceil() as usize).clamp(1, 100);
-    if !(span.is_finite() && span > 0.0) {
-        bins = 1;
-    }
-    let width = if bins == 1 && span.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) { 1.0 } else { span / bins as f64 };
-    // Upper edge of each bin, exactly as shown in the labels below. Bins are right-inclusive (the first is closed on both sides), so a value
-    // equal to an edge belongs to the bin that ends there.
-    let edges: Vec<f64> = (0..bins).map(|b| if b + 1 == bins { hi.max(lo + b as f64 * width) } else { lo + (b + 1) as f64 * width }).collect();
-    let mut counts = vec![0usize; bins];
-    for v in &vals {
-        let b = edges.partition_point(|e| e < v).min(bins - 1);
-        if let Some(c) = counts.get_mut(b) {
-            *c += 1;
-        }
-    }
+    // the reference's automatic bins: Scott's rule, 3.49 sample deviations over the cube root
+    // of the count wide, from the lowest value up past the highest
+    let mean = vals.iter().sum::<f64>() / n.max(1) as f64;
+    let dev = (vals.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n.saturating_sub(1).max(1) as f64).sqrt();
+    let scott = 3.49 * dev / (n as f64).cbrt();
+    let (bins, width) = if span.is_finite() && span > 0.0 && scott.is_finite() && scott > 0.0 {
+        let bins = ((span / scott).ceil() as usize).clamp(1, 100);
+        // too many bins for the cap: wider ones
+        (bins, if bins == 100 { span / 100.0 } else { scott })
+    } else {
+        (1, if span.is_finite() && span > 0.0 { span } else { 1.0 })
+    };
+    let (edges, counts) = bin_counts(&vals, lo, width, bins);
     let f = Fmt::new(&s.number_format);
     let labels: Vec<String> = (0..bins)
         .map(|b| {
@@ -2288,12 +2387,30 @@ fn bins(s: &SeriesData) -> Option<(Vec<String>, Vec<usize>)> {
     Some((labels, counts))
 }
 
+/// `vals` in `bins` bins `width` wide from `lo`: each bin's upper edge (as its label shows it)
+/// and count. Bins are right-inclusive (the first closed on both sides), so a value on an edge
+/// belongs to the bin that ends there.
+pub(crate) fn bin_counts(vals: &[f64], lo: f64, width: f64, bins: usize) -> (Vec<f64>, Vec<usize>) {
+    let bins = bins.max(1);
+    let edges: Vec<f64> = (0..bins).map(|b| lo + (b + 1) as f64 * width).collect();
+    let mut counts = vec![0usize; bins];
+    for v in vals {
+        let b = edges.partition_point(|e| e < v).min(bins - 1);
+        if let Some(c) = counts.get_mut(b) {
+            *c += 1;
+        }
+    }
+    (edges, counts)
+}
+
 fn histogram(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
     let Some(s) = data.series.first() else { return };
     let Some((labels, counts)) = bins(s) else { return };
     let bins = counts.len().max(1);
     let maxc = counts.iter().copied().max().unwrap_or(0) as f64;
-    let ys = nice_scale(0.0, maxc, true);
+    // as many steps as the axis has room for, up to ten
+    let room = value_room(area.h - LABEL_SIZE * 1.4 * 1.5 - 1.0 - CAT_LABEL_GAP);
+    let ys = nice_scale_counts(0.0, maxc, room.floor());
     let fc = Fmt::new("General");
     let plot = frame(ctx, area, CatAxis::Labels(&labels), &ValAxis { scale: ys, fmt: &fc }, None, false, Grid::of(chart));
     if !plot.ok() {
@@ -2303,9 +2420,15 @@ fn histogram(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
     for (b, c) in counts.iter().enumerate() {
         let top = plot.bottom() - ys.frac(*c as f64) * plot.h;
         let x = plot.x + b as f32 * cw;
-        ctx.rect(x, top, cw, plot.bottom() - top, s.color, Some((WHITE, 0.75)));
+        // a style's bins as its columns; the plain ones edged in white
+        if ctx.style.is_some() {
+            ctx.column(x, top, cw, plot.bottom() - top, s.color);
+        } else {
+            ctx.rect(x, top, cw, plot.bottom() - top, s.color, Some((WHITE, 0.75)));
+        }
         if chart.data_labels {
-            ctx.text(x + cw / 2.0, top - 2.0, &c.to_string(), LABEL_SIZE, TEXT, HAlign::Center, VAlign::Bottom);
+            let (lx, ly, color, ha, va) = bar_label(chart.elements.label_pos, false, false, plot.bottom(), top, x + cw / 2.0, s.color);
+            ctx.label(lx, ly, &c.to_string(), color, s.color, ha, va);
         }
     }
 }
@@ -2371,63 +2494,67 @@ fn pareto(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
 
 fn waterfall(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
     let Some(s) = data.series.first() else { return };
-    let mut ncat = data.categories.len().max(s.values.len()).min(MAX_CATS);
+    let ncat = data.categories.len().max(s.values.len()).min(MAX_CATS);
     if ncat == 0 {
         return;
     }
-    let mut labels: Vec<String> = (0..ncat).map(|j| cat_label(data, j)).collect();
-    let mut vals: Vec<f64> = (0..ncat).map(|j| s.values.get(j).copied().flatten().unwrap_or(0.0)).collect();
-    let mut is_total = vec![false; ncat];
-    let last_total = labels.last().is_some_and(|l| l.to_lowercase().contains("total"));
-    if let Some(t) = is_total.last_mut() {
-        *t = last_total;
-    }
-    if !last_total {
-        labels.push("Total".into());
-        vals.push(0.0);
-        is_total.push(true);
-        ncat += 1;
-    }
+    let labels: Vec<String> = (0..ncat).map(|j| cat_label(data, j)).collect();
+    // each bar's base, end and kind: a total (0) stands from zero at its own value, which the
+    // running total carries on from; the rest go up (1) or down (2) from where it got to
     let mut bars = Vec::with_capacity(ncat);
     let mut cum = 0.0f64;
-    for (j, v) in vals.iter().enumerate() {
-        if is_total.get(j).copied().unwrap_or(false) {
-            let total = if last_total && j + 1 == ncat && *v != 0.0 { *v } else { cum };
-            bars.push((0.0, total, 0u8));
-            cum = total;
+    for j in 0..ncat {
+        let v = s.values.get(j).copied().flatten().unwrap_or(0.0);
+        if s.totals.contains(&j) {
+            bars.push((0.0, v, 0u8));
+            cum = v;
         } else {
             let top = clean(cum + v);
-            bars.push((cum, top, if *v >= 0.0 { 1 } else { 2 }));
+            bars.push((cum, top, if v >= 0.0 { 1 } else { 2 }));
             cum = top;
         }
     }
     let (lo, hi) = value_range(bars.iter().flat_map(|(b, t, _)| [*b, *t])).unwrap_or((0.0, 0.0));
-    let ys = nice_scale(lo, hi, true);
+    let room = value_room(area.h - LABEL_SIZE * 1.4 * 1.5 - 1.0 - CAT_LABEL_GAP);
+    let ys = nice_scale_within(lo, hi, true, room.floor());
     let f = Fmt::new(&s.number_format);
     let plot = frame(ctx, area, CatAxis::Labels(&labels), &ValAxis { scale: ys, fmt: &f }, None, false, Grid::of(chart));
     if !plot.ok() {
         return;
     }
     let cw = plot.w / ncat as f32;
-    let bw = cw / 1.5;
+    // the gap between bars, a share of a bar (half of one unless the style or layout says)
+    let gap = f32::from(chart.elements.gap_width.unwrap_or(50).min(500)) / 100.0;
+    let bw = cw / (1.0 + gap);
     let vy = |v: f64| plot.bottom() - ys.frac(v) * plot.h;
+    let colors = waterfall_colors(data);
     for (j, (b, t, kind)) in bars.iter().enumerate() {
-        let color = match kind {
-            1 => UP,
-            2 => DOWN,
-            _ => s.color,
-        };
+        let color = colors[usize::from((*kind + 2) % 3)];
         let x = plot.x + (j as f32 + 0.5) * cw - bw / 2.0;
         let (yb, yt) = (vy(*b), vy(*t));
-        ctx.rect(x, yb.min(yt), bw, (yb - yt).abs().max(0.5), color, None);
-        if j + 1 < bars.len() && ncat <= 500 {
-            ctx.out.push(Prim::Line { pts: vec![[x + bw, yt], [x + cw, yt]], color: AXIS, width: 0.75, dash: true });
+        let (top, h) = (yb.min(yt), (yb - yt).abs().max(0.5));
+        if ctx.style.is_some() {
+            ctx.column(x, top, bw, h, color);
+        } else {
+            ctx.rect(x, top, bw, h, color, None);
+        }
+        // a thin black line from where the bar ends to the next bar
+        if !chart.elements.no_connectors && j + 1 < bars.len() && ncat <= 500 {
+            ctx.out.push(Prim::Line { pts: vec![[x + bw, yt], [x + cw, yt]], color: BLACK, width: 0.5, dash: false });
         }
         if chart.data_labels && ncat <= MAX_LABELS {
             let v = if *kind == 0 { *t } else { t - b };
-            ctx.text(x + bw / 2.0, yb.min(yt) - 2.0, &f.format(v, None), LABEL_SIZE, TEXT, HAlign::Center, VAlign::Bottom);
+            let (lx, ly, fallback, ha, va) = bar_label(chart.elements.label_pos, false, false, yb, yt, x + bw / 2.0, color);
+            ctx.label(lx, ly, &f.format(v, None), fallback, color, ha, va);
         }
     }
+}
+
+/// A waterfall's colours: its increases in the series' colour, its decreases and totals in the
+/// palette's next two.
+fn waterfall_colors(data: &ChartData) -> [Rgba; 3] {
+    let first = data.series.first().map_or_else(|| point_color(data, 0), |s| s.color);
+    [first, point_color(data, 1), point_color(data, 2)]
 }
 
 // ---------------------------------------------------------------- funnel
@@ -2443,32 +2570,51 @@ fn funnel(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
     if max.is_nan() || max <= 0.0 {
         return;
     }
+    // the stages' names down the left, unless the axis is hidden
+    let axis = !chart.elements.hide_cat_axis;
     let labels: Vec<String> = (0..n).map(|j| cat_label(data, j)).collect();
-    let lw = (labels.iter().take(2000).map(|t| ctx.tw(t, LABEL_SIZE)).fold(0.0f32, f32::max) + 8.0).min(area.w * 0.35);
+    let lw = if axis { (labels.iter().take(2000).map(|t| ctx.tw(t, LABEL_SIZE)).fold(0.0f32, f32::max) + 8.0).min(area.w * 0.35) } else { 0.0 };
     let plot = Bx { x: area.x + lw, w: area.w - lw, ..area };
     if !plot.ok() {
         return;
     }
+    // each bar its slot less the gap (a share of a bar: 6% unless the style or layout says)
     let slot = plot.h / n as f32;
-    let bh = slot * 0.85;
+    let gap = f32::from(chart.elements.gap_width.unwrap_or(6).min(500)) / 100.0;
+    let bh = slot / (1.0 + gap);
     let f = Fmt::new(&s.number_format);
     let show = slot >= LABEL_SIZE * 0.9;
+    // the axis line down the left of the bars
+    if axis {
+        let width = ctx.style.map_or(Some(0.75), |st| st.axis_line.map(|l| l.width));
+        if let Some(w) = width {
+            ctx.vline(plot.x, plot.y, plot.bottom(), AXIS, w);
+        }
+    }
     for (j, v) in vals.iter().enumerate() {
         let bw = (*v / max) as f32 * plot.w;
         let x = plot.x + (plot.w - bw) / 2.0;
         let y = plot.y + j as f32 * slot + (slot - bh) / 2.0;
         if bw > 0.0 {
-            ctx.rect(x, y, bw, bh, s.color, None);
+            if ctx.style.is_some() {
+                ctx.column(x, y, bw, bh, s.color);
+            } else {
+                ctx.rect(x, y, bw, bh, s.color, None);
+            }
         }
         if show {
             let yc = y + bh / 2.0;
+            // the values in the middle of the bars, in a colour that reads on them whatever the style
             if chart.data_labels {
                 let t = f.format(s.values.get(j).copied().flatten().unwrap_or(0.0), None);
-                let color = if ctx.tw(&t, LABEL_SIZE) + 4.0 <= bw { on(s.color) } else { TEXT };
-                ctx.text(plot.cx(), yc, &t, LABEL_SIZE, color, HAlign::Center, VAlign::Middle);
+                let size = ctx.style.map_or(LABEL_SIZE, |st| st.labels.size);
+                let color = if ctx.tw(&t, size) + 4.0 <= bw { on(s.color) } else { TEXT };
+                ctx.text(plot.cx(), yc, &t, size, color, HAlign::Center, VAlign::Middle);
             }
-            let l = ctx.fit(labels.get(j).map(String::as_str).unwrap_or(""), LABEL_SIZE, lw - 8.0);
-            ctx.text(plot.x - 6.0, yc, &l, LABEL_SIZE, TEXT, HAlign::Right, VAlign::Middle);
+            if axis {
+                let l = ctx.fit(labels.get(j).map(String::as_str).unwrap_or(""), LABEL_SIZE, lw - 8.0);
+                ctx.text(plot.x - 6.0, yc, &l, LABEL_SIZE, TEXT, HAlign::Right, VAlign::Middle);
+            }
         }
     }
 }
@@ -2483,7 +2629,9 @@ fn pie(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, inner: f32, nam
         return;
     }
     let (cx, cy) = (area.cx(), area.cy());
-    let r = area.w.min(area.h) / 2.0 * 0.92;
+    // a sunburst's ring fills nearly all the height
+    let rings = chart.kind == ChartKind::Sunburst;
+    let r = area.w.min(area.h) / 2.0 * if rings { 0.98 } else { 0.92 };
     if r < 2.0 {
         return;
     }
@@ -2521,7 +2669,36 @@ fn pie(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx, inner: f32, nam
                     label_text(lt, &s.name, &cat_label(data, j), &value, Some(&share), sep)
                 };
                 let mid = a + sweep / 2.0;
-                if outside {
+                if rings {
+                    // along the ring's radius, kept the right way up
+                    let rr = (r + ri) / 2.0;
+                    let mut turn = mid.to_degrees() - 90.0;
+                    if turn > 90.0 {
+                        turn -= 180.0;
+                    }
+                    if turn > 90.0 {
+                        turn -= 180.0;
+                    }
+                    let size = ctx.style.map_or(LABEL_SIZE, |st| st.labels.size);
+                    if ctx.tw(&t, size) <= (r - ri) * 1.15 && sweep * rr >= size {
+                        let (color, bold) = match ctx.style {
+                            Some(st) => (ctx.shade(&st.labels.color, color), st.labels.bold),
+                            None => (on(fill), false),
+                        };
+                        let (x, y) = (cx + rr * mid.sin(), cy - rr * mid.cos());
+                        ctx.out.push(Prim::Text {
+                            x,
+                            y,
+                            text: t,
+                            size,
+                            color,
+                            bold,
+                            align: HAlign::Center,
+                            valign: VAlign::Middle,
+                            rotation: turn.to_radians(),
+                        });
+                    }
+                } else if outside {
                     let rr = r + 4.0;
                     let ha = if mid.sin() >= 0.0 { HAlign::Left } else { HAlign::Right };
                     labels.push((cx + rr * mid.sin(), cy - rr * mid.cos(), t, TEXT, color, ha));
@@ -2581,31 +2758,51 @@ fn pie3d(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
         }
         a += sweep;
     }
-    // the rim: the part of each slice between 3 and 9 o'clock, round the front
+    // the rim: the part of each slice between 3 and 9 o'clock, round the front, in the slice's
+    // colour darkened
     for (a0, a1, j) in &slices {
         let (s0, s1) = (a0.max(PI / 2.0), a1.min(PI * 1.5));
         if s1 > s0 {
             let mut pts = arc(s0, s1, 0.0);
             pts.extend(arc(s0, s1, h).into_iter().rev());
-            let fill = shade(point_color(data, *j), 0.7);
-            ctx.out.push(Prim::Polygon { pts, fill, stroke: Some((WHITE, 0.75)) });
+            let (top, _) = ctx.slice(point_color(data, *j));
+            ctx.out.push(Prim::Polygon { pts, fill: shade(top, 0.7), stroke: Some((WHITE, 0.75)) });
         }
     }
     let f = Fmt::new(&s.number_format);
+    let lt = chart.elements.label_text;
     let mut labels = Vec::new();
     for (a0, a1, j) in &slices {
-        let fill = point_color(data, *j);
+        let color = point_color(data, *j);
+        // the slice filled and edged as the style has them
+        let (fill, edge) = ctx.slice(color);
         let mut pts = vec![[cx, cy]];
         pts.extend(arc(*a0, *a1, 0.0));
-        ctx.out.push(Prim::Polygon { pts, fill, stroke: Some((WHITE, 1.0)) });
+        ctx.out.push(Prim::Polygon { pts, fill, stroke: edge });
         if chart.data_labels && vals.len() <= MAX_LABELS {
             let mid = (a0 + a1) / 2.0;
-            let t = f.format(s.values.get(*j).copied().flatten().unwrap_or(0.0), None);
-            labels.push((cx + rx * 0.62 * mid.sin(), cy - ry * 0.62 * mid.cos(), t, on(fill)));
+            // what the labels say, a name and share on lines of their own, as on a flat pie
+            let v = vals.get(*j).copied().unwrap_or(0.0);
+            let share = format!("{:.0}%", v / total * 100.0);
+            let sep = if lt.percent && (lt.category || lt.series) && !lt.value { "\n" } else { ", " };
+            let value = f.format(s.values.get(*j).copied().flatten().unwrap_or(0.0), None);
+            let t = label_text(lt, &s.name, &cat_label(data, *j), &value, Some(&share), sep);
+            let k = match chart.elements.label_pos {
+                LabelPos::Center => 0.5,
+                LabelPos::InsideEnd => 0.78,
+                // (a 3-D pie keeps even outside-end labels on its slices)
+                _ => 0.62,
+            };
+            labels.push((cx + rx * k * mid.sin(), cy - ry * k * mid.cos(), t, on(fill), color));
         }
     }
-    for (x, y, t, c) in labels {
-        ctx.text(x, y, &t, LABEL_SIZE, c, HAlign::Center, VAlign::Middle);
+    for (x, y, t, c, color) in labels {
+        let lines: Vec<&str> = t.split('\n').collect();
+        let lh = LABEL_SIZE * 1.2;
+        let top = y - lh * (lines.len() as f32 - 1.0) / 2.0;
+        for (k, l) in lines.iter().enumerate() {
+            ctx.label(x, top + lh * k as f32, l, c, color, HAlign::Center, VAlign::Middle);
+        }
     }
 }
 
@@ -3088,14 +3285,36 @@ fn treemap(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
     let f = Fmt::new(&s.number_format);
     for (j, b) in squarify(&items, area) {
         let fill = point_color(data, j);
-        ctx.rect(b.x, b.y, b.w, b.h, fill, Some((WHITE, 1.5)));
-        if b.w > 24.0 && b.h > LABEL_SIZE * 1.6 {
-            let name = ctx.fit(&cat_label(data, j), LABEL_SIZE, b.w - 8.0);
-            ctx.text(b.x + 4.0, b.y + 4.0, &name, LABEL_SIZE, on(fill), HAlign::Left, VAlign::Top);
-            if chart.data_labels && b.h > LABEL_SIZE * 3.2 {
-                let v = items.iter().find(|x| x.0 == j).map(|x| x.1).unwrap_or(0.0);
-                let t = ctx.fit(&f.format(v, None), LABEL_SIZE, b.w - 8.0);
-                ctx.text(b.x + 4.0, b.y + 4.0 + LABEL_SIZE * 1.4, &t, LABEL_SIZE, on(fill), HAlign::Left, VAlign::Top);
+        // a box filled and edged as the style has them, or plain with a thin white edge
+        match ctx.style {
+            Some(st) => {
+                ctx.paint(b, &st.series, fill);
+                if let Some(l) = st.series_line {
+                    let edge = ctx.shade(&l.color, fill);
+                    ctx.out.push(Prim::Rect { x: b.x, y: b.y, w: b.w, h: b.h, fill: None, stroke: Some((edge, l.width)), radius: 0.0 });
+                }
+            }
+            None => ctx.rect(b.x, b.y, b.w, b.h, fill, Some((WHITE, 0.75))),
+        }
+        // its labels, the name over the value, at the bottom left or in the middle
+        if chart.data_labels && b.w > 24.0 && b.h > LABEL_SIZE * 1.6 {
+            let lt = chart.elements.label_text;
+            let v = items.iter().find(|x| x.0 == j).map(|x| x.1).unwrap_or(0.0);
+            let lines: Vec<String> = [(lt.category, cat_label(data, j)), (lt.value, f.format(v, None)), (lt.series, s.name.clone())]
+                .into_iter()
+                .filter(|(on, _)| *on)
+                .map(|(_, t)| ctx.fit(&t, LABEL_SIZE, b.w - 8.0))
+                .collect();
+            let lh = LABEL_SIZE * 1.4;
+            let fits = (lines.len() as f32 * lh) < b.h - 4.0;
+            for (k, t) in lines.iter().enumerate().filter(|_| fits) {
+                if chart.elements.label_pos == LabelPos::Center {
+                    let top = b.cy() - lh * (lines.len() as f32 - 1.0) / 2.0;
+                    ctx.label(b.cx(), top + lh * k as f32, t, on(fill), fill, HAlign::Center, VAlign::Middle);
+                } else {
+                    let top = b.bottom() - 4.0 - lh * lines.len() as f32;
+                    ctx.label(b.x + 4.0, top + lh * k as f32, t, on(fill), fill, HAlign::Left, VAlign::Top);
+                }
             }
         }
     }
@@ -3219,57 +3438,109 @@ fn radar(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
 
 // ---------------------------------------------------------------- box & whisker
 
-fn quantile(sorted: &[f64], q: f64) -> f64 {
-    let n = sorted.len();
+/// A quartile of sorted `v` as the reference's box charts take it by default (exclusive of the
+/// median: the point `p × (n + 1)` along, kept within the values).
+fn quartile_exc(v: &[f64], p: f64) -> f64 {
+    let n = v.len();
     if n == 0 {
         return 0.0;
     }
-    let pos = q * (n - 1) as f64;
-    let i = pos.floor() as usize;
-    let frac = pos - i as f64;
-    let a = sorted.get(i).copied().unwrap_or(0.0);
-    let b = sorted.get(i + 1).copied().unwrap_or(a);
-    a + (b - a) * frac
+    let at = (p * (n + 1) as f64).clamp(1.0, n as f64);
+    let lo = (at.floor() as usize).clamp(1, n);
+    let hi = (lo + 1).min(n);
+    let (a, b) = (v.get(lo - 1).copied().unwrap_or(0.0), v.get(hi - 1).copied().unwrap_or(0.0));
+    a + (b - a) * (at - at.floor())
 }
 
+/// Box and whisker: the points of each category (in the order they first come) as a box per
+/// series, side by side: quartiles, median, mean, whiskers to the furthest points within one
+/// and a half box lengths, the points beyond as outliers.
 fn box_whisker(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
-    let labels: Vec<String> = data.series.iter().map(|s| s.name.clone()).collect();
-    let Some((lo, hi)) = value_range(data.series.iter().flat_map(|s| s.values.iter().flatten().copied())) else { return };
-    let ys = nice_scale(lo, hi, false);
+    let npts = data.series.iter().map(|s| s.values.len()).max().unwrap_or(0).min(MAX_POINTS);
+    if npts == 0 {
+        return;
+    }
+    // the groups: one per category, or a single one without categories
+    let has_cats = chart.series.first().is_some_and(|s| s.categories.is_some());
+    let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
+    for j in 0..npts {
+        let label = if has_cats { cat_label(data, j) } else { String::new() };
+        if let Some(g) = groups.iter_mut().find(|g| g.0 == label) {
+            g.1.push(j);
+        } else if groups.len() < MAX_CATS {
+            groups.push((label, vec![j]));
+        }
+    }
+    let Some((lo, hi)) = value_range(data.series.iter().flat_map(|s| s.values.iter().take(npts).flatten().copied())) else { return };
+    let room = value_room(area.h - LABEL_SIZE * 1.4 * 1.5 - 1.0 - CAT_LABEL_GAP);
+    let ys = nice_scale_ten(lo, hi, false, room.floor());
     let f = Fmt::new(data.series.first().map(|s| s.number_format.as_str()).unwrap_or("General"));
+    let labels: Vec<String> = groups.iter().map(|g| g.0.clone()).collect();
     let plot = frame(ctx, area, CatAxis::Labels(&labels), &ValAxis { scale: ys, fmt: &f }, None, false, Grid::of(chart));
     if !plot.ok() {
         return;
     }
-    let n = data.series.len().max(1);
-    let cw = plot.w / n as f32;
-    let bw = (cw * 0.4).min(80.0);
     let vy = |v: f64| plot.bottom() - ys.frac(v) * plot.h;
-    for (i, s) in data.series.iter().enumerate() {
-        let mut v: Vec<f64> = s.values.iter().flatten().copied().collect();
-        if v.is_empty() {
-            continue;
+    let nser = data.series.len().clamp(1, MAX_SERIES);
+    let cw = plot.w / groups.len().max(1) as f32;
+    // a category's boxes take its width less the gap (a share of their width: one and a half
+    // unless the style or layout says), each box nearly its series' share
+    let gap = f32::from(chart.elements.gap_width.unwrap_or(150).min(500)) / 100.0;
+    let sw = cw / (1.0 + gap) / nser as f32;
+    let bw = sw * 0.92;
+    for (i, s) in data.series.iter().take(MAX_SERIES).enumerate() {
+        // the box's edge, whiskers and marks: the style's line colour, or the series'
+        let line = match ctx.style.and_then(|st| st.series_line) {
+            Some(l) => ctx.shade(&l.color, s.color),
+            None => s.color,
+        };
+        let mark = if ctx.style.is_some() { line } else { WHITE };
+        let mut means = Vec::with_capacity(groups.len());
+        for (g, (_, pts)) in groups.iter().enumerate() {
+            let mut v: Vec<f64> = pts.iter().filter_map(|j| s.values.get(*j).copied().flatten()).collect();
+            if v.is_empty() {
+                means.push(None);
+                continue;
+            }
+            v.sort_by(f64::total_cmp);
+            let (q1, med, q3) = (quartile_exc(&v, 0.25), quartile_exc(&v, 0.5), quartile_exc(&v, 0.75));
+            let iqr = q3 - q1;
+            let (flo, fhi) = (q1 - 1.5 * iqr, q3 + 1.5 * iqr);
+            let wlo = v.iter().copied().find(|x| *x >= flo).unwrap_or(q1);
+            let whi = v.iter().rev().copied().find(|x| *x <= fhi).unwrap_or(q3);
+            let mean = v.iter().sum::<f64>() / v.len() as f64;
+            let c = plot.x + g as f32 * cw + (cw - sw * nser as f32) / 2.0 + (i as f32 + 0.5) * sw;
+            let cap = bw * 0.3;
+            ctx.vline(c, vy(whi), vy(q3.max(whi.min(q3))), line, 0.75);
+            ctx.vline(c, vy(q1), vy(wlo), line, 0.75);
+            ctx.hline(c - cap / 2.0, c + cap / 2.0, vy(whi), line, 0.75);
+            ctx.hline(c - cap / 2.0, c + cap / 2.0, vy(wlo), line, 0.75);
+            let (yt, yb) = (vy(q3), vy(q1));
+            if ctx.style.is_some() {
+                ctx.column(c - bw / 2.0, yt, bw, (yb - yt).max(0.5), s.color);
+            } else {
+                ctx.rect(c - bw / 2.0, yt, bw, (yb - yt).max(0.5), s.color, None);
+            }
+            ctx.hline(c - bw / 2.0, c + bw / 2.0, vy(med), mark, 0.75);
+            if !chart.elements.box_no_mean_marker {
+                let (my, d) = (vy(mean), (bw * 0.12).clamp(1.5, 3.5));
+                ctx.line(vec![[c - d, my - d], [c + d, my + d]], mark, 1.0);
+                ctx.line(vec![[c - d, my + d], [c + d, my - d]], mark, 1.0);
+            }
+            for o in v.iter().filter(|x| **x < flo || **x > fhi).take(MAX_MARKERS) {
+                ctx.out.push(Prim::Circle { cx: c, cy: vy(*o), r: 2.5, fill: None, stroke: Some((line, 0.75)) });
+            }
+            // the figures beside the box: whiskers' ends, quartiles, median and mean
+            if chart.data_labels {
+                for v in [whi, q3, med, q1, wlo, mean] {
+                    ctx.label(c + bw / 2.0 + 3.0, vy(v), &f.format(v, None), TEXT, s.color, HAlign::Left, VAlign::Middle);
+                }
+            }
+            means.push(Some([c, vy(mean)]));
         }
-        v.sort_by(f64::total_cmp);
-        let (q1, med, q3) = (quantile(&v, 0.25), quantile(&v, 0.5), quantile(&v, 0.75));
-        let iqr = q3 - q1;
-        let (flo, fhi) = (q1 - 1.5 * iqr, q3 + 1.5 * iqr);
-        let wlo = v.iter().copied().find(|x| *x >= flo).unwrap_or(q1);
-        let whi = v.iter().rev().copied().find(|x| *x <= fhi).unwrap_or(q3);
-        let mean = v.iter().sum::<f64>() / v.len() as f64;
-        let c = plot.x + (i as f32 + 0.5) * cw;
-        ctx.vline(c, vy(whi), vy(q3), s.color, 1.25);
-        ctx.vline(c, vy(q1), vy(wlo), s.color, 1.25);
-        ctx.hline(c - bw / 4.0, c + bw / 4.0, vy(whi), s.color, 1.25);
-        ctx.hline(c - bw / 4.0, c + bw / 4.0, vy(wlo), s.color, 1.25);
-        let (yt, yb) = (vy(q3), vy(q1));
-        ctx.rect(c - bw / 2.0, yt, bw, (yb - yt).max(0.5), s.color, None);
-        ctx.hline(c - bw / 2.0, c + bw / 2.0, vy(med), WHITE, 1.5);
-        let (mx, my, d) = (c, vy(mean), 3.0);
-        ctx.line(vec![[mx - d, my - d], [mx + d, my + d]], WHITE, 1.25);
-        ctx.line(vec![[mx - d, my + d], [mx + d, my - d]], WHITE, 1.25);
-        for o in v.iter().filter(|x| **x < flo || **x > fhi).take(MAX_MARKERS) {
-            ctx.out.push(Prim::Circle { cx: c, cy: vy(*o), r: 2.5, fill: None, stroke: Some((s.color, 1.0)) });
+        // the means joined across the categories
+        if chart.elements.box_mean_line {
+            draw_runs(ctx, &means, line, 0.75, None);
         }
     }
 }
@@ -3283,7 +3554,8 @@ fn stock(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
     }
     let labels: Vec<String> = (0..ncat).map(|j| cat_label(data, j)).collect();
     let Some((lo, hi)) = value_range(data.series.iter().flat_map(|s| s.values.iter().flatten().copied())) else { return };
-    let ys = nice_scale(lo, hi, false);
+    let room = value_room(area.h - LABEL_SIZE * 1.4 * 1.5 - 1.0 - CAT_LABEL_GAP);
+    let ys = nice_scale_within(lo, hi, false, room.floor());
     let f = Fmt::new(data.series.first().map(|s| s.number_format.as_str()).unwrap_or("General"));
     let plot = frame(ctx, area, CatAxis::Labels(&labels), &ValAxis { scale: ys, fmt: &f }, None, false, Grid::of(chart));
     if !plot.ok() {
@@ -3299,28 +3571,47 @@ fn stock(ctx: &mut Ctx, chart: &Chart, data: &ChartData, area: Bx) {
     };
     let get = |s: Option<&SeriesData>, j: usize| s.and_then(|s| s.values.get(j).copied().flatten());
     let cw = plot.w / ncat as f32;
-    let tick = (cw * 0.25).max(1.0);
     let vy = |v: f64| plot.bottom() - ys.frac(v) * plot.h;
+    // the high-low lines as the style draws them
+    let (line, width) = match ctx.style {
+        Some(st) => (ctx.shade(&st.line.color, BLACK), st.line.width),
+        None => (STOCK, 1.25),
+    };
     for j in 0..ncat {
         let c = plot.x + (j as f32 + 0.5) * cw;
-        if let (Some(h), Some(l)) = (get(high, j), get(low, j)) {
-            ctx.vline(c, vy(h), vy(l), STOCK, 1.25);
+        // drop lines from the day's highest price down to the axis
+        if chart.elements.drop_lines
+            && let Some(top) = data.series.iter().filter_map(|s| s.values.get(j).copied().flatten()).reduce(f64::max)
+        {
+            ctx.vline(c, vy(top), plot.bottom(), line, 0.75);
+        }
+        if !chart.elements.no_hi_lo
+            && let (Some(h), Some(l)) = (get(high, j), get(low, j))
+        {
+            ctx.vline(c, vy(h), vy(l), line, width);
         }
         match (get(open, j), get(close, j)) {
+            // open and close: a box white when the price rose, dark when it fell
             (Some(o), Some(cl)) => {
                 let (yo, yc) = (vy(o), vy(cl));
                 let bw = (cw * 0.5).max(1.0);
                 let fill = if cl >= o { WHITE } else { STOCK };
                 ctx.rect(c - bw / 2.0, yo.min(yc), bw, (yo - yc).abs().max(0.75), fill, Some((STOCK, 1.0)));
             }
-            (None, Some(cl)) => {
-                if high.is_some() {
-                    ctx.hline(c, c + tick, vy(cl), STOCK, 1.25);
-                } else {
-                    ctx.out.push(Prim::Circle { cx: c, cy: vy(cl), r: 2.5, fill: Some(STOCK), stroke: None });
-                }
+            // a lone series of closes as dots (with highs and lows the closes go unmarked, as
+            // the reference's series are)
+            (None, Some(cl)) if high.is_none() => {
+                ctx.out.push(Prim::Circle { cx: c, cy: vy(cl), r: 2.5, fill: Some(STOCK), stroke: None });
             }
             _ => {}
+        }
+        // each series' value to the right of its point (on the last day only, for a layout)
+        if chart.data_labels && ncat <= MAX_LABELS && (!chart.elements.last_point_labels || j + 1 == ncat) {
+            for s in data.series.iter().take(4) {
+                if let Some(v) = s.values.get(j).copied().flatten() {
+                    ctx.label(c + 3.0, vy(v), &f.format(v, None), TEXT, s.color, HAlign::Left, VAlign::Middle);
+                }
+            }
         }
     }
 }
